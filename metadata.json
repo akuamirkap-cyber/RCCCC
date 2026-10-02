@@ -1,0 +1,6 @@
+{
+  "name": "RC Drift Circuit - Ebisu & Pro Drift",
+  "description": "Game balap drift 3D & touge rally dengan pilihan File Baru (Update b.zip - Mt. Akina 榛名山) dan File Lama (a.zip - Mt. Haruna Classic)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
