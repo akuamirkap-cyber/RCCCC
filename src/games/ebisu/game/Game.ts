@@ -1466,10 +1466,12 @@ export class Game {
     const p = this.player;
     if (this.engine === 'slip' || this.engine === 'sakura_rc') {
       const vehicles = [p.veh, ...this.ais.map((a) => a.veh)];
-      for (let i = 0; i < vehicles.length; i++) {
-        for (let j = i + 1; j < vehicles.length; j++) {
-          const vn = collideVehicles(vehicles[i], vehicles[j], CFG.collideRadius);
-          if (vn > 1.5 && (i === 0 || j === 0)) this.onHit(vn * 0.6, false);
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < vehicles.length; i++) {
+          for (let j = i + 1; j < vehicles.length; j++) {
+            const vn = collideVehicles(vehicles[i], vehicles[j], CFG.collideRadius);
+            if (pass === 0 && vn > 1.5 && (i === 0 || j === 0)) this.onHit(vn * 0.6, false);
+          }
         }
       }
       this.syncPlayerFromVehicle();

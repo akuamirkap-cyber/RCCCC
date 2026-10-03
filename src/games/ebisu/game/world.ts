@@ -3,6 +3,7 @@ import { buildProCircuit } from './proCircuit';
 import type { LightingRig } from './lighting';
 import { buildProStand, buildStartGantry, buildProForest, makeRoadText } from './proVenue';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
 import { zoneLookup, type DriftZone } from './zones';
 
@@ -853,6 +854,49 @@ class Crowd {
   }
 }
 
+/** Standard 70 cm traffic cone merged into one vertex-coloured geometry (base, body, two bands). */
+function makeTrafficConeGeometry(): THREE.BufferGeometry {
+  const paint = (g: THREE.BufferGeometry, hex: string) => {
+    const c = new THREE.Color(hex);
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      col[i * 3] = c.r;
+      col[i * 3 + 1] = c.g;
+      col[i * 3 + 2] = c.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  };
+  const parts: THREE.BufferGeometry[] = [];
+  const base = new RoundedBoxGeometry(0.42, 0.045, 0.42, 2, 0.015);
+  base.translate(0, 0.0225, 0);
+  parts.push(paint(base, '#141416'));
+  const ORANGE = '#ff6a13';
+  const WHITE = '#f4f4f0';
+  // body sections (bottom → top): orange, white band, orange, white band, orange tip
+  const sections: [number, number, string][] = [
+    [0.045, 0.2, ORANGE],
+    [0.2, 0.3, WHITE],
+    [0.3, 0.42, ORANGE],
+    [0.42, 0.5, WHITE],
+    [0.5, 0.72, ORANGE],
+  ];
+  const rAt = (y: number) => 0.17 - (y - 0.045) * ((0.17 - 0.03) / (0.72 - 0.045));
+  for (const [y0, y1, color] of sections) {
+    const g = new THREE.CylinderGeometry(rAt(y1) + (color === WHITE ? 0.006 : 0), rAt(y0) + (color === WHITE ? 0.006 : 0), y1 - y0, 14, 1, color !== ORANGE || y1 < 0.72);
+    g.translate(0, (y0 + y1) / 2, 0);
+    parts.push(paint(g, color));
+  }
+  // squared top lip
+  const top = new THREE.CylinderGeometry(0.035, 0.035, 0.02, 10);
+  top.translate(0, 0.73, 0);
+  parts.push(paint(top, ORANGE));
+  const merged = mergeGeometries(parts, false)!;
+  parts.forEach((g) => g.dispose());
+  return merged;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Structures                                                         */
 /* ------------------------------------------------------------------ */
@@ -1083,15 +1127,12 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }
   }
   if (coneSpots.length) {
-    const cones = new THREE.InstancedMesh(
-      new THREE.ConeGeometry(0.32, 0.85, 8),
-      new THREE.MeshStandardMaterial({ roughness: 0.6, emissive: '#ffffff', emissiveIntensity: 0.12 }),
-      coneSpots.length,
-    );
+    // accurate traffic cone: black square rubber base, orange tapered body, two white reflective bands
+    const cones = new THREE.InstancedMesh(makeTrafficConeGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 }), coneSpots.length);
     coneSpots.forEach((c, i) => {
-      m4.compose(tmpPos.set(c.x, GROUND_Y + 0.43, c.z), quat.identity(), ONE);
+      quat.setFromAxisAngle(UP, rand() * Math.PI * 2);
+      m4.compose(tmpPos.set(c.x, GROUND_Y, c.z), quat, ONE);
       cones.setMatrixAt(i, m4);
-      cones.setColorAt(i, c.color);
     });
     cones.castShadow = true;
     scene.add(cones);

@@ -181,11 +181,15 @@ export function stepVehicle(s: VehicleState, input: VehicleInput, t: SlipTuning,
     s.z -= sm.rz * over * sg;
     const vn = s.vx * sm.rx + s.vz * sm.rz;
     if (vn * sg > 0) {
-      s.vx -= sm.rx * vn * 1.3;
-      s.vz -= sm.rz * vn * 1.3;
-      s.vx *= 0.6;
-      s.vz *= 0.6;
-      s.angVel *= 0.5;
+      // glancing hits scrape along the barrier and keep most speed; head-on hits scrub hard
+      const spd = Math.max(0.1, Math.hypot(s.vx, s.vz));
+      const incidence = Math.min(1, Math.abs(vn) / spd); // 0 = parallel, 1 = perpendicular
+      s.vx -= sm.rx * vn * 1.12;
+      s.vz -= sm.rz * vn * 1.12;
+      const keep = 1 - 0.55 * incidence;
+      s.vx *= keep;
+      s.vz *= keep;
+      s.angVel *= 0.55;
       if (Math.abs(vn) > 4 && s.hitCooldown <= 0) {
         hit = Math.abs(vn);
         s.hitCooldown = 0.6;
@@ -223,36 +227,122 @@ export function resetVehicleOnTrack(s: VehicleState, track: Track, lane: number,
 }
 
 /* ------------------------------------------------------------------ */
-/*  Car ↔ car collisions (circles, impulse with restitution 0.35)      */
+/*  Car ↔ car collisions — capsule bodies (3 circles), rigid-body       */
+/*  impulses with torque + friction, soft positional correction         */
 /* ------------------------------------------------------------------ */
 
-const RESTITUTION = 0.35;
+const RESTITUTION = 0.18; // soft, car-like bump (no pinball)
+const FRICTION = 0.45; // scrape along the other car's body
+const INERTIA = 1.8; // unit mass, ~4.2 m x 1.95 m box: (L² + W²) / 12
+const BODY_OFFSETS = [-1.25, 0, 1.25]; // circle centres along the car axis
+const SLOP = 0.01; // allowed overlap before pushing apart
+const CORRECT = 0.65; // fraction of the penetration removed per step (keeps it smooth, still never tunnels)
 
-/** Resolves an overlap between two equal-mass vehicles. Returns the closing speed (0 when no bounce). */
-export function collideVehicles(a: VehicleState, b: VehicleState, radius: number, rand: () => number = Math.random): number {
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  const dist = Math.hypot(dx, dz);
-  const minDist = radius * 2;
-  if (dist >= minDist || dist < 1e-4) return 0;
-  const nx = dx / dist;
-  const nz = dz / dist;
-  const overlap = minDist - dist;
-  a.x -= nx * overlap * 0.5;
-  a.z -= nz * overlap * 0.5;
-  b.x += nx * overlap * 0.5;
-  b.z += nz * overlap * 0.5;
-  const vn = (b.vx - a.vx) * nx + (b.vz - a.vz) * nz;
-  if (vn >= 0) return 0;
-  const j = (-(1 + RESTITUTION) * vn) / 2; // 1/mA + 1/mB with unit masses
-  a.vx -= j * nx;
-  a.vz -= j * nz;
-  b.vx += j * nx;
-  b.vz += j * nz;
-  const twist = 0.3 * Math.abs(vn);
-  a.angVel += (rand() - 0.5) * 2 * twist;
-  b.angVel += (rand() - 0.5) * 2 * twist;
-  return Math.abs(vn);
+/** Radius of each body circle for a given overall "collide radius" (keeps the old tuning knob meaningful). */
+const bodyRadius = (radius: number) => Math.max(0.6, radius * 0.85);
+
+/**
+ * Resolves contacts between two equal-mass vehicles modelled as three circles along their axis.
+ * Linear + angular impulses are applied at the contact point (so a nose-to-door hit spins the
+ * victim realistically), tangential friction makes cars scrape instead of sliding frictionlessly,
+ * and overlap is removed softly so the response never looks like a hard teleport.
+ * Returns the largest closing speed (0 when the cars only touched).
+ */
+export function collideVehicles(a: VehicleState, b: VehicleState, radius: number, _rand: () => number = Math.random): number {
+  // broad phase
+  const dx0 = b.x - a.x;
+  const dz0 = b.z - a.z;
+  const reach = 2 * (1.25 + bodyRadius(radius));
+  if (dx0 * dx0 + dz0 * dz0 > reach * reach) return 0;
+
+  const R = bodyRadius(radius);
+  const minDist = R * 2;
+  const afx = Math.sin(a.heading);
+  const afz = Math.cos(a.heading);
+  const bfx = Math.sin(b.heading);
+  const bfz = Math.cos(b.heading);
+  let maxClosing = 0;
+
+  for (let iter = 0; iter < 2; iter++) {
+    for (const da of BODY_OFFSETS) {
+      const ax = a.x + afx * da;
+      const az = a.z + afz * da;
+      for (const db of BODY_OFFSETS) {
+        const bx = b.x + bfx * db;
+        const bz = b.z + bfz * db;
+        const dx = bx - ax;
+        const dz = bz - az;
+        const dist = Math.hypot(dx, dz);
+        if (dist >= minDist || dist < 1e-5) continue;
+        const nx = dx / dist;
+        const nz = dz / dist;
+        const pen = minDist - dist;
+
+        // contact point offsets from each centre of mass
+        const rax = ax + nx * R - a.x;
+        const raz = az + nz * R - a.z;
+        const rbx = bx - nx * R - b.x;
+        const rbz = bz - nz * R - b.z;
+
+        // velocity of the contact points (ω × r in the game's heading convention: vx = ω·rz, vz = −ω·rx)
+        const vax = a.vx + a.angVel * raz;
+        const vaz = a.vz - a.angVel * rax;
+        const vbx = b.vx + b.angVel * rbz;
+        const vbz = b.vz - b.angVel * rbx;
+        const rvx = vbx - vax;
+        const rvz = vbz - vaz;
+        const vn = rvx * nx + rvz * nz;
+
+        // soft positional correction (split equally)
+        const corr = Math.max(0, pen - SLOP) * CORRECT * 0.5;
+        a.x -= nx * corr;
+        a.z -= nz * corr;
+        b.x += nx * corr;
+        b.z += nz * corr;
+
+        if (vn >= 0) continue; // separating
+
+        // normal impulse with rotational effective mass
+        const raCn = raz * nx - rax * nz; // r × n  (2D cross in (z, x) order)
+        const rbCn = rbz * nx - rbx * nz;
+        const kn = 2 + (raCn * raCn) / INERTIA + (rbCn * rbCn) / INERTIA;
+        const jn = (-(1 + RESTITUTION) * vn) / kn;
+        a.vx -= jn * nx;
+        a.vz -= jn * nz;
+        b.vx += jn * nx;
+        b.vz += jn * nz;
+        a.angVel -= (raCn * jn) / INERTIA;
+        b.angVel += (rbCn * jn) / INERTIA;
+
+        // friction impulse along the tangent
+        const tx = -nz;
+        const tz = nx;
+        const vt = rvx * tx + rvz * tz;
+        const raCt = raz * tx - rax * tz;
+        const rbCt = rbz * tx - rbx * tz;
+        const kt = 2 + (raCt * raCt) / INERTIA + (rbCt * rbCt) / INERTIA;
+        let jt = -vt / kt;
+        const maxF = FRICTION * jn;
+        if (jt > maxF) jt = maxF;
+        else if (jt < -maxF) jt = -maxF;
+        a.vx -= jt * tx;
+        a.vz -= jt * tz;
+        b.vx += jt * tx;
+        b.vz += jt * tz;
+        a.angVel -= (raCt * jt) / INERTIA;
+        b.angVel += (rbCt * jt) / INERTIA;
+
+        if (-vn > maxClosing) maxClosing = -vn;
+      }
+    }
+  }
+  // keep spins sane after a big tangle
+  const maxSpin = 4.5;
+  if (a.angVel > maxSpin) a.angVel = maxSpin;
+  else if (a.angVel < -maxSpin) a.angVel = -maxSpin;
+  if (b.angVel > maxSpin) b.angVel = maxSpin;
+  else if (b.angVel < -maxSpin) b.angVel = -maxSpin;
+  return maxClosing;
 }
 
 /* ------------------------------------------------------------------ */
@@ -445,10 +535,13 @@ export function stepVehicleSakura(
     const vn = s.vx * sm.rx + s.vz * sm.rz;
     if (vn * sg > 0) {
       hit = Math.abs(vn);
-      s.vx -= sm.rx * vn * 1.35;
-      s.vz -= sm.rz * vn * 1.35;
-      s.vx *= 0.55;
-      s.vz *= 0.55;
+      const spd = Math.max(0.1, Math.hypot(s.vx, s.vz));
+      const incidence = Math.min(1, Math.abs(vn) / spd);
+      s.vx -= sm.rx * vn * 1.12;
+      s.vz -= sm.rz * vn * 1.12;
+      const keep = 1 - 0.55 * incidence;
+      s.vx *= keep;
+      s.vz *= keep;
       s.velocityAngle = s.speed > 0.5 ? Math.atan2(s.vx, s.vz) : s.heading;
     }
   }
