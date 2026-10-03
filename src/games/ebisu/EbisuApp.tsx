@@ -82,6 +82,7 @@ const initialHud: HudState = {
   zone: null,
   zoneAhead: null,
   cars: [],
+  standings: [],
 };
 
 const isTouchDevice = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
@@ -560,7 +561,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
               }
               onSwitchGame();
             }}
-            className="eb-chip cursor-pointer"
+            className="eb-chip eb-chip--ghost cursor-pointer"
             title="Kembali ke menu pemilihan game"
           >
             <span className="text-sm leading-none">‹</span>
@@ -570,7 +571,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
 
         <button
           onClick={() => setShowBMWAdjust(true)}
-          className="eb-chip eb-chip--accent cursor-pointer"
+          className="eb-chip eb-chip--ghost eb-chip--accent cursor-pointer"
           title="Atur panjang, lebar, tinggi dan letak ketinggian (offset Y) body BMW GLB"
         >
           <span>Body BMW</span>
@@ -578,7 +579,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
 
         <button
           onClick={cycleDisplayMode}
-          className={cn('eb-chip cursor-pointer', mobileUI && 'eb-chip--cyan')}
+          className={cn('eb-chip eb-chip--ghost cursor-pointer', mobileUI && 'eb-chip--cyan')}
           title="Mode tampilan: Auto / PC / Mobile Landscape"
         >
           <span>{displayMode === 'auto' ? (mobileUI ? '📱' : '🖥') : displayMode === 'pc' ? '🖥' : '📱'}</span>

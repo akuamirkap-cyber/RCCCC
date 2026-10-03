@@ -46,6 +46,19 @@ export interface MiniCar {
   player: boolean;
 }
 
+/** One row of the live leaderboard (NFS Underground style). */
+export interface Standing {
+  position: number;
+  name: string;
+  color: string;
+  player: boolean;
+  /** Seconds behind the leader (0 for the leader). */
+  gap: number;
+  finished: boolean;
+}
+
+const RIVAL_NAMES = ['KEIICHI', 'NOBUTERU', 'DAIGO', 'MASATO', 'YOICHI'];
+
 export interface ZoneHud {
   name: string;
   mult: number;
@@ -93,6 +106,7 @@ export interface HudState {
   zone: ZoneHud | null;
   zoneAhead: ZoneAheadHud | null;
   cars: MiniCar[];
+  standings: Standing[];
 }
 
 export interface RaceResult {
@@ -1478,6 +1492,34 @@ export class Game {
 
   // ---------------- Race flow ----------------
 
+  /** Live leaderboard: finished cars first (by finish order), then by track progress. */
+  private computeStandings(): Standing[] {
+    const p = this.player;
+    const entries = [
+      { name: 'YOU', color: hex(CFG.playerColor), player: true, progress: p.progress, speed: p.speed, finished: p.finished, finishOrder: p.finishOrder },
+      ...this.ais.map((a, i) => ({
+        name: RIVAL_NAMES[i % RIVAL_NAMES.length],
+        color: hex(a.color),
+        player: false,
+        progress: a.progress,
+        speed: a.speed,
+        finished: a.finished,
+        finishOrder: a.finishOrder,
+      })),
+    ];
+    entries.sort((a, b) => {
+      if (a.finished && b.finished) return a.finishOrder - b.finishOrder;
+      if (a.finished !== b.finished) return a.finished ? -1 : 1;
+      return b.progress - a.progress;
+    });
+    const leader = entries[0];
+    return entries.map((e, i) => {
+      const gapM = Math.max(0, (leader.progress - e.progress) * this.track.spacing);
+      const v = Math.max(8, Math.abs(e.speed) || 0);
+      return { position: i + 1, name: e.name, color: e.color, player: e.player, gap: e.finished ? 0 : gapM / v, finished: e.finished };
+    });
+  }
+
   private currentPosition(): number {
     const p = this.player;
     let pos = 1;
@@ -1694,6 +1736,7 @@ export class Game {
         ...this.ais.map((a) => ({ x: a.x, z: a.z, color: hex(a.color), player: false })),
         { x: p.x, z: p.z, color: hex(CFG.playerColor), player: true },
       ],
+      standings: this.computeStandings(),
     };
     if (force) this.hudAcc = 0;
     this.cb.onHud(hud);

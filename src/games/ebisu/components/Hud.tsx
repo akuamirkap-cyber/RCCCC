@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { HudState, PopupKind, ZoneHud } from '../game/Game';
+import type { HudState, PopupKind, Standing, ZoneHud } from '../game/Game';
 import { cn } from '../utils/cn';
 import './hud.css';
 
@@ -133,8 +133,8 @@ function Score({ score }: { score: number }) {
   }, [score]);
   return (
     <div className="relative">
-      <div className="eb-label">Score</div>
-      <div key={bump} className={cn('eb-num eb-grad-gold text-3xl sm:text-4xl', bump > 0 && 'anim-punch')}>
+      <div className="eb-label eb-shadow">Score</div>
+      <div key={bump} className={cn('eb-num eb-grad-gold eb-outline text-3xl sm:text-4xl', bump > 0 && 'anim-punch')}>
         {shown.toLocaleString()}
       </div>
       {gains.map((g, i) => (
@@ -188,16 +188,40 @@ function DriftMeter({ view, leaving }: { view: DriftView; leaving: boolean }) {
   );
 }
 
+/** NFS Underground-style live leaderboard: rank · colour bar · name · gap to leader. */
+function Leaderboard({ rows }: { rows: Standing[] }) {
+  if (!rows.length) return null;
+  return (
+    <div className="eb-board">
+      <div className="eb-board__head">
+        <span>Pos</span>
+        <span>Driver</span>
+        <span className="text-right">Gap</span>
+      </div>
+      {rows.map((r) => (
+        <div key={r.name} className={cn('eb-board__row', r.player && 'eb-board__row--me', r.finished && 'eb-board__row--fin')}>
+          <span className="eb-board__pos">{r.position}</span>
+          <span className="eb-board__name">
+            <span className="eb-board__swatch" style={{ background: r.color }} />
+            {r.name}
+          </span>
+          <span className="eb-board__gap">{r.finished ? 'FIN' : r.position === 1 ? 'LEADER' : `+${r.gap.toFixed(2)}`}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Slim zone status strip under the timer. */
 function ZoneStrip({ zone, leaving }: { zone: ZoneHud; leaving: boolean }) {
   const gold = zone.mult >= 3;
   const shown = useRollingNumber(zone.score, 180);
   return (
     <div className={cn('flex flex-col items-center', leaving ? 'anim-pop-out' : 'anim-pop-in')}>
-      <div className="eb-panel flex items-center gap-2.5 px-3 py-1.5">
+      <div className="flex items-center gap-2.5 px-1">
         <span className={cn('eb-mult !text-base !min-w-[2rem]', gold ? 'eb-mult--3' : 'eb-mult--5')}>×{zone.mult}</span>
-        <span className="text-sm font-extrabold uppercase tracking-[0.18em] text-white sm:text-base">{zone.name}</span>
-        <span className="eb-num text-lg text-[#ffd166] sm:text-xl">{shown.toLocaleString()}</span>
+        <span className="eb-outline text-sm font-extrabold uppercase tracking-[0.18em] text-white sm:text-base">{zone.name}</span>
+        <span className="eb-num eb-outline text-lg text-[#ffd166] sm:text-xl">{shown.toLocaleString()}</span>
         <span className="flex text-sm leading-none">
           {[1, 2, 3].map((st) => (
             <span key={`${st}-${zone.stars >= st}`} className={cn(zone.stars >= st ? 'anim-star-pop text-[#ffd166]' : 'text-white/25')}>
@@ -324,60 +348,37 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
 
       {active && (
         <>
-          {/* Top left: position / lap / score (below the PILIH GAME / BODY BMW chips) */}
-          <div className="eb-corner-tl absolute left-3 top-14 sm:left-5 sm:top-16">
-            <div className="eb-panel eb-panel--slant flex items-stretch gap-4 px-4 py-2.5 pr-7">
-              <div className="flex flex-col justify-center">
-                <div className="eb-label">Pos</div>
-                <div className="flex items-baseline gap-0.5">
-                  <span className="eb-num text-5xl sm:text-6xl">{hud.position}</span>
-                  <span className="eb-num text-lg text-white/85">{ordinal(hud.position)}</span>
-                  <span className="ml-1 text-sm font-bold text-white/45">/{hud.totalCars}</span>
-                </div>
-              </div>
-              <div className="w-px self-stretch bg-white/10" />
-              <div className="flex flex-col justify-center gap-1.5">
-                <div>
-                  <div className="eb-label">Lap</div>
-                  <div className="flex items-baseline gap-1">
-                    <span className="eb-num text-2xl sm:text-3xl">{Math.min(hud.lap, hud.totalLaps)}</span>
-                    <span className="text-sm font-bold text-white/45">/{hud.totalLaps}</span>
-                  </div>
-                  <div className="mt-1 flex gap-1">
-                    {Array.from({ length: hud.totalLaps }).map((_, i) => (
-                      <span
-                        key={i}
-                        className={cn('h-1 w-5 rounded-full', i < hud.lap - 1 ? 'bg-[#ffb703]' : i === hud.lap - 1 ? 'bg-white' : 'bg-white/20')}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <Score score={hud.driftScore} />
+          {/* Top left: minimap (below the PILIH GAME / BODY BMW chips), no panel */}
+          {minimap && (
+            <div className="eb-corner-tl absolute left-3 top-14 sm:left-5 sm:top-16">
+              <div className="eb-map">
+                <MiniMap data={minimap} hud={hud} />
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Top center: timer + zone strip */}
-          <div className="eb-corner-tc absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-2 sm:top-4">
-            <div className="eb-panel flex items-center gap-4 px-5 py-1.5">
+          {/* Top center: timer + lap (text only) + zone strip */}
+          <div className="eb-corner-tc absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-1.5 sm:top-4">
+            <div className="flex items-end gap-4">
               <div className="flex flex-col items-center">
-                <span className="eb-label">Time</span>
-                <span className="eb-num text-2xl sm:text-3xl">{formatTime(hud.raceTime)}</span>
+                <span className="eb-label eb-shadow">Time</span>
+                <span className="eb-num eb-outline text-3xl sm:text-4xl">{formatTime(hud.raceTime)}</span>
               </div>
-              <div className="h-7 w-px bg-white/10" />
-              <div className="flex flex-col items-start">
-                <span className="eb-label">Lap</span>
-                <span className="text-base font-bold tabular-nums text-white/90 sm:text-lg">{formatTime(hud.lapTime)}</span>
+              <div className="flex flex-col items-start pb-0.5">
+                <span className="eb-label eb-shadow">Lap {Math.min(hud.lap, hud.totalLaps)}/{hud.totalLaps}</span>
+                <span className="eb-outline text-base font-bold tabular-nums text-white/90 sm:text-lg">{formatTime(hud.lapTime)}</span>
               </div>
               {hud.bestLap !== null && (
-                <>
-                  <div className="h-7 w-px bg-white/10" />
-                  <div className="flex flex-col items-start">
-                    <span className="eb-label text-[#ffd166]/80">Best</span>
-                    <span className="text-base font-bold tabular-nums text-[#ffd166] sm:text-lg">{formatTime(hud.bestLap)}</span>
-                  </div>
-                </>
+                <div className="flex flex-col items-start pb-0.5">
+                  <span className="eb-label eb-shadow text-[#ffd166]/85">Best</span>
+                  <span className="eb-outline text-base font-bold tabular-nums text-[#ffd166] sm:text-lg">{formatTime(hud.bestLap)}</span>
+                </div>
               )}
+            </div>
+            <div className="flex gap-1">
+              {Array.from({ length: hud.totalLaps }).map((_, i) => (
+                <span key={i} className={cn('h-1 w-6 rounded-full shadow', i < hud.lap - 1 ? 'bg-[#ffb703]' : i === hud.lap - 1 ? 'bg-white' : 'bg-white/30')} />
+              ))}
             </div>
             {zone && <ZoneStrip zone={zone.value} leaving={zone.leaving} />}
           </div>
@@ -397,20 +398,16 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
             )}
           </div>
 
-          {/* Top right: minimap + buttons */}
+          {/* Top right: NFS-style leaderboard + buttons */}
           <div className="eb-corner-tr absolute right-3 top-3 flex flex-col items-end gap-2 sm:right-5 sm:top-4">
-            {minimap && (
-              <div className="eb-panel eb-map">
-                <MiniMap data={minimap} hud={hud} />
-              </div>
-            )}
+            <Leaderboard rows={hud.standings} />
             {hud.phase !== 'finished' && (
               <div className="flex gap-1.5">
                 {onCycleEngine && (
                   <button
                     type="button"
                     onClick={onCycleEngine}
-                    className="eb-chip pointer-events-auto cursor-pointer"
+                    className="eb-chip eb-chip--ghost pointer-events-auto cursor-pointer"
                     aria-label="Change engine"
                     title="Ganti Engine Gerakan (Sakura RC / Slip / Classic)"
                   >
@@ -418,13 +415,13 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
                     <span>{hud.engine === 'sakura_rc' ? 'Sakura RC' : hud.engine === 'slip' ? 'Slip' : 'Classic'}</span>
                   </button>
                 )}
-                <button type="button" onClick={onCycleCamera} className="eb-chip eb-chip--icon pointer-events-auto cursor-pointer" aria-label="Change camera" title="Change camera (C)">
+                <button type="button" onClick={onCycleCamera} className="eb-chip eb-chip--ghost eb-chip--icon pointer-events-auto cursor-pointer" aria-label="Change camera" title="Change camera (C)">
                   {CAMERA_ICON[hud.camera]}
                 </button>
-                <button type="button" onClick={onToggleMute} className="eb-chip eb-chip--icon pointer-events-auto cursor-pointer" aria-label={muted ? 'Unmute' : 'Mute'}>
+                <button type="button" onClick={onToggleMute} className="eb-chip eb-chip--ghost eb-chip--icon pointer-events-auto cursor-pointer" aria-label={muted ? 'Unmute' : 'Mute'}>
                   {muted ? '🔇' : '🔊'}
                 </button>
-                <button type="button" onClick={onPause} className="eb-chip eb-chip--icon pointer-events-auto cursor-pointer" aria-label="Pause">
+                <button type="button" onClick={onPause} className="eb-chip eb-chip--ghost eb-chip--icon pointer-events-auto cursor-pointer" aria-label="Pause">
                   <span className="flex gap-[3px]">
                     <span className="block h-3 w-[3px] rounded-sm bg-white" />
                     <span className="block h-3 w-[3px] rounded-sm bg-white" />
@@ -434,21 +431,20 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
             )}
           </div>
 
-          {/* Bottom left: speed */}
+          {/* Bottom left: score + speed (text only) */}
           <div className={cn('eb-corner-bl absolute', mobile ? 'bottom-3 left-[11.5rem]' : 'bottom-4 left-3 sm:bottom-6 sm:left-5')}>
-            <div className="eb-panel eb-panel--slant px-4 py-2.5 pr-8">
-              <div className="flex items-end gap-2">
-                <span className={cn('eb-num text-6xl sm:text-7xl', hud.boosting && 'eb-grad-accent')}>{hud.speed}</span>
-                <div className="mb-1.5 flex flex-col leading-none">
-                  <span className="eb-label">km/h</span>
-                  {hud.engine !== 'classic' && hud.isDrifting && (
-                    <span className="mt-1 text-xs font-extrabold tabular-nums text-[#9eefff]">{hud.slipDeg}° SLIP</span>
-                  )}
-                </div>
+            <Score score={hud.driftScore} />
+            <div className="mt-1 flex items-end gap-2">
+              <span className={cn('eb-num eb-outline text-6xl sm:text-7xl', hud.boosting && 'eb-grad-accent')}>{hud.speed}</span>
+              <div className="mb-1.5 flex flex-col leading-none">
+                <span className="eb-label eb-shadow">km/h</span>
+                {hud.engine !== 'classic' && hud.isDrifting && (
+                  <span className="eb-shadow mt-1 text-xs font-extrabold tabular-nums text-[#9eefff]">{hud.slipDeg}° SLIP</span>
+                )}
               </div>
-              <div className="eb-bar eb-bar--seg mt-2 w-36 sm:w-48">
-                <div className={cn('eb-bar__fill', !hud.boosting && 'eb-bar__fill--cyan')} style={{ width: `${speedPct}%` }} />
-              </div>
+            </div>
+            <div className="eb-bar eb-bar--seg eb-bar--glass mt-1.5 w-36 sm:w-48">
+              <div className={cn('eb-bar__fill', !hud.boosting && 'eb-bar__fill--cyan')} style={{ width: `${speedPct}%` }} />
             </div>
           </div>
 
@@ -471,19 +467,24 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
             onLostPointerCapture={() => onBoost(false)}
             onContextMenu={(e) => e.preventDefault()}
           >
-            <div className={cn('eb-panel eb-panel--slant-l flex flex-col items-end px-4 py-2.5 pl-8', !hud.boosting && hud.boostReady && 'eb-anim-glow')}>
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col items-end">
+              <div className="flex items-baseline gap-1">
+                <span className="eb-num eb-outline text-4xl sm:text-5xl">{hud.position}</span>
+                <span className="eb-num eb-outline text-xl text-white/85">{ordinal(hud.position)}</span>
+                <span className="eb-shadow ml-1 text-sm font-bold text-white/60">/{hud.totalCars}</span>
+              </div>
+              <div className="mt-1 flex items-center gap-2">
                 {!hud.boosting && hud.boostReady && <span className="eb-tag eb-tag--amber eb-anim-blink">{isTouch ? 'Tap' : 'Shift'}</span>}
-                <span className={cn('eb-num text-2xl sm:text-3xl', hud.boosting ? 'eb-grad-accent' : hud.boostReady ? 'text-[#ffd166]' : 'text-white')}>
+                <span className={cn('eb-num eb-outline text-2xl sm:text-3xl', hud.boosting ? 'eb-grad-accent' : hud.boostReady ? 'text-[#ffd166]' : 'text-white')}>
                   {hud.boosting ? 'BOOST' : 'NITRO'}
                 </span>
-                <span className="eb-num text-lg text-white/55">{Math.round(hud.boost * 100)}%</span>
+                <span className="eb-num eb-outline text-lg text-white/70">{Math.round(hud.boost * 100)}%</span>
               </div>
-              <div className={cn('eb-bar eb-bar--seg mt-2 h-2 w-36 sm:w-48', !hud.boosting && !hud.boostReady && hud.boost <= 0 && 'opacity-60')}>
+              <div className={cn('eb-bar eb-bar--seg eb-bar--glass mt-1.5 h-2 w-36 sm:w-48', !hud.boosting && hud.boostReady && 'eb-anim-glow', !hud.boosting && !hud.boostReady && hud.boost <= 0 && 'opacity-60')}>
                 <div className={cn('eb-bar__fill', hud.boosting ? 'eb-bar__fill--stripes' : 'eb-bar__fill--nitro')} style={{ width: `${Math.round(hud.boost * 100)}%` }} />
               </div>
               {!hud.boosting && (
-                <div className="eb-label mt-1.5">
+                <div className="eb-label eb-shadow mt-1">
                   {hud.boostReady ? (isTouch ? 'Tap to fire' : 'Press shift to fire') : isTouch ? 'Drift to charge' : 'Drift to charge · shift to fire'}
                 </div>
               )}
@@ -493,7 +494,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           {/* Zone ahead */}
           {racing && hud.zoneAhead && !hud.isDrifting && !hud.zone && (
             <div className={cn('absolute left-1/2 -translate-x-1/2', mobile ? 'bottom-[6.5rem]' : 'bottom-[8rem] sm:bottom-[9rem]')}>
-              <div className="eb-panel flex items-center gap-2.5 px-3.5 py-1.5 text-sm font-extrabold uppercase tracking-[0.16em]">
+              <div className="eb-outline flex items-center gap-2.5 px-3.5 py-1.5 text-sm font-extrabold uppercase tracking-[0.16em]">
                 <span className="anim-chevrons text-[#b47cff]">»»</span>
                 <span className="text-white">Drift zone</span>
                 <span className={cn('eb-mult !text-sm !min-w-[1.8rem]', hud.zoneAhead.mult >= 3 ? 'eb-mult--3' : 'eb-mult--5')}>×{hud.zoneAhead.mult}</span>
