@@ -1071,8 +1071,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           root.rotation.set(0, heading, 0);
           return;
         }
-        // Aula: pitch mengikuti ramp / sikap melayang (searah heading), + roll saat di udara
-        _groundN.set(pitchSlopeDown * Math.sin(heading), 1, pitchSlopeDown * Math.cos(heading)).normalize();
+        // Aula: pitch mengikuti ramp / sikap melayang, sumbu = arah LINTASAN (bukan heading
+        // mobil) supaya mobil yang sedang drift miring di ramp tetap benar & tidak flip-flip.
+        const fr0 = frameAt(botTrack, t, _scratchFrame);
+        _groundN.set(pitchSlopeDown * Math.sin(fr0.heading), 1, pitchSlopeDown * Math.cos(fr0.heading)).normalize();
         _qYaw.setFromAxisAngle(_upVec, heading);
         _qTilt.setFromUnitVectors(_upVec, _groundN);
         root.quaternion.copy(_qTilt).multiply(_qYaw);
@@ -2422,6 +2424,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       jumpCount: 0,
       visPitchSlope: 0, // sikap root (pitch) yang sedang ditampilkan — ramp / melayang
       visRoll: 0,
+      airAlongSpeed: 0, // laju searah lintasan saat lepas landas (tanda = arah terbang)
       suspRollDeg: 0,
       suspRollVel: 0,
       suspHeave: 0,
@@ -2987,24 +2990,36 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         const proj2 = findClosestSplineT(state.pos);
         const ground = rampGroundAt(proj2.t);
         const groundH = ground.h;
+        // Laju maju searah lintasan (+ maju / - mundur), dipakai untuk vy permukaan & sudut terbang
+        const fwdAlong = Math.cos(wrapAngle(state.velocityAngle - trackAngle));
+        const alongSpeed = currentSpeed * fwdAlong;
         if (!state.airborne) {
           // Kecepatan vertikal yang "dibawa" permukaan (slope x laju maju searah lintasan)
-          const fwdAlong = Math.cos(wrapAngle(state.velocityAngle - trackAngle));
-          const surfVy = ground.slope * currentSpeed * fwdAlong;
+          const surfVy = ground.slope * alongSpeed;
           const predictedY = state.carY + state.carVy * dt - 0.5 * JUMP_GRAVITY * dt * dt;
           if (predictedY > groundH + 0.012 && state.carVy > 0.05) {
             // Permukaan jatuh lebih cepat daripada gravitasi -> lepas landas (lewati puncak kicker)
             state.airborne = true;
             state.airTime = 0;
+            state.airAlongSpeed = alongSpeed;
             state.carVy -= JUMP_GRAVITY * dt;
             state.carY = predictedY;
           } else {
             state.carY = groundH;
             state.carVy = surfVy;
           }
-          playerPitchSlope = -ground.slope * fwdAlong;
-          state.visPitchSlope = playerPitchSlope;
+          // Di ramp: pitch persis mengikuti permukaan (sumbu arah lintasan). Di aspal datar
+          // sesaat setelah mendarat: kembali rata dengan halus (tidak snap).
+          // Clamp: sisi belakang kicker curam (~50°) — bodi mobil (wheelbase) tidak pernah ikut sejauh itu
+          const groundPitch = THREE.MathUtils.clamp(-ground.slope, -0.28, 0.5);
+          if (!state.airborne) {
+            // (frame lepas landas: pertahankan sikap kicker, jangan tarik ke sisi belakang ramp)
+            state.visPitchSlope = ground.ramp
+              ? THREE.MathUtils.damp(state.visPitchSlope, groundPitch, 28, dt)
+              : THREE.MathUtils.damp(state.visPitchSlope, groundPitch, 12, dt);
+          }
           state.visRoll = THREE.MathUtils.damp(state.visRoll, 0, 12, dt);
+          playerPitchSlope = state.visPitchSlope;
         } else {
           state.carVy -= JUMP_GRAVITY * dt;
           state.carY += state.carVy * dt;
@@ -3030,17 +3045,21 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           } else {
             // Sikap di udara: hidung naik saat melesat (sedikit lebih dari sudut lintasan),
             // berputar turun saat jatuh — seperti RC beneran lepas dari kicker.
-            const flightAngle = Math.atan2(state.carVy, Math.max(4, currentSpeed));
-            const targetPitch = -THREE.MathUtils.clamp(flightAngle * 1.45 + 0.06, -0.62, 0.62);
-            state.visPitchSlope = THREE.MathUtils.damp(state.visPitchSlope, targetPitch, 9, dt);
+            // Sudut lintasan terbang relatif arah lintasan (tanda ikut arah terbang: mundur pun benar)
+            const alongAir = Math.abs(state.airAlongSpeed) > 1 ? state.airAlongSpeed : (alongSpeed || 1);
+            const flightAngle = Math.atan2(state.carVy, Math.max(4, Math.abs(alongAir)));
+            // Hidung naik max ~28°, menukik max ~11° (roda depan tidak menembus aspal saat mendarat)
+            const attitude = THREE.MathUtils.clamp(flightAngle * 1.7 + 0.08, -0.2, 0.5);
+            const targetPitch = -attitude * Math.sign(alongAir);
+            state.visPitchSlope = THREE.MathUtils.damp(state.visPitchSlope, targetPitch, 10, dt);
             // Bank/miring ke arah kemudi saat melayang (A/D di udara = gaya)
-            state.visRoll = THREE.MathUtils.damp(state.visRoll, -steerInput * 0.24, 6, dt);
+            state.visRoll = THREE.MathUtils.damp(state.visRoll, -steerInput * 0.2, 5, dt);
             playerPitchSlope = state.visPitchSlope;
           }
         }
         if (!state.airborne && state.landShake > 0.02) {
-          // Sesaat setelah mendarat: hidung mengangguk mengikuti hentakan suspensi
-          playerPitchSlope += -state.suspHeave * 1.4;
+          // Sesaat setelah mendarat: hidung mengangguk sedikit mengikuti hentakan suspensi
+          playerPitchSlope += THREE.MathUtils.clamp(-state.suspHeave * 0.5, -0.05, 0.05);
         }
         state.pos.y = state.carY;
         state.lastGroundH = groundH;
@@ -3647,9 +3666,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
               } else {
                 bState.airY = g.h;
                 bState.airVy = surfVy;
+                bState.visPitchSlope = THREE.MathUtils.damp(
+                  bState.visPitchSlope,
+                  THREE.MathUtils.clamp(-g.slope, -0.28, 0.5),
+                  g.ramp ? 28 : 12,
+                  dt
+                );
               }
-              botPitchSlope = -g.slope;
-              bState.visPitchSlope = botPitchSlope;
+              botPitchSlope = bState.visPitchSlope;
             } else {
               bState.airVy -= JUMP_GRAVITY * dt;
               bState.airY += bState.airVy * dt;
@@ -3659,8 +3683,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
                 bState.airborne = false;
               } else {
                 const flightAngle = Math.atan2(bState.airVy, Math.max(4, bState.speed));
-                const targetPitch = -THREE.MathUtils.clamp(flightAngle * 1.45 + 0.06, -0.62, 0.62);
-                bState.visPitchSlope = THREE.MathUtils.damp(bState.visPitchSlope, targetPitch, 9, dt);
+                const targetPitch = -THREE.MathUtils.clamp(flightAngle * 1.7 + 0.08, -0.2, 0.5);
+                bState.visPitchSlope = THREE.MathUtils.damp(bState.visPitchSlope, targetPitch, 10, dt);
                 botPitchSlope = bState.visPitchSlope;
               }
             }
@@ -4104,9 +4128,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       } else {
         state.landShake = Math.max(0, state.landShake - dt * 2.4);
         const shake = state.landShake > 0 ? Math.sin(now * 0.045) * state.landShake * 0.22 : 0;
+        // Saat air jump kamera hanya ikut 30% ketinggian lompatan supaya mobil terlihat
+        // benar-benar terangkat di layar (bukan lantai yang "turun").
+        const camBaseY = isHarunaMap
+          ? state.pos.y
+          : state.lastGroundH + (state.pos.y - state.lastGroundH) * 0.3;
         const chaseOffset = new THREE.Vector3(
           -Math.sin(state.velocityAngle) * 7.4,
-          3.1 + shake,
+          camBaseY - state.pos.y + 3.1 + shake,
           -Math.cos(state.velocityAngle) * 7.4
         );
         camera.position.lerp(state.pos.clone().add(chaseOffset), dt * 8.5);
@@ -4115,7 +4144,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           .add(
             new THREE.Vector3(
               Math.sin(state.velocityAngle) * 4.0,
-              0.7,
+              0.7 + (camBaseY - state.pos.y) * 0.5,
               Math.cos(state.velocityAngle) * 4.0
             )
           );
