@@ -1057,17 +1057,29 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const _qYaw = new THREE.Quaternion();
     const _qTilt = new THREE.Quaternion();
     /** Orientasi root mobil: yaw heading + ikut kemiringan aspal (pitch/roll) agar roda napak */
-    const orientCarRoot = (root: THREE.Object3D, heading: number, t: number, pitchSlopeDown = 0) => {
+    const _qRoll = new THREE.Quaternion();
+    const _fwdLocal = new THREE.Vector3(0, 0, 1);
+    const orientCarRoot = (
+      root: THREE.Object3D,
+      heading: number,
+      t: number,
+      pitchSlopeDown = 0,
+      rollRad = 0
+    ) => {
       if (!isHarunaMap) {
-        if (Math.abs(pitchSlopeDown) < 1e-4) {
+        if (Math.abs(pitchSlopeDown) < 1e-4 && Math.abs(rollRad) < 1e-4) {
           root.rotation.set(0, heading, 0);
           return;
         }
-        // Aula: pitch mengikuti ramp / sikap melayang, searah heading mobil
+        // Aula: pitch mengikuti ramp / sikap melayang (searah heading), + roll saat di udara
         _groundN.set(pitchSlopeDown * Math.sin(heading), 1, pitchSlopeDown * Math.cos(heading)).normalize();
         _qYaw.setFromAxisAngle(_upVec, heading);
         _qTilt.setFromUnitVectors(_upVec, _groundN);
         root.quaternion.copy(_qTilt).multiply(_qYaw);
+        if (Math.abs(rollRad) >= 1e-4) {
+          _qRoll.setFromAxisAngle(_fwdLocal, rollRad);
+          root.quaternion.multiply(_qRoll);
+        }
         return;
       }
       const fr = frameAt(botTrack, t, _scratchFrame);
@@ -2408,6 +2420,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       lastGroundH: 0,
       landShake: 0,
       jumpCount: 0,
+      visPitchSlope: 0, // sikap root (pitch) yang sedang ditampilkan — ramp / melayang
+      visRoll: 0,
       suspRollDeg: 0,
       suspRollVel: 0,
       suspHeave: 0,
@@ -2465,6 +2479,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         airVy: 0,
         airborne: false,
         lastGroundH: 0,
+        visPitchSlope: 0,
       };
     });
     const aiState = botStates[0];
@@ -2988,6 +3003,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             state.carVy = surfVy;
           }
           playerPitchSlope = -ground.slope * fwdAlong;
+          state.visPitchSlope = playerPitchSlope;
+          state.visRoll = THREE.MathUtils.damp(state.visRoll, 0, 12, dt);
         } else {
           state.carVy -= JUMP_GRAVITY * dt;
           state.carY += state.carVy * dt;
@@ -3011,15 +3028,28 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             );
             rcSound.playCollisionSound(Math.min(0.9, 0.25 + impact * 0.07));
           } else {
-            // Sikap di udara: hidung sedikit naik saat melesat, turun saat jatuh
-            playerPitchSlope = -THREE.MathUtils.clamp(state.carVy / Math.max(6, currentSpeed), -0.35, 0.35) * 0.7;
+            // Sikap di udara: hidung naik saat melesat (sedikit lebih dari sudut lintasan),
+            // berputar turun saat jatuh — seperti RC beneran lepas dari kicker.
+            const flightAngle = Math.atan2(state.carVy, Math.max(4, currentSpeed));
+            const targetPitch = -THREE.MathUtils.clamp(flightAngle * 1.45 + 0.06, -0.62, 0.62);
+            state.visPitchSlope = THREE.MathUtils.damp(state.visPitchSlope, targetPitch, 9, dt);
+            // Bank/miring ke arah kemudi saat melayang (A/D di udara = gaya)
+            state.visRoll = THREE.MathUtils.damp(state.visRoll, -steerInput * 0.24, 6, dt);
+            playerPitchSlope = state.visPitchSlope;
           }
+        }
+        if (!state.airborne && state.landShake > 0.02) {
+          // Sesaat setelah mendarat: hidung mengangguk mengikuti hentakan suspensi
+          playerPitchSlope += -state.suspHeave * 1.4;
         }
         state.pos.y = state.carY;
         state.lastGroundH = groundH;
       }
+      if (!isHarunaMap && jumpRamps.length > 0) {
+        state.visPitchSlope = playerPitchSlope;
+      }
       playerRig.root.position.copy(state.pos);
-      orientCarRoot(playerRig.root, state.heading, playerRoadT, playerPitchSlope);
+      orientCarRoot(playerRig.root, state.heading, playerRoadT, playerPitchSlope, state.visRoll);
 
       const driftDegSigned = THREE.MathUtils.radToDeg(
         wrapAngle(state.heading - state.velocityAngle)
@@ -3619,6 +3649,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
                 bState.airVy = surfVy;
               }
               botPitchSlope = -g.slope;
+              bState.visPitchSlope = botPitchSlope;
             } else {
               bState.airVy -= JUMP_GRAVITY * dt;
               bState.airY += bState.airVy * dt;
@@ -3627,9 +3658,13 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
                 bState.airVy = 0;
                 bState.airborne = false;
               } else {
-                botPitchSlope = -THREE.MathUtils.clamp(bState.airVy / Math.max(6, bState.speed), -0.35, 0.35) * 0.7;
+                const flightAngle = Math.atan2(bState.airVy, Math.max(4, bState.speed));
+                const targetPitch = -THREE.MathUtils.clamp(flightAngle * 1.45 + 0.06, -0.62, 0.62);
+                bState.visPitchSlope = THREE.MathUtils.damp(bState.visPitchSlope, targetPitch, 9, dt);
+                botPitchSlope = bState.visPitchSlope;
               }
             }
+            bState.visPitchSlope = botPitchSlope;
             bState.pos.y = bState.airY;
           }
           bState.rig.root.position.copy(bState.pos);
@@ -3839,12 +3874,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
         // Sinkron ulang semua rig setelah kontak → tidak ada stutter 1 frame.
         playerRig.root.position.copy(state.pos);
-        orientCarRoot(playerRig.root, state.heading, closest.t);
+        orientCarRoot(playerRig.root, state.heading, closest.t, state.visPitchSlope, state.visRoll);
         for (const b of botStates) {
           b.speed = b.brain.speed;
           b.collisionCooldown = Math.max(0, b.collisionCooldown - dt);
           b.rig.root.position.copy(b.pos);
-          orientCarRoot(b.rig.root, b.heading, b.brain.trackT);
+          orientCarRoot(b.rig.root, b.heading, b.brain.trackT, b.visPitchSlope);
         }
 
         // I. Real-Time 6-Car Dynamic Rank Leaderboard Calculation
