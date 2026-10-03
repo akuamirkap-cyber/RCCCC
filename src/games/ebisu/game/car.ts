@@ -147,7 +147,13 @@ function addInterior(parent: THREE.Group, s: { dashY: number; dashZ: number; wid
   return steering;
 }
 
-export function createCar(color: number, style: CarStyle = 'standard'): CarModel {
+export interface CreateCarOptions {
+  /** Keep the GLB's original paint/texture (no tint). Used for the player's car. */
+  nativePaint?: boolean;
+}
+
+export function createCar(color: number, style: CarStyle = 'standard', opts: CreateCarOptions = {}): CarModel {
+  const bodyTint = opts.nativePaint ? undefined : color;
   const group = new THREE.Group();
   const body = new THREE.Group();
   group.add(body);
@@ -176,7 +182,7 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
       rotY: 0,
       offsetY: 0.35,
       offsetZ: 0.0,
-      color,
+      color: bodyTint,
       roughness: 0.28,
       metalness: 0.2,
       mode: 'ebisu',
@@ -204,7 +210,7 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
       rotY: 0,
       offsetY: 0.42,
       offsetZ: 0.0,
-      color,
+      color: bodyTint,
       roughness: 0.28,
       metalness: 0.2,
       mode: 'ebisu',

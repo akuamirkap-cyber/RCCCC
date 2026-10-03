@@ -51,7 +51,7 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
     const r = 90 + rnd() * 220;
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
     const light = rnd() < 0.5;
-    g.addColorStop(0, light ? 'rgba(110,112,118,0.16)' : 'rgba(30,31,36,0.22)');
+    g.addColorStop(0, light ? 'rgba(110,112,118,0.05)' : 'rgba(30,31,36,0.06)');
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(x - r, y - r, r * 2, r * 2);
@@ -80,21 +80,6 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
   for (let i = 0; i < 900; i++) {
     ctx.fillStyle = `rgba(190,190,195,${0.08 + rnd() * 0.18})`;
     ctx.fillRect(rnd() * S, rnd() * S, 1, 1);
-  }
-  // hairline cracks + sealed crack lines (darker)
-  ctx.lineWidth = 1.4;
-  for (let i = 0; i < 14; i++) {
-    let x = rnd() * S;
-    let y = rnd() * S;
-    ctx.strokeStyle = rnd() < 0.5 ? 'rgba(20,20,24,0.55)' : 'rgba(16,16,18,0.8)';
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    for (let k = 0; k < 12; k++) {
-      x += (rnd() - 0.5) * 50;
-      y += (rnd() - 0.5) * 50;
-      ctx.lineTo(x, y);
-    }
-    ctx.stroke();
   }
   const map = new THREE.CanvasTexture(c);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
@@ -391,7 +376,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
     add(m);
   }
 
-  /* ---------- run-off: clean grass + crisp tarmac apron / gravel trap on the outside of each zone ---------- */
+  /* ---------- run-off: clean uniform grass (no gravel / apron strips) ---------- */
   const grassMat = new THREE.MeshStandardMaterial({ color: '#5da84f', roughness: 1, side: THREE.DoubleSide });
   for (const side of [1, -1] as const) {
     const g = buildColumnsStrip(track, 2, () => [
@@ -402,32 +387,6 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
     m.receiveShadow = true;
     add(m);
   }
-  const apronMat = new THREE.MeshStandardMaterial({ color: '#63666d', roughness: 0.9, side: THREE.DoubleSide });
-  const gravelMat = new THREE.MeshStandardMaterial({ color: '#d8ccb0', roughness: 1, side: THREE.DoubleSide });
-  const borderMat = new THREE.MeshStandardMaterial({ color: '#b9bbc0', roughness: 0.8, side: THREE.DoubleSide });
-  const flatCols = (a: number, b: number, y: number) => () => [
-    { off: a, y },
-    { off: b, y },
-  ];
-  for (const z of zones) {
-    const side = -z.dir; // outside of the corner
-    const edge = (HALF_WIDTH + CURB_WIDTH) * side;
-    // tarmac apron: from well before the braking point to the exit
-    const apronStart = (z.start - 18 + n) % n;
-    const apronLen = Math.min(n - 1, z.len + 26);
-    const apron = new THREE.Mesh(buildColumnsStrip(track, 2, flatCols(edge, edge + 2.4 * side, 0.004), 1, { start: apronStart, len: apronLen }), apronMat);
-    apron.receiveShadow = true;
-    add(apron);
-    // gravel trap with a light concrete border, only through the corner itself
-    const trapStart = (z.start + 2) % n;
-    const trapLen = Math.max(6, z.len + 6);
-    const border = new THREE.Mesh(buildColumnsStrip(track, 2, flatCols(edge + 2.4 * side, edge + 2.7 * side, 0.004), 1, { start: trapStart, len: trapLen }), borderMat);
-    add(border);
-    const trap = new THREE.Mesh(buildColumnsStrip(track, 2, flatCols(edge + 2.7 * side, (WALL_DIST - 0.6) * side, 0.004), 1, { start: trapStart, len: trapLen }), gravelMat);
-    trap.receiveShadow = true;
-    add(trap);
-  }
-
   /* ---------- start / finish: grid boxes + pole marker ---------- */
   const gridTex = makeGridBoxTexture();
   const gridMat = new THREE.MeshBasicMaterial({ map: gridTex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });

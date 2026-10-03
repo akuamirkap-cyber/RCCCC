@@ -312,7 +312,7 @@ export class Game {
     this.scene.add(this.skid.mesh);
     this.scene.add(this.smoke.group);
 
-    this.playerModel = createCar(CFG.playerColor, this.prefs.carStyle);
+    this.playerModel = createCar(CFG.playerColor, this.prefs.carStyle, { nativePaint: true });
     this.scene.add(this.playerModel.group);
     this.smoke.setTuning(this.prefs.smoke);
     CFG.aiColors.forEach((color) => {
@@ -489,7 +489,7 @@ export class Game {
     this.prefs.carStyle = style;
     const p = this.player;
     disposeCar(this.playerModel);
-    this.playerModel = createCar(CFG.playerColor, style);
+    this.playerModel = createCar(CFG.playerColor, style, { nativePaint: true });
     this.playerModel.group.position.set(p.x, 0, p.z);
     this.playerModel.group.rotation.y = p.angle;
     this.scene.add(this.playerModel.group);
