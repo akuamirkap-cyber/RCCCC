@@ -25,6 +25,7 @@ import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 import { createBMWCarMesh } from '@/utils/bmwCar';
 import { ENEMY_BOTS_DATA } from '../data/circuitsAndCars';
 import {
+  applyBotImpulse,
   BotBrainState,
   BotNeighbor,
   BotPersonality,
@@ -34,6 +35,7 @@ import {
   buildBotTrack,
   carSpheres,
   CarSphere,
+  contactInflate,
   ContactResult,
   createBotBrain,
   deepestSphereContact,
@@ -2253,6 +2255,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       kickSpinSink: (dw: number) => {
         b.brain.kickSpin += dw;
       },
+      // Komponen searah laju benar-benar mengurangi speed AI (mobil tertahan),
+      // komponen samping masuk kanal kick yang meluruh halus.
+      onImpulse: (dvx: number, dvz: number) => applyBotImpulse(b.brain, dvx, dvz),
     }));
     const PLAYER_CONTACT_OPTS = { smoothTau: 0.07, maxDvPerFrame: 0.95, maxSepSpeed: 2.8, friction: 0.3, restitution: 0.28 };
     const BOT_CONTACT_OPTS = { smoothTau: 0.08, maxDvPerFrame: 0.8, maxSepSpeed: 2.4, friction: 0.34, restitution: 0.22 };
@@ -3085,7 +3090,6 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         // Semua keputusan mengemudi ada di utils/botAi.ts (murni & teruji offline);
         // di sini hanya: siapkan input → jalankan otak → render → kontak fisik.
         // ------------------------------------------------------------------
-        const playerSpheres = carSpheres(state.pos.x, state.pos.z, state.heading, playerSphereBuf);
         const timeSec = now * 0.001;
 
         // Update each of the 5 autonomous enemy bots
@@ -3251,19 +3255,37 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
               }
             }
           }
+        });
 
-          // I. KONTAK FISIK PLAYER <-> BOT — tabrakan tetap terjadi, tapi responnya
-          //    spring-damper + rate-limited: momentum dipindah bertahap beberapa
-          //    frame, jadi tidak ada sentakan kaku / mobil "melompat".
-          bState.collisionCooldown = Math.max(0, bState.collisionCooldown - dt);
-          const bSpheres = carSpheres(bState.pos.x, bState.pos.z, bState.heading, sphereBuffers[bIdx]);
-          const contact = deepestSphereContact(playerSpheres, bSpheres, contactBuf);
-          if (contact) {
-            playerBody.heading = state.heading;
-            botBodies[bIdx].heading = bState.heading;
+        // ------------------------------------------------------------------
+        // KONTAK FISIK — dijalankan SETELAH semua mobil (pemain + 5 bot) bergerak
+        // di frame ini, dengan 2 iterasi solver supaya tumpukan 3 mobil pun
+        // terselesaikan. Komponen kecepatan saling-mendekat selalu dihabiskan
+        // (anti-tembus); hanya pantulan/pegasnya yang dihaluskan.
+        // ------------------------------------------------------------------
+        const playerSph = carSpheres(state.pos.x, state.pos.z, state.heading, playerSphereBuf);
+        for (let iter = 0; iter < 2; iter++) {
+          for (let bi = 0; bi < botStates.length; bi++) {
+            const b = botStates[bi];
+            carSpheres(b.pos.x, b.pos.z, b.heading, sphereBuffers[bi]);
+            botBodies[bi].heading = b.heading;
+          }
+          playerBody.heading = state.heading;
+
+          // Player <-> Bot
+          for (let bi = 0; bi < botStates.length; bi++) {
+            const bState = botStates[bi];
+            const brain = bState.brain;
+            const contact = deepestSphereContact(
+              playerSph,
+              sphereBuffers[bi],
+              contactBuf,
+              contactInflate(state.vel, bState.vel, dt)
+            );
+            if (!contact) continue;
             const res = resolveSoftContact(
               playerBody,
-              botBodies[bIdx],
+              botBodies[bi],
               contact.nx,
               contact.nz,
               contact.penetration,
@@ -3271,38 +3293,28 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
               PLAYER_CONTACT_OPTS,
               contactResult
             );
+            carSpheres(state.pos.x, state.pos.z, state.heading, playerSphereBuf);
+            carSpheres(bState.pos.x, bState.pos.z, bState.heading, sphereBuffers[bi]);
 
-            // Arah gerak pemain mengikuti kontak secara halus (bukan snap instan).
+            // Arah & laju pemain mengikuti hasil kontak (impuls sudah dihaluskan
+            // di solver, jadi tidak perlu lerp tambahan yang bikin tembus).
             const newPlayerSpd = state.vel.length();
             if (newPlayerSpd > 0.3) {
-              const desiredVA = Math.atan2(state.vel.x, state.vel.z);
-              const blend = 1 - Math.exp(-dt * 14);
-              state.velocityAngle = wrapAngle(
-                state.velocityAngle + wrapAngle(desiredVA - state.velocityAngle) * blend
-              );
-              currentSpeed = Math.min(maxSpeed * 1.15, newPlayerSpd);
+              state.velocityAngle = Math.atan2(state.vel.x, state.vel.z);
             }
+            currentSpeed = Math.min(maxSpeed * 1.15, newPlayerSpd);
 
-            // Bot "mengingat" sisi kontak lalu membuka ruang → tidak nabrak berulang.
             brain.contactTimer = 0.6;
             brain.contactSide =
               Math.sign(-contact.nx * Math.cos(bState.heading) + contact.nz * Math.sin(bState.heading)) || 1;
 
-            // Zero-lag visual sync supaya kontak tampil di frame yang sama.
-            playerRig.root.position.copy(state.pos);
-            playerRig.root.rotation.y = state.heading;
-            bState.rig.root.position.copy(bState.pos);
-            bState.rig.root.rotation.y = bState.heading;
-
-            if (res.impulse > 0.02) {
+            if (iter === 0 && res.impulse > 0.02) {
               contactPoint.set(contact.cx, state.pos.y + 0.42, contact.cz);
-              spawnCollisionSparks(contactPoint, res.impulse > 0.3 ? 6 : 3);
+              spawnCollisionSparks(contactPoint, res.closingSpeed > 4 ? 6 : 3);
             }
-
-            if (bState.collisionCooldown <= 0 && res.impulse > 0.04) {
+            if (iter === 0 && bState.collisionCooldown <= 0 && res.closingSpeed > 0.6) {
               bState.collisionCooldown = 0.28;
               rcSound.playCollisionSound(Math.min(1, res.closingSpeed / 7));
-
               if (res.closingSpeed < 4.5 && driftDegAbs > 12) {
                 state.comboPoints += 200;
                 triggerCallout(
@@ -3320,46 +3332,55 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             }
           }
 
-          // J. KONTAK FISIK BOT <-> BOT — solver lembut yang sama (saling gesek,
-          //    tidak menempel, tidak saling melempar).
-          for (let j = bIdx + 1; j < botStates.length; j++) {
-            const other = botStates[j];
-            const otherSpheres = carSpheres(other.pos.x, other.pos.z, other.heading, sphereBuffers[j]);
-            const bc = deepestSphereContact(bSpheres, otherSpheres, contactBufB);
-            if (!bc) continue;
-            botBodies[bIdx].heading = bState.heading;
-            botBodies[j].heading = other.heading;
-            const bRes = resolveSoftContact(
-              botBodies[bIdx],
-              botBodies[j],
-              bc.nx,
-              bc.nz,
-              bc.penetration,
-              dt,
-              BOT_CONTACT_OPTS,
-              contactResultB
-            );
+          // Bot <-> Bot
+          for (let bi = 0; bi < botStates.length; bi++) {
+            const bState = botStates[bi];
+            for (let j = bi + 1; j < botStates.length; j++) {
+              const other = botStates[j];
+              const bc = deepestSphereContact(
+                sphereBuffers[bi],
+                sphereBuffers[j],
+                contactBufB,
+                contactInflate(bState.vel, other.vel, dt)
+              );
+              if (!bc) continue;
+              const bRes = resolveSoftContact(
+                botBodies[bi],
+                botBodies[j],
+                bc.nx,
+                bc.nz,
+                bc.penetration,
+                dt,
+                BOT_CONTACT_OPTS,
+                contactResultB
+              );
+              carSpheres(bState.pos.x, bState.pos.z, bState.heading, sphereBuffers[bi]);
+              carSpheres(other.pos.x, other.pos.z, other.heading, sphereBuffers[j]);
 
-            // Keduanya saling memberi ruang sebentar supaya battle tetap mengalir.
-            brain.contactTimer = Math.max(brain.contactTimer, 0.45);
-            brain.contactSide =
-              Math.sign(-bc.nx * Math.cos(bState.heading) + bc.nz * Math.sin(bState.heading)) || 1;
-            other.brain.contactTimer = Math.max(other.brain.contactTimer, 0.45);
-            other.brain.contactSide =
-              Math.sign(bc.nx * Math.cos(other.heading) - bc.nz * Math.sin(other.heading)) || 1;
+              bState.brain.contactTimer = Math.max(bState.brain.contactTimer, 0.45);
+              bState.brain.contactSide =
+                Math.sign(-bc.nx * Math.cos(bState.heading) + bc.nz * Math.sin(bState.heading)) || 1;
+              other.brain.contactTimer = Math.max(other.brain.contactTimer, 0.45);
+              other.brain.contactSide =
+                Math.sign(bc.nx * Math.cos(other.heading) - bc.nz * Math.sin(other.heading)) || 1;
 
-            if (bRes.impulse > 0.12 && (frameCounter + bIdx) % 3 === 0) {
-              contactPoint.set(bc.cx, bState.pos.y + 0.42, bc.cz);
-              spawnCollisionSparks(contactPoint, 3);
+              if (iter === 0 && bRes.closingSpeed > 1.5 && (frameCounter + bi) % 3 === 0) {
+                contactPoint.set(bc.cx, bState.pos.y + 0.42, bc.cz);
+                spawnCollisionSparks(contactPoint, 3);
+              }
             }
-
-            // Sinkron rig seketika supaya tidak ada stutter 1 frame.
-            bState.rig.root.position.copy(bState.pos);
-            bState.rig.root.rotation.y = bState.heading;
-            other.rig.root.position.copy(other.pos);
-            other.rig.root.rotation.y = other.heading;
           }
-        });
+        }
+
+        // Sinkron ulang semua rig setelah kontak → tidak ada stutter 1 frame.
+        playerRig.root.position.copy(state.pos);
+        playerRig.root.rotation.y = state.heading;
+        for (const b of botStates) {
+          b.speed = b.brain.speed;
+          b.collisionCooldown = Math.max(0, b.collisionCooldown - dt);
+          b.rig.root.position.copy(b.pos);
+          b.rig.root.rotation.y = b.heading;
+        }
 
         // I. Real-Time 6-Car Dynamic Rank Leaderboard Calculation
         const playerTotalProgress = (state.lapCount - 1) + closest.t;

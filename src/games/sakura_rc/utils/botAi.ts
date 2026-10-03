@@ -941,6 +941,12 @@ export interface ContactBody {
   /** Kanal dorongan yang meluruh (bot) — pemain memakai vel langsung. */
   kick: THREE.Vector3 | null;
   kickSpinSink?: (dw: number) => void;
+  /**
+   * Opsional: terima perubahan kecepatan (m/s) sendiri. Dipakai bot supaya
+   * komponen searah laju mengurangi `speed` skalar AI (mobil benar-benar
+   * tertahan), bukan hanya ditumpuk di kanal kick yang meluruh.
+   */
+  onImpulse?: (dvx: number, dvz: number) => void;
 }
 
 export interface ContactOptions {
@@ -1010,9 +1016,13 @@ export function resolveSoftContact(
   const jDesired = jRest * 0.65 + jSpring;
 
   // Rate-limit: inilah kunci "tidak kaku".
-  const jMax = opts.maxDvPerFrame / invSum;
+  // ANTI-TEMBUS: komponen kecepatan saling-mendekat SELALU dihabiskan di frame
+  // ini (inelastis, j = closing/invSum) — ini yang mencegah mobil saling
+  // menembus di 35 m/s. Yang dihaluskan hanya BAGIAN pantulan + pegas.
+  const jStop = closing > 0 ? closing / invSum : 0;
   const blend = 1 - Math.exp(-dt / Math.max(0.012, opts.smoothTau));
-  const j = clamp(jDesired * blend, 0, jMax);
+  const jSoft = Math.min((jDesired - jStop) * blend, opts.maxDvPerFrame / invSum);
+  const j = Math.max(0, jStop + Math.max(0, jSoft));
 
   if (j > 0) {
     _ct.x = nx * j;
@@ -1039,7 +1049,9 @@ export function resolveSoftContact(
 
   // Pemisahan posisi dengan laju terbatas (tidak ada teleport antar frame).
   if (penetration > 0) {
-    const sep = Math.min(penetration * 0.55, opts.maxSepSpeed * dt);
+    // Pemisahan dibatasi laju supaya halus, tapi overlap tidak pernah dibiarkan
+    // lebih dalam dari ~10 cm (sisa itulah yang terasa "empuk").
+    const sep = Math.max(Math.min(penetration * 0.55, opts.maxSepSpeed * dt), penetration - 0.1);
     a.pos.x -= nx * sep * (a.invMass / invSum);
     a.pos.z -= nz * sep * (a.invMass / invSum);
     b.pos.x += nx * sep * (b.invMass / invSum);
@@ -1055,7 +1067,9 @@ export function resolveSoftContact(
 function applyImpulse(body: ContactBody, jx: number, jz: number) {
   const dvx = jx * body.invMass;
   const dvz = jz * body.invMass;
-  if (body.kick) {
+  if (body.onImpulse) {
+    body.onImpulse(dvx, dvz);
+  } else if (body.kick) {
     body.kick.x += dvx;
     body.kick.z += dvz;
     // Batasi sisa dorongan supaya tidak menumpuk jadi ledakan.
@@ -1068,6 +1082,37 @@ function applyImpulse(body: ContactBody, jx: number, jz: number) {
     body.vel.x += dvx;
     body.vel.z += dvz;
   }
+}
+
+/** Margin deteksi dini untuk sepasang mobil (lihat deepestSphereContact). */
+export function contactInflate(aVel: THREE.Vector3, bVel: THREE.Vector3, dt: number) {
+  const rvx = aVel.x - bVel.x;
+  const rvz = aVel.z - bVel.z;
+  return clamp(Math.hypot(rvx, rvz) * dt * 0.6, 0, 1.2);
+}
+
+/**
+ * Terapkan perubahan kecepatan dari kontak ke otak bot: komponen searah laju
+ * langsung mengubah `speed` skalar (bot melambat / terdorong sungguhan),
+ * komponen menyamping masuk ke kanal `kick` yang meluruh halus.
+ */
+export function applyBotImpulse(s: BotBrainState, dvx: number, dvz: number) {
+  const fx = Math.sin(s.velocityAngle);
+  const fz = Math.cos(s.velocityAngle);
+  const fwd = dvx * fx + dvz * fz;
+  s.speed = Math.max(-4, s.speed + fwd);
+  const lx = dvx - fx * fwd;
+  const lz = dvz - fz * fwd;
+  s.kick.x += lx;
+  s.kick.z += lz;
+  const l = Math.hypot(s.kick.x, s.kick.z);
+  if (l > 9) {
+    s.kick.x = (s.kick.x / l) * 9;
+    s.kick.z = (s.kick.z / l) * 9;
+  }
+  // Sinkronkan vel supaya solver kontak berikutnya di frame yang sama melihat
+  // kecepatan yang sudah berubah.
+  s.vel.set(fx * s.speed + s.kick.x, 0, fz * s.speed + s.kick.z);
 }
 
 /**
@@ -1109,7 +1154,19 @@ export interface SphereContact {
   offsetB: number;
 }
 
-export function deepestSphereContact(aSpheres: CarSphere[], bSpheres: CarSphere[], out: SphereContact): SphereContact | null {
+/**
+ * `inflate` = margin deteksi dini (meter). Isi dengan ~0.6 x jarak relatif
+ * yang ditempuh dalam satu frame (|vA - vB| * dt) supaya tumbukan frontal
+ * berkecepatan tinggi tetap terdeteksi SEBELUM bola-bola saling melewati
+ * (continuous-collision sederhana). Penetrasi yang dilaporkan sudah dikurangi
+ * margin itu (min 0), tapi solver tetap menghabiskan kecepatan mendekat.
+ */
+export function deepestSphereContact(
+  aSpheres: CarSphere[],
+  bSpheres: CarSphere[],
+  out: SphereContact,
+  inflate = 0
+): SphereContact | null {
   let best = -1;
   let result: SphereContact | null = null;
   for (const as of aSpheres) {
@@ -1118,14 +1175,14 @@ export function deepestSphereContact(aSpheres: CarSphere[], bSpheres: CarSphere[
       const dz = bs.z - as.z;
       const dist = Math.hypot(dx, dz);
       const minSep = as.radius + bs.radius;
-      const pen = minSep - dist;
+      const pen = minSep + inflate - dist;
       if (pen > best) {
         best = pen;
         const inv = dist > 1e-4 ? 1 / dist : 0;
         if (!result) result = out;
         out.nx = inv > 0 ? dx * inv : 1;
         out.nz = inv > 0 ? dz * inv : 0;
-        out.penetration = pen;
+        out.penetration = Math.max(0, pen - inflate);
         out.cx = (as.x + bs.x) * 0.5;
         out.cz = (as.z + bs.z) * 0.5;
         out.offsetA = as.offset;

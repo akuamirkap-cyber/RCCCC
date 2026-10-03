@@ -15,6 +15,8 @@ import {
   deepestSphereContact,
   personalityFromSpec,
   resolveSoftContact,
+  applyBotImpulse,
+  contactInflate,
   stepBotAI,
   type BotNeighbor,
   type CarSphere,
@@ -111,7 +113,8 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
   const pNorm = new THREE.Vector3(-pTan.z, 0, pTan.x);
   const playerPos = curve.getPointAt(pT).clone().addScaledVector(pNorm, -2.0);
   const playerHeading = Math.atan2(pTan.x, pTan.z);
-  const playerBody = { pos: playerPos, vel: new THREE.Vector3(), heading: playerHeading, invMass: 0.82, kick: null };
+  // Pemain pasif diparkir di grid = rintangan statis (massa tak hingga).
+  const playerBody = { pos: playerPos, vel: new THREE.Vector3(), heading: playerHeading, invMass: 0, kick: null };
 
   const sphereBufs: CarSphere[][] = bots.map(() => [0, 1, 2].map(() => ({ offset: 0, x: 0, z: 0, radius: 0 })));
   const playerSph: CarSphere[] = [0, 1, 2].map(() => ({ offset: 0, x: 0, z: 0, radius: 0 }));
@@ -126,7 +129,9 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
     kickSpinSink: (dw: number) => {
       b.brain.kickSpin += dw;
     },
+    onImpulse: (dvx: number, dvz: number) => applyBotImpulse(b.brain, dvx, dvz),
   }));
+  let maxOverlap = 0;
 
   let time = 0;
   const steps = Math.round(durationS / dt);
@@ -191,36 +196,46 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
       if (step % 30 === 0) b.m.lateralSamples.push(b.brain.lateral);
     });
 
-    // Kontak
+    // Kontak (2 iterasi, sama seperti di canvas)
+    for (let iter = 0; iter < 2; iter++) {
     carSpheres(playerPos.x, playerPos.z, playerHeading, playerSph);
     bots.forEach((b, i) => {
       bodies[i].heading = b.brain.heading;
       carSpheres(b.brain.pos.x, b.brain.pos.z, b.brain.heading, sphereBufs[i]);
     });
     bots.forEach((b, i) => {
-      const c = deepestSphereContact(playerSph, sphereBufs[i], cbuf);
-      if (c) resolveSoftContact(playerBody, bodies[i], c.nx, c.nz, c.penetration, dt, undefined, cres);
+      const c = deepestSphereContact(playerSph, sphereBufs[i], cbuf, contactInflate(playerBody.vel, b.brain.vel, dt));
+      if (c) {
+        maxOverlap = Math.max(maxOverlap, c.penetration);
+        resolveSoftContact(playerBody, bodies[i], c.nx, c.nz, c.penetration, dt, undefined, cres);
+      }
       for (let j = i + 1; j < bots.length; j++) {
-        const cc = deepestSphereContact(sphereBufs[i], sphereBufs[j], cbuf);
+        const cc = deepestSphereContact(sphereBufs[i], sphereBufs[j], cbuf, contactInflate(b.brain.vel, bots[j].brain.vel, dt));
         if (cc) {
+          maxOverlap = Math.max(maxOverlap, cc.penetration);
           resolveSoftContact(bodies[i], bodies[j], cc.nx, cc.nz, cc.penetration, dt, undefined, cres);
-          if (cres.closingSpeed > 1.5) {
+          if (iter === 0 && cres.closingSpeed > 1.5) {
             b.m.contacts++;
             bots[j].m.contacts++;
           }
         }
       }
     });
+    }
     const cost = performance.now() - t0;
     maxFrameSpike = Math.max(maxFrameSpike, cost);
     stepCosts.push(cost);
   }
 
   console.log(`\n=== ${circuit.name} (width ${circuit.trackWidth}m, length ${track.length.toFixed(0)}m) ===`);
+  let ok = true;
   stepCosts.sort((a, b) => a - b);
   const p99 = stepCosts[Math.floor(stepCosts.length * 0.99)];
-  console.log(`sim step cost (5 bots + kontak): p99=${p99.toFixed(3)} ms, max=${maxFrameSpike.toFixed(2)} ms`);
-  let ok = true;
+  console.log(`sim step cost (5 bots + kontak): p99=${p99.toFixed(3)} ms, max=${maxFrameSpike.toFixed(2)} ms | overlap maks antar mobil: ${(maxOverlap * 100).toFixed(0)} cm`);
+  if (maxOverlap > 0.55) {
+    ok = false;
+    console.log(`   !! mobil saling menembus (overlap ${(maxOverlap * 100).toFixed(0)} cm)`);
+  }
   for (const b of bots) {
     b.m.avgSpeed = b.speedAcc / Math.max(1, b.n);
     const lapStr = b.m.lapTimes.map((x) => x.toFixed(1)).join(' / ');
@@ -269,6 +284,63 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
   return ok;
 }
 
+// Uji tabrakan ekstrem: dua mobil saling berhadapan 35 m/s + T-bone — tidak boleh tembus.
+function crashTest(dt: number) {
+  const mk = (x: number, z: number, heading: number, speed: number) => {
+    const b = createBotBrain(new THREE.Vector3(x, 0, z), heading, 0, 0);
+    b.speed = speed;
+    b.velocityAngle = heading;
+    b.vel.set(Math.sin(heading) * speed, 0, Math.cos(heading) * speed);
+    return b;
+  };
+  const scenarios = [
+    { name: 'head-on 35 vs 35', a: mk(0, 0, 0, 35), b: mk(0, 30, Math.PI, 35) },
+    { name: 'rear-end 35 vs 10', a: mk(0, 0, 0, 35), b: mk(0.3, 12, 0, 10) },
+    { name: 'T-bone 30', a: mk(-20, 10, Math.PI / 2, 30), b: mk(0, 0, 0, 12) },
+  ];
+  let ok = true;
+  for (const sc of scenarios) {
+    const bodies = [sc.a, sc.b].map((br) => ({
+      pos: br.pos,
+      vel: br.vel,
+      heading: br.heading,
+      invMass: 1,
+      kick: br.kick,
+      onImpulse: (dvx: number, dvz: number) => applyBotImpulse(br, dvx, dvz),
+    }));
+    const sA: CarSphere[] = [0, 1, 2].map(() => ({ offset: 0, x: 0, z: 0, radius: 0 }));
+    const sB: CarSphere[] = [0, 1, 2].map(() => ({ offset: 0, x: 0, z: 0, radius: 0 }));
+    let maxPen = 0;
+    let minDist = 99;
+    let maxDv = 0;
+    for (let i = 0; i < Math.round(2.5 / dt); i++) {
+      for (const br of [sc.a, sc.b]) {
+        // integrasi sederhana tanpa AI (mobil "bodoh" terus maju)
+        const decay = Math.exp(-6.5 * dt);
+        br.kick.multiplyScalar(decay);
+        br.vel.set(Math.sin(br.velocityAngle) * br.speed, 0, Math.cos(br.velocityAngle) * br.speed).add(br.kick);
+        br.pos.addScaledVector(br.vel, dt);
+      }
+      carSpheres(sc.a.pos.x, sc.a.pos.z, sc.a.heading, sA);
+      carSpheres(sc.b.pos.x, sc.b.pos.z, sc.b.heading, sB);
+      const c = deepestSphereContact(sA, sB, cbufG, contactInflate(sc.a.vel, sc.b.vel, dt));
+      if (c) {
+        maxPen = Math.max(maxPen, c.penetration);
+        const vBefore = sc.a.vel.length();
+        resolveSoftContact(bodies[0], bodies[1], c.nx, c.nz, c.penetration, dt, undefined, cresG);
+        maxDv = Math.max(maxDv, Math.abs(sc.a.vel.length() - vBefore));
+      }
+      minDist = Math.min(minDist, sc.a.pos.distanceTo(sc.b.pos));
+    }
+    const pass = maxPen < 0.5 && minDist > 1.2;
+    ok = ok && pass;
+    console.log(`crash ${sc.name.padEnd(18)} overlap maks=${(maxPen * 100).toFixed(0)}cm jarak pusat min=${minDist.toFixed(2)}m dv/frame maks=${maxDv.toFixed(2)} m/s ${pass ? 'OK' : '!! TEMBUS'}`);
+  }
+  return ok;
+}
+const cbufG: SphereContact = { nx: 1, nz: 0, penetration: 0, cx: 0, cz: 0, offsetA: 0, offsetB: 0 };
+const cresG: ContactResult = { impulse: 0, closingSpeed: 0, pushSign: 1 };
+
 // Uji juga dengan frame-rate berbeda: hasil harus tetap stabil.
 let allOk = true;
 for (let c = 0; c < RC_CIRCUITS.length; c++) {
@@ -277,6 +349,9 @@ for (let c = 0; c < RC_CIRCUITS.length; c++) {
 }
 console.log('\n--- 30fps stability check (circuit 0) ---');
 allOk = runCircuit(0, 1 / 30, 120) && allOk;
+console.log('\n--- crash / anti-tembus (60fps & 30fps) ---');
+allOk = crashTest(1 / 60) && allOk;
+allOk = crashTest(1 / 30) && allOk;
 
 console.log(allOk ? '\nALL BOT TESTS PASSED' : '\nSOME BOT TESTS FAILED');
 process.exit(allOk ? 0 : 1);
