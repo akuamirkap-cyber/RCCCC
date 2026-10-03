@@ -2309,6 +2309,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       suspPitchVel: 0,
       pitchPrevSpeed: 0,
       pitchAccelSmooth: 0,
+      cornerLockBlend: 0, // 0 = lurusan (boost penuh), 1 = tikungan (kecepatan normal)
       suspRollDeg: 0,
       suspRollVel: 0,
       suspHeave: 0,
@@ -2646,11 +2647,53 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         throttleActive && (turboPressed || state.vel.length() > 14.5);
       state.turboActive = isTurboEngaged;
 
+      const wrapAngle = (a: number) => {
+        while (a > Math.PI) a -= Math.PI * 2;
+        while (a < -Math.PI) a += Math.PI * 2;
+        return a;
+      };
+
+      // --- CORNER SPEED LOCK: mode sedang/2x hanya mempercepat lurusan ---
+      // Faktor tikungan = max(kelengkungan lintasan di depan, input setir, sudut drift).
+      // Saat menikung, batas kecepatan turun mulus ke nilai mode NORMAL.
+      let effectiveSpeedFactor = speedFactor;
+      if (speedFactor > 1.0 && (curTuning.cornerSpeedLock ?? true)) {
+        const trackLen = trackCurve.getLength();
+        let maxCurv = 0;
+        let prevAng = trackAngle;
+        let prevT = closest.t;
+        for (const aheadM of [7, 16, 28]) {
+          const tA = (closest.t + aheadM / trackLen) % 1;
+          const tanA = trackCurve.getTangentAt(tA);
+          const angA = Math.atan2(tanA.x, tanA.z);
+          let dAng = angA - prevAng;
+          while (dAng > Math.PI) dAng -= Math.PI * 2;
+          while (dAng < -Math.PI) dAng += Math.PI * 2;
+          const segM = Math.max(1, ((tA - prevT + 1) % 1) * trackLen);
+          maxCurv = Math.max(maxCurv, Math.abs(dAng) / segM);
+          prevAng = angA;
+          prevT = tA;
+        }
+        const curvFactor = THREE.MathUtils.clamp((maxCurv - 0.012) * 26, 0, 1); // radius < ~20 m = tikungan penuh
+        const steerFactor = Math.min(1, Math.abs(steerInput) * 0.9);
+        const driftFactor =
+          state.vel.length() > 2.5
+            ? Math.min(1, Math.abs(THREE.MathUtils.radToDeg(wrapAngle(state.heading - state.velocityAngle))) / 28)
+            : 0;
+        const cornerTarget = Math.max(curvFactor, steerFactor, driftFactor);
+        // Naik cepat (masuk tikungan), turun lebih pelan (keluar tikungan) agar tidak menyentak
+        const rate = cornerTarget > state.cornerLockBlend ? 6.0 : 2.2;
+        state.cornerLockBlend += (cornerTarget - state.cornerLockBlend) * Math.min(1, dt * rate);
+        effectiveSpeedFactor = 1 + (speedFactor - 1) * (1 - state.cornerLockBlend);
+      } else {
+        state.cornerLockBlend = 0;
+      }
+
       const maxSpeed =
-        22.5 * speedFactor * compoundGrip * rearCamberBite * (isTurboEngaged ? 1.18 : 1.0);
+        22.5 * effectiveSpeedFactor * compoundGrip * rearCamberBite * (isTurboEngaged ? 1.18 : 1.0);
       const accelForce =
         26.0 *
-        speedFactor *
+        effectiveSpeedFactor *
         compoundGrip *
         rearCamberBite *
         squatBiteBoost *
@@ -2660,21 +2703,15 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       let currentSpeed = state.vel.length();
 
       if (throttleActive) {
-        currentSpeed = Math.min(
-          maxSpeed,
-          currentSpeed + accelForce * throttleDrive * dt
-        );
+        currentSpeed =
+          currentSpeed > maxSpeed
+            ? Math.max(maxSpeed, currentSpeed - 24.0 * dt) // batas turun (mis. masuk tikungan) -> melambat mulus
+            : Math.min(maxSpeed, currentSpeed + accelForce * throttleDrive * dt);
       } else if (brakePressed) {
         currentSpeed = Math.max(0, currentSpeed - 32.0 * dt);
       } else {
         currentSpeed = Math.max(0, currentSpeed - 9.5 * dt);
       }
-
-      const wrapAngle = (a: number) => {
-        while (a > Math.PI) a -= Math.PI * 2;
-        while (a < -Math.PI) a += Math.PI * 2;
-        return a;
-      };
 
       const gyroGainNorm = curTuning.gyroGain / 100;
       const maxSteerRad = THREE.MathUtils.degToRad(curTuning.maxSteerAngle);

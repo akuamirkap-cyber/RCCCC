@@ -274,6 +274,19 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                     onChangeTuning({ ...tuning, speedLevel: v as 'normal' | 'sedang' | '2x' })
                   }
                 />
+                {(tuning.speedLevel ?? 'normal') !== 'normal' && (
+                  <Segment
+                    label="BELOK"
+                    options={[
+                      { v: 'normal', label: 'TETAP NORMAL' },
+                      { v: 'fast', label: 'IKUT MODE' },
+                    ]}
+                    value={(tuning.cornerSpeedLock ?? true) ? 'normal' : 'fast'}
+                    onChange={(v) =>
+                      onChangeTuning({ ...tuning, cornerSpeedLock: v === 'normal' })
+                    }
+                  />
+                )}
                 <Segment
                   label="AUTO-GAS"
                   options={[

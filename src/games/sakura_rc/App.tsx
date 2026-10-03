@@ -45,6 +45,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     // Gas harus selalu diberi lewat W / tombol throttle; tidak auto-maju saat idle.
     autoThrottle: false,
     speedLevel: 'normal',
+    cornerSpeedLock: true,
     soundMode: 'rb26_soundbox',
     smokeConfig: DEFAULT_SMOKE_CONFIG,
     suspension: DEFAULT_SUSPENSION_SETUP,
@@ -295,6 +296,9 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         tuning={tuning}
         onToggleAutoThrottle={() =>
           setTuning((prev) => ({ ...prev, autoThrottle: !prev.autoThrottle }))
+        }
+        onToggleCornerLock={(lock) =>
+          setTuning((prev) => ({ ...prev, cornerSpeedLock: lock }))
         }
         onToggleSmokeMode={() =>
           setTuning((prev) => {

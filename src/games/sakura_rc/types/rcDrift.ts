@@ -61,6 +61,8 @@ export interface TuningSetup {
   tireCompound: TireCompound;
   autoThrottle: boolean;    // Assist steering only; throttle still requires W / throttle button
   speedLevel?: SpeedLevel;  // Normal, sedang, atau 2x speed profile
+  /** true (default): di mode sedang/2x hanya lurusan yang lebih cepat — kecepatan belok tetap NORMAL */
+  cornerSpeedLock?: boolean;
   botPace?: BotPace;        // AI rival pace: 'pro' (24.8) vs 'chill' (19.5)
   soundMode?: SoundMode;    // RB26DETT Scale Sound Module vs Silky Sensored Brushless
   smokeConfig?: SmokeConfig;// 5-Stage Drift Smoke Pipeline configuration

@@ -55,6 +55,7 @@ interface TelemetryHUDProps {
   onCycleBodyShellMode: () => void;
   tuning: TuningSetup;
   onToggleAutoThrottle: () => void;
+  onToggleCornerLock?: (lock: boolean) => void;
   onToggleSmokeMode?: () => void;
   telemetry: LiveTelemetry;
   rcCredits: number;
@@ -143,6 +144,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
   onCycleBodyShellMode,
   tuning,
   onToggleAutoThrottle,
+  onToggleCornerLock,
   onToggleSmokeMode,
   telemetry,
   rcCredits,
@@ -292,6 +294,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           <span className="truncate">{circuit.name}</span>
           <span className="hidden sm:inline text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-slate-300 shrink-0">
             {MODE_LABEL[gameMode]} • {speedLevel.toUpperCase()}
+            {speedLevel !== 'normal' && (tuning.cornerSpeedLock ?? true) ? ' • BELOK NORMAL' : ''}
           </span>
         </div>
         <button
@@ -606,6 +609,20 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                 onChange={(v) => onChangeSpeedLevel(v as SpeedLevel)}
                 accent="#FB7185"
               />
+              {speedLevel !== 'normal' && onToggleCornerLock && (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <span className="text-[9px] font-mono-tabular text-slate-400 uppercase w-20">Belok</span>
+                  <Seg
+                    options={[
+                      { v: 'lock', label: 'TETAP NORMAL' },
+                      { v: 'fast', label: 'IKUT MODE' },
+                    ]}
+                    value={(tuning.cornerSpeedLock ?? true) ? 'lock' : 'fast'}
+                    onChange={(v) => onToggleCornerLock(v === 'lock')}
+                    accent="#CCFF00"
+                  />
+                </div>
+              )}
             </Section>
             <Section title="Sirkuit">
               <select
