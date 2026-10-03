@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildProCircuit } from './proCircuit';
+import { buildProStand, buildStartGantry, buildProForest, makeRoadText } from './proVenue';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
 import { zoneLookup, type DriftZone } from './zones';
@@ -857,39 +858,6 @@ class Crowd {
 const poleMat = new THREE.MeshStandardMaterial({ color: '#2b2f3a', roughness: 0.5, metalness: 0.4 });
 const woodMat = new THREE.MeshStandardMaterial({ color: '#8a6540', roughness: 0.9 });
 
-/** Tiered grandstand. Tiers climb toward local -x; seats are returned in local space. */
-function buildStand(length: number, tiers: number, colors: string[], roof: boolean, rand: () => number) {
-  const group = new THREE.Group();
-  const seats: [number, number, number][] = [];
-  for (let k = 0; k < tiers; k++) {
-    const tier = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.2, length), new THREE.MeshStandardMaterial({ color: colors[k % colors.length], roughness: 0.8 }));
-    tier.position.set(-k * 2.4, 0.6 + k * 1.2, 0);
-    tier.castShadow = true;
-    tier.receiveShadow = true;
-    group.add(tier);
-    for (let z = -length / 2 + 0.6; z < length / 2 - 0.4; z += 1.05) {
-      if (rand() < 0.88) seats.push([-k * 2.4 + 0.15 + (rand() - 0.5) * 0.4, 1.2 + k * 1.2, z + (rand() - 0.5) * 0.3]);
-    }
-  }
-  const depth = tiers * 2.4;
-  const back = new THREE.Mesh(new THREE.BoxGeometry(0.4, tiers * 1.2 + 0.6, length), new THREE.MeshStandardMaterial({ color: '#3a4250' }));
-  back.position.set(-depth + 1.0, (tiers * 1.2 + 0.6) / 2, 0);
-  group.add(back);
-  if (roof) {
-    const roofH = tiers * 1.2 + 2.4;
-    const roofMesh = new THREE.Mesh(new THREE.BoxGeometry(depth + 3, 0.35, length + 2), new THREE.MeshStandardMaterial({ color: '#e9eef5' }));
-    roofMesh.position.set(-depth / 2 + 0.6, roofH, 0);
-    roofMesh.castShadow = true;
-    group.add(roofMesh);
-    for (const z of [-length / 2 + 1, 0, length / 2 - 1]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, roofH, 8), poleMat);
-      post.position.set(-depth + 0.9, roofH / 2, z);
-      group.add(post);
-    }
-  }
-  return { group, seats };
-}
-
 /** Overhead gate with a banner (used for drift-zone entries / exits). */
 function buildGate(track: Track, idx: number, tex: THREE.Texture, color: string, small: boolean): THREE.Group {
   const s = track.samples[idx];
@@ -1139,34 +1107,20 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   line.position.y = 0.03;
   line.receiveShadow = true;
   startGroup.add(line);
-  const poleX = HALF_WIDTH + CURB_WIDTH + 1.0;
-  for (const sx of [-poleX, poleX]) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 7.5, 10), poleMat);
-    pole.position.set(sx, 3.75, 0);
-    pole.castShadow = true;
-    startGroup.add(pole);
-  }
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(poleX * 2 + 0.6, 0.5, 0.6), poleMat);
-  beam.position.set(0, 7.5, 0);
-  beam.castShadow = true;
-  startGroup.add(beam);
-  const gantryTex = makeTextTexture('DRIFT KING CIRCUIT', { bg: '#ff5a1f', fg: '#ffffff', h: 96, size: 60, checker: true });
-  gantryTex.anisotropy = aniso;
-  const gantryMat = new THREE.MeshStandardMaterial({ map: gantryTex, roughness: 0.9 });
-  const banner = new THREE.Mesh(new THREE.BoxGeometry(poleX * 2, 1.5, 0.12), [poleMat, poleMat, poleMat, poleMat, gantryMat, gantryMat]);
-  banner.position.set(0, 6.5, 0);
-  banner.castShadow = true;
-  startGroup.add(banner);
-  // start lights on the gantry
-  for (let i = -2; i <= 2; i++) {
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.3), new THREE.MeshStandardMaterial({ color: '#ff3b30', emissive: '#ff2a2a', emissiveIntensity: 0.9 }));
-    lamp.position.set(i * 0.8, 7.5, 0.5);
-    startGroup.add(lamp);
-  }
+  const poleX = HALF_WIDTH + CURB_WIDTH + 1.6;
+  startGroup.add(buildStartGantry(poleX, aniso));
+  // painted START text on the grid, just behind the line
+  const startText = makeRoadText('START');
+  startText.position.set(0, 0.024, -4.2);
+  startGroup.add(startText);
+  const startText2 = makeRoadText('START');
+  startText2.position.set(0, 0.024, 4.2);
+  startText2.rotation.z = Math.PI;
+  startGroup.add(startText2);
 
   /* ---------- Main grandstand (start straight) ---------- */
   const gs = samples[34];
-  const mainStand = buildStand(46, 6, ['#c8102e', '#f5f5f5', '#c8102e', '#f5f5f5', '#c8102e', '#f5f5f5'], true, rand);
+  const mainStand = buildProStand(52, 6, ['#c8102e', '#f5f5f5', '#1d4ed8', '#f5f5f5'], rand, { roof: true, vip: true, name: 'EBISU CIRCUIT  ·  DRIFT KING', floodlights: true });
   const standOffset = -(WALL_DIST + 5);
   mainStand.group.position.set(gs.x + gs.rx * standOffset, 0, gs.z + gs.rz * standOffset);
   mainStand.group.rotation.y = gs.angle;
@@ -1375,7 +1329,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }
     if (hasStand) {
       const s = samples[z.apex];
-      const stand = buildStand(22, 3, ['#ff5a1f', '#ffd166', '#2f80ff'], false, rand);
+      const stand = buildProStand(24, 4, ['#ff5a1f', '#ffd166', '#2f80ff'], rand, { roof: true, name: z.name.toUpperCase() });
       const off = (WALL_DIST + 9.0) * side;
       stand.group.position.set(s.x + s.rx * off, GROUND_Y, s.z + s.rz * off);
       stand.group.rotation.y = s.angle + (side === -1 ? 0 : Math.PI);
@@ -1737,53 +1691,19 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     Math.hypot(x - WM.x, z - WM.z) < 10 ||
     miniStandCenters.some((c) => Math.hypot(x - c.x, z - c.z) < 18);
 
-  /* ---------- Forest: dense Japanese cedar hillsides + broadleaf ---------- */
-  const TREE_MAX = 1400;
-  const trunkMat = new THREE.MeshStandardMaterial({ color: '#5d3f26', roughness: 1 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, flatShading: true });
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.38, 3, 6), trunkMat, TREE_MAX);
-  const pines = new THREE.InstancedMesh(new THREE.ConeGeometry(1.9, 4.8, 7), leafMat, TREE_MAX);
-  const rounds = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(2.1, 0), leafMat, TREE_MAX);
-  const pineColors = ['#1f6b34', '#2a7a3a', '#1a5c2e', '#357a38'].map((c) => new THREE.Color(c));
-  const roundColors = ['#3f8a3a', '#4f9a40', '#2f7a32', '#63a848'].map((c) => new THREE.Color(c));
-  const autumnColors = ['#e0a03c', '#d8623a', '#f0b84a'].map((c) => new THREE.Color(c));
-  let nT = 0;
-  let nP = 0;
-  let nR = 0;
-  let attempts = 0;
-  const spread = 420;
-  while (nT < TREE_MAX && attempts < 22000) {
-    attempts++;
-    const x = cx - spread + rand() * spread * 2;
-    const z = cz - spread + rand() * spread * 2;
-    const d = terrain.distToTrack(x, z);
-    if (d < WALL_DIST + 7 || blocked(x, z)) continue;
-    const h = terrain.heightAt(x, z);
-    if (h - GROUND_Y > 150 || terrain.slopeAt(x, z) > 0.7) continue;
-    if (d < 55 && rand() > 0.3) continue;
-    const sc = 0.75 + rand() * 0.75;
-    quat.setFromAxisAngle(UP, rand() * Math.PI * 2);
-    tmpScale.set(sc, sc, sc);
-    m4.compose(tmpPos.set(x, h + 1.5 * sc - 0.6, z), quat, tmpScale);
-    trunks.setMatrixAt(nT++, m4);
-    if (rand() < 0.65) {
-      m4.compose(tmpPos.set(x, h + 5.4 * sc - 0.6, z), quat, tmpScale);
-      pines.setMatrixAt(nP, m4);
-      pines.setColorAt(nP, pineColors[Math.floor(rand() * pineColors.length)]);
-      nP++;
-    } else {
-      m4.compose(tmpPos.set(x, h + 4.6 * sc - 0.6, z), quat, tmpScale.set(sc, sc * 0.9, sc));
-      rounds.setMatrixAt(nR, m4);
-      const autumn = rand() < 0.08;
-      rounds.setColorAt(nR, autumn ? autumnColors[Math.floor(rand() * autumnColors.length)] : roundColors[Math.floor(rand() * roundColors.length)]);
-      nR++;
-    }
-  }
-  trunks.count = nT;
-  pines.count = nP;
-  rounds.count = nR;
-  trunks.castShadow = pines.castShadow = rounds.castShadow = true;
-  scene.add(trunks, pines, rounds);
+  /* ---------- Forest: layered cedars on the hills, broadleaf + sakura lining the track ---------- */
+  buildProForest(scene, {
+    cx,
+    cz,
+    groundY: GROUND_Y,
+    wallDist: WALL_DIST,
+    rand,
+    heightAt: terrain.heightAt,
+    slopeAt: terrain.slopeAt,
+    distToTrack: terrain.distToTrack,
+    blocked,
+    max: 1500,
+  });
 
   /* ---------- Bushes & flowers near the track (outside zones / paddock) ---------- */
   const bushCount = 110;
@@ -1834,6 +1754,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   scene.add(flowers);
 
   /* ---------- Rocks on the hills ---------- */
+  const spread = 420;
   const rockCount = 70;
   const rocks = new THREE.InstancedMesh(rockGeo, rockMat, rockCount);
   let nRk = 0;
