@@ -31,12 +31,14 @@ export interface CarModel {
   glowMat: THREE.SpriteMaterial;
   /** Windshield, roof and cabin glass — hidden in the cockpit view for an unobstructed look. */
   cockpitHidden: THREE.Object3D[];
+  /** Interior (dash, steering wheel, seats) — only shown in the cockpit view; hidden otherwise
+   *  so nothing pokes through the BMW GLB shell. */
+  cockpitOnly: THREE.Object3D[];
   steeringWheel: THREE.Group;
 }
 
 const tireMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95 });
 const rimMat = new THREE.MeshStandardMaterial({ color: 0xd9d9d9, roughness: 0.32, metalness: 0.75, envMapIntensity: 1.1 });
-const headMat = new THREE.MeshStandardMaterial({ color: 0xfff6c8, emissive: 0xfff2a8, emissiveIntensity: 1.6 });
 const darkMat = new THREE.MeshStandardMaterial({ color: 0x1f1f24, roughness: 0.8 });
 const interiorMat = new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.95 });
 const dashMat = new THREE.MeshStandardMaterial({ color: 0x1a1d24, roughness: 0.9 });
@@ -81,8 +83,49 @@ function addWheels(group: THREE.Group, dims: CarDims, width: number): { wheels: 
   return { wheels, front };
 }
 
+/** Underside of the car: flat dark chassis tray, sills, axles, exhaust — the only non-GLB body part kept visible. */
+function addUnderbody(group: THREE.Group, dims: CarDims) {
+  const under = new THREE.Group();
+  under.name = 'Underbody';
+  const r = dims.wheelRadius;
+  const w = dims.halfWidth * 2 - 0.32;
+  const len = dims.length - 0.5;
+  const trayY = r * 0.62;
+  const tray = box(w, 0.1, len, darkMat, 0, trayY, 0);
+  tray.castShadow = false;
+  under.add(tray);
+  // side sills
+  for (const sx of [-1, 1]) under.add(box(0.16, 0.14, len * 0.55, darkMat, sx * (w / 2 - 0.02), trayY + 0.06, 0, false));
+  // axles + diff
+  const axleGeo = new THREE.CylinderGeometry(0.05, 0.05, dims.halfWidth * 2 - 0.1, 8);
+  for (const z of [dims.wheelBase, -dims.wheelBase]) {
+    const axle = new THREE.Mesh(axleGeo, rimMat);
+    axle.rotation.z = Math.PI / 2;
+    axle.position.set(0, r, z);
+    under.add(axle);
+  }
+  const diff = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 8), darkMat);
+  diff.position.set(0, r, -dims.wheelBase);
+  under.add(diff);
+  // drive shaft + exhaust
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, dims.wheelBase * 1.6, 8), rimMat);
+  shaft.rotation.x = Math.PI / 2;
+  shaft.position.set(0, r * 0.75, 0);
+  under.add(shaft);
+  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, len * 0.55, 8), rimMat);
+  exhaust.rotation.x = Math.PI / 2;
+  exhaust.position.set(0.5, r * 0.45, -len * 0.2);
+  under.add(exhaust);
+  group.add(under);
+}
+
 /** Interior visible from the cockpit camera: dash, wheel, seats, pillars. */
-function addInterior(body: THREE.Group, s: { dashY: number; dashZ: number; width: number; wheelZ: number; seatZ: number }): THREE.Group {
+function addInterior(parent: THREE.Group, s: { dashY: number; dashZ: number; width: number; wheelZ: number; seatZ: number }): THREE.Group {
+  // Everything goes into one `interior` group so the game can toggle it for the cockpit camera
+  const body = new THREE.Group();
+  body.name = 'Interior';
+  body.visible = false;
+  parent.add(body);
   body.add(box(s.width, 0.16, 0.55, dashMat, 0, s.dashY, s.dashZ, false));
   body.add(box(s.width, 0.5, 0.12, dashMat, 0, s.dashY - 0.3, s.dashZ + 0.2, false));
   const steering = new THREE.Group();
@@ -121,6 +164,7 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
   const brakeGlows: THREE.Sprite[] = [];
   const flames: THREE.Mesh[] = [];
   const cockpitHidden: THREE.Object3D[] = [];
+  const cockpitOnly: THREE.Object3D[] = [];
   let steeringWheel: THREE.Group;
 
   if (style === 'standard') {
@@ -140,14 +184,9 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
     body.add(bmwRig.group);
     cockpitHidden.push(bmwRig.mesh);
     steeringWheel = addInterior(body, { dashY: 0.98, dashZ: 0.52, width: 1.5, wheelZ: 0.25, seatZ: -0.35 });
-    // lights
-    body.add(box(0.45, 0.16, 0.08, headMat, 0.62, 0.72, 2.13, false));
-    body.add(box(0.45, 0.16, 0.08, headMat, -0.62, 0.72, 2.13, false));
-    body.add(box(0.62, 0.22, 0.1, brakeMat, 0.6, 0.74, -2.14, false));
-    body.add(box(0.62, 0.22, 0.1, brakeMat, -0.6, 0.74, -2.14, false));
-    body.add(box(0.6, 0.07, 0.08, brakeMat, 0, 0.74, -2.13, false));
-    body.add(box(0.5, 0.06, 0.06, brakeMat, 0, 1.22, -2.26, false));
-    // (lingkaran glow sprite lampu rem dihapus — tampak seperti cakram bulat aneh di belakang mobil)
+    cockpitOnly.push(steeringWheel.parent!);
+    // Body kotak prosedural (lampu depan/belakang, glow) DIHILANGKAN — hanya shell BMW GLB,
+    // roda dan bagian bawah mobil yang tampil.
     for (const sx of [-0.5, 0.5]) {
       const f = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.9, 6), flameMat);
       f.rotation.x = Math.PI / 2;
@@ -173,25 +212,10 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
     body.add(bmwRig.group);
     cockpitHidden.push(bmwRig.mesh);
     steeringWheel = addInterior(body, { dashY: 1.25, dashZ: 0.3, width: 1.6, wheelZ: 0.05, seatZ: -0.45 });
-    // big round headlights
-    const eyeGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.1, 14);
-    for (const sx of [-0.6, 0.6]) {
-      const eye = new THREE.Mesh(eyeGeo, headMat);
-      eye.rotation.x = Math.PI / 2;
-      eye.position.set(sx, 1.0, 1.52);
-      body.add(eye);
-    }
-    // tail lights
-    body.add(box(0.5, 0.3, 0.1, brakeMat, 0.65, 1.0, -1.52, false));
-    body.add(box(0.5, 0.3, 0.1, brakeMat, -0.65, 1.0, -1.52, false));
-    body.add(box(0.7, 0.08, 0.08, brakeMat, 0, 1.0, -1.52, false));
-    body.add(box(0.6, 0.07, 0.07, brakeMat, 0, 1.62, -1.64, false));
+    cockpitOnly.push(steeringWheel.parent!);
+    // (lampu kotak prosedural dihilangkan — hanya GLB + roda + bawah mobil)
     // exhaust flames
     for (const sx of [-0.45, 0.45]) {
-      const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.3, 8), rimMat);
-      pipe.rotation.x = Math.PI / 2;
-      pipe.position.set(sx, 0.5, -1.62);
-      body.add(pipe);
       const f = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.9, 6), flameMat);
       f.rotation.x = Math.PI / 2;
       f.position.set(sx, 0.5, -2.05);
@@ -202,7 +226,8 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
   }
 
   const { wheels, front } = addWheels(group, dims, style === 'toon' ? 0.46 : 0.32);
-  return { style, dims, group, body, wheels, frontWheels: front, flames, brakeMat, brakeGlows, glowMat, cockpitHidden, steeringWheel };
+  addUnderbody(group, dims);
+  return { style, dims, group, body, wheels, frontWheels: front, flames, brakeMat, brakeGlows, glowMat, cockpitHidden, cockpitOnly, steeringWheel };
 }
 
 /** Lights up the tail lights (emissive + additive glow) while braking / using the handbrake. */

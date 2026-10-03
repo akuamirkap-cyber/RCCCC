@@ -482,6 +482,7 @@ export class Game {
   private updateCockpitVisibility() {
     const cockpit = this.prefs.camera === 'cockpit' && this.phase !== 'menu';
     for (const o of this.playerModel.cockpitHidden) o.visible = !cockpit;
+    for (const o of this.playerModel.cockpitOnly) o.visible = cockpit;
     const near = cockpit ? 0.2 : 0.5;
     if (this.camera.near !== near) {
       this.camera.near = near;
