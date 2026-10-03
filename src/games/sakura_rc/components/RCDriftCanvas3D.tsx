@@ -2142,28 +2142,28 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       ctx.clearRect(0, 0, 128, 128);
 
       // 1 large center lobe + 5 surrounding lobes with different alphas for fluffy organic cloud
+      // Lobe alpha identik dengan Ebisu Circuit (puff padat & tebal, bukan kabut tipis)
       const lobes = [
-        { x: 64, y: 64, r: 52, a: 0.52 },
-        { x: 46, y: 52, r: 36, a: 0.36 },
-        { x: 82, y: 54, r: 35, a: 0.34 },
-        { x: 50, y: 78, r: 34, a: 0.32 },
-        { x: 78, y: 76, r: 35, a: 0.33 },
-        { x: 64, y: 42, r: 33, a: 0.30 },
+        { x: 64, y: 64, r: 40, a: 1.0 },
+        { x: 44, y: 54, r: 28, a: 0.85 },
+        { x: 84, y: 52, r: 26, a: 0.85 },
+        { x: 56, y: 84, r: 26, a: 0.8 },
+        { x: 80, y: 80, r: 24, a: 0.75 },
+        { x: 64, y: 40, r: 22, a: 0.7 },
       ];
 
       lobes.forEach((l) => {
-        const g = ctx.createRadialGradient(l.x, l.y, 2, l.x, l.y, l.r);
+        const g = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
         g.addColorStop(0, `rgba(255, 255, 255, ${l.a})`);
-        g.addColorStop(0.48, `rgba(245, 247, 250, ${l.a * 0.62})`);
-        g.addColorStop(0.82, `rgba(225, 230, 238, ${l.a * 0.22})`);
-        g.addColorStop(1, 'rgba(225, 230, 238, 0)');
+        g.addColorStop(0.55, `rgba(255, 255, 255, ${l.a * 0.45})`);
+        g.addColorStop(1, 'rgba(255, 255, 255, 0)');
         ctx.fillStyle = g;
-        ctx.beginPath();
-        ctx.arc(l.x, l.y, l.r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.fillRect(0, 0, 128, 128);
       });
 
-      return new THREE.CanvasTexture(canvas);
+      const tex = new THREE.CanvasTexture(canvas);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
     };
 
     const sharedSmokeTex = createSixLobeSmokeTexture();
@@ -2266,12 +2266,11 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         const tint = THREE.MathUtils.clamp(cfg.rubberTint, 0, 1);
 
         slot.maxLife = (1.1 + Math.random() * 0.9) * durMult;
-        // Scale factor 0.32 converts formula units to our 1:10 RC track scale so 4x expansion looks authentic
+        // Ukuran & opacity puff = rumus Ebisu Circuit (mobil Sakura ~0.9x ukuran mobil Ebisu)
         slot.baseSize =
-          (1.1 + opts.strength * 1.1 + Math.random() * 0.5) * sizeMult * 0.32;
-        slot.peakAlpha =
-          Math.min(0.92, (0.55 + Math.min(1, opts.strength) * 0.35) * opacMult * 0.58);
-        slot.spin = (Math.random() * 2 - 1) * 1.2;
+          (1.1 + opts.strength * 1.1 + Math.random() * 0.5) * sizeMult * 0.9;
+        slot.peakAlpha = (0.55 + Math.min(1, opts.strength) * 0.35) * opacMult;
+        slot.spin = (Math.random() * 2 - 1) * 2.4;
 
         slot.colorFrom.copy(cleanFromColor).lerp(burntFromColor, tint);
         slot.colorTo.copy(cleanToColor).lerp(burntToColor, tint);
@@ -2281,7 +2280,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           slot.anchor = opts.anchor;
           // Start at bottom-rear contact patch of the tire
           slot.swirlAngle = -Math.PI * 0.65 + (Math.random() - 0.5) * 0.3;
-          slot.swirlRadius = 0.28;
+          slot.swirlRadius = 0.37 + Math.random() * 0.1; // ban r=0.35 → orbit sedikit di luar tapak
           slot.omega = opts.omega ?? -12;
           slot.orbitTimeLeft = 0.16 + Math.random() * 0.20; // 0.16 - 0.36s orbit
         } else {
@@ -3755,7 +3754,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
                 1,
                 (Math.abs(wrapAngle(bState.heading - bState.velocityAngle)) / 0.7) * Math.min(1, bState.speed / 12.0)
               );
-              const botRate = (10 + botSmokeIntensity * 10) * smokeCfg.amount;
+              const botRate = (12 + botSmokeIntensity * 14) * smokeCfg.amount;
               bState.slideAcc += dt * botRate;
 
               const bSlideSign = Math.sign(wrapAngle(bState.heading - bState.velocityAngle)) || 1;
@@ -3770,7 +3769,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
                 spawnRingSmokePuff({
                   pos: baseTire.clone().add(new THREE.Vector3(0, 0.12, 0)),
                   vel: bSmokeVel,
-                  strength: botSmokeIntensity,
+                  strength: 0.5 + botSmokeIntensity * 0.6,
                   isSwirl: false,
                   isLegacy: smokeCfg.mode === 'legacy',
                 });

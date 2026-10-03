@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
 import { zoneLookup, type DriftZone } from './zones';
 
@@ -715,34 +716,81 @@ class Crowd {
     });
   }
 
-  /** Cute chubby "bean" fans: round body, oversized head with a face, stubby arms that wave. */
+  /**
+   * Stumble Guys-style fans: big rounded-cube head (bigger than the body), two tiny vertical
+   * dot eyes, no mouth, stubby torso, short legs with shoes, stubby arms with round hands,
+   * plus random outfits: green cap, bucket hat + sunglasses on top, pompadour + sunglasses.
+   */
   build(scene: THREE.Scene, facing: (x: number, z: number) => number): (dt: number) => void {
     const spots = this.spots;
     const N = spots.length;
     if (!N) return () => {};
     const r = this.rand;
-    const shirts = ['#ff5a1f', '#ffd166', '#06d6a0', '#118ab2', '#ef476f', '#ffffff', '#b455f5', '#2f80ff', '#f4a261', '#ff8fab', '#e9c46a', '#8ecae6', '#00b4d8', '#9ef01a'].map(
+    const shirts = ['#ff7a1f', '#ffd166', '#06d6a0', '#118ab2', '#ef476f', '#ffffff', '#b455f5', '#2f80ff', '#f4a261', '#ff8fab', '#59c3f0', '#9ef01a', '#ff3d7f', '#1fc8ff'].map(
       (c) => new THREE.Color(c),
     );
-    const skins = ['#ffd6b8', '#f1c9a5', '#e0ac7e', '#c68642', '#8d5524', '#ffe0c2', '#a0522d', '#ffc9a3'].map((c) => new THREE.Color(c));
+    const pantsCols = ['#2f80ff', '#1d4ed8', '#f2a541', '#ffffff', '#3b3b46', '#5dade2', '#c0392b', '#2e8b57'].map((c) => new THREE.Color(c));
+    const shoeCols = ['#1a1a1f', '#2b2b33', '#c62828', '#ffffff', '#1a1a1f'].map((c) => new THREE.Color(c));
+    const skins = ['#f6c9a0', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#fbd3b6'].map((c) => new THREE.Color(c));
+    const hatCols = ['#5cb85c', '#43a047', '#ff6f3c', '#2f80ff', '#ffd166', '#e63946', '#ffffff'].map((c) => new THREE.Color(c));
+    const hairCols = ['#1b1b1f', '#3a2418', '#6b3e26', '#111118', '#8a4b1f'].map((c) => new THREE.Color(c));
     const flagColors = ['#ff5a1f', '#ffd166', '#ffffff', '#2f80ff', '#06d6a0'].map((c) => new THREE.Color(c));
-    const eyeBase = new THREE.Color('#1c1c22');
-    const cheekBase = new THREE.Color('#ff7f9f');
+    const eyeBase = new THREE.Color('#15151a');
+    const white = new THREE.Color('#f7f7f7');
+    const dark = new THREE.Color('#15151a');
 
-    const bodyGeo = new THREE.SphereGeometry(0.3, 10, 8);
-    bodyGeo.scale(1, 1.1, 0.9);
-    const headGeo = new THREE.SphereGeometry(0.27, 10, 8);
-    const armGeo = new THREE.CapsuleGeometry(0.07, 0.24, 2, 6);
-    const eyeGeo = new THREE.SphereGeometry(0.045, 6, 5);
-    const cheekGeo = new THREE.SphereGeometry(0.05, 6, 4);
-    cheekGeo.scale(1, 0.7, 0.5);
-    const mat = () => new THREE.MeshStandardMaterial({ roughness: 0.75 });
-    const bodies = new THREE.InstancedMesh(bodyGeo, mat(), N);
-    const heads = new THREE.InstancedMesh(headGeo, mat(), N);
+    // --- geometry (Stumble Guys proportions, 1 unit = 1 m at sc = 1) ---
+    const headGeo = new RoundedBoxGeometry(0.54, 0.5, 0.5, 4, 0.19);
+    const torsoGeo = new RoundedBoxGeometry(0.46, 0.4, 0.36, 3, 0.13);
+    const eyeGeo = new RoundedBoxGeometry(0.055, 0.12, 0.04, 2, 0.02);
+    const armGeo = new THREE.CapsuleGeometry(0.07, 0.17, 2, 7);
+    const handGeo = new THREE.SphereGeometry(0.08, 8, 6);
+    const legGeo = new THREE.CapsuleGeometry(0.085, 0.1, 2, 7);
+    const shoeGeo = new RoundedBoxGeometry(0.17, 0.11, 0.27, 2, 0.045);
+    const capDomeGeo = new THREE.SphereGeometry(0.3, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    capDomeGeo.scale(1, 0.62, 1);
+    const capVisorGeo = new RoundedBoxGeometry(0.32, 0.04, 0.24, 2, 0.015);
+    const bucketTopGeo = new THREE.CylinderGeometry(0.26, 0.31, 0.2, 14);
+    const bucketBrimGeo = new THREE.CylinderGeometry(0.38, 0.4, 0.035, 16);
+    const glassesGeo = new RoundedBoxGeometry(0.44, 0.1, 0.05, 2, 0.02);
+    const pompGeo = new RoundedBoxGeometry(0.5, 0.2, 0.46, 3, 0.07);
+
+    const mat = (rough = 0.7) => new THREE.MeshStandardMaterial({ roughness: rough });
+    const heads = new THREE.InstancedMesh(headGeo, mat(0.6), N);
+    const torsos = new THREE.InstancedMesh(torsoGeo, mat(), N);
+    const eyes = new THREE.InstancedMesh(eyeGeo, new THREE.MeshStandardMaterial({ roughness: 0.35, color: eyeBase }), N * 2);
     const armsL = new THREE.InstancedMesh(armGeo, mat(), N);
     const armsR = new THREE.InstancedMesh(armGeo, mat(), N);
-    const eyes = new THREE.InstancedMesh(eyeGeo, new THREE.MeshStandardMaterial({ roughness: 0.3, color: eyeBase }), N * 2);
-    const cheeks = new THREE.InstancedMesh(cheekGeo, new THREE.MeshStandardMaterial({ roughness: 0.9, color: cheekBase }), N * 2);
+    const handsL = new THREE.InstancedMesh(handGeo, mat(0.6), N);
+    const handsR = new THREE.InstancedMesh(handGeo, mat(0.6), N);
+    const legs = new THREE.InstancedMesh(legGeo, mat(), N * 2);
+    const shoes = new THREE.InstancedMesh(shoeGeo, mat(0.5), N * 2);
+
+    // outfit variants: 0 = none, 1 = cap, 2 = bucket hat + shades on top, 3 = pompadour + shades
+    const outfit = new Uint8Array(N);
+    for (let i = 0; i < N; i++) {
+      const v = r();
+      outfit[i] = v < 0.28 ? 0 : v < 0.55 ? 1 : v < 0.78 ? 2 : 3;
+    }
+    const idxOf = (k: number) => {
+      const out: number[] = [];
+      for (let i = 0; i < N; i++) if (outfit[i] === k) out.push(i);
+      return out;
+    };
+    const capIdx = idxOf(1);
+    const bucketIdx = idxOf(2);
+    const pompIdx = idxOf(3);
+    const capDomes = new THREE.InstancedMesh(capDomeGeo, mat(), Math.max(1, capIdx.length));
+    const capVisors = new THREE.InstancedMesh(capVisorGeo, mat(), Math.max(1, capIdx.length));
+    const bucketTops = new THREE.InstancedMesh(bucketTopGeo, mat(0.85), Math.max(1, bucketIdx.length));
+    const bucketBrims = new THREE.InstancedMesh(bucketBrimGeo, mat(0.85), Math.max(1, bucketIdx.length));
+    const bucketShades = new THREE.InstancedMesh(glassesGeo, new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.3, color: dark }), Math.max(1, bucketIdx.length));
+    const pomps = new THREE.InstancedMesh(pompGeo, mat(0.55), Math.max(1, pompIdx.length));
+    const faceShades = new THREE.InstancedMesh(glassesGeo, new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.3, color: dark }), Math.max(1, pompIdx.length));
+    capDomes.count = capVisors.count = capIdx.length;
+    bucketTops.count = bucketBrims.count = bucketShades.count = bucketIdx.length;
+    pomps.count = faceShades.count = pompIdx.length;
+
     const flagIdx: number[] = [];
     spots.forEach((s, i) => s.flag && flagIdx.push(i));
     const flags = new THREE.InstancedMesh(new THREE.BoxGeometry(0.6, 0.4, 0.05), mat(), Math.max(1, flagIdx.length));
@@ -760,28 +808,59 @@ class Crowd {
     const armSide = new Float32Array(N); // which arm waves (±1)
     const baseFlag = new Float32Array(flagIdx.length);
 
-    const setArm = (mesh: THREE.InstancedMesh, i: number, s: CrowdSpot, side: number, lift: number, y: number) => {
+    // Parts whose instances only bob up/down with the jump: (mesh, instance k, spot i, base y)
+    type Bob = { mesh: THREE.InstancedMesh; k: number; i: number; y: number };
+    const bobs: Bob[] = [];
+    const place = (mesh: THREE.InstancedMesh, k: number, i: number, fwd: number, side: number, y: number, extraQ?: THREE.Quaternion) => {
+      const s = spots[i];
+      const a = yaw[i];
+      const fx = Math.sin(a);
+      const fz = Math.cos(a);
+      const rx = Math.cos(a);
+      const rz = -Math.sin(a);
+      q.setFromAxisAngle(UP, a);
+      if (extraQ) q.multiply(extraQ);
+      const py = s.y + y * s.sc;
+      p.set(s.x + (fx * fwd + rx * side) * s.sc, py, s.z + (fz * fwd + rz * side) * s.sc);
+      m4.compose(p, q, sc.set(s.sc, s.sc, s.sc));
+      mesh.setMatrixAt(k, m4);
+      bobs.push({ mesh, k, i, y: py });
+    };
+
+    const SHOULDER_Y = 0.64;
+    const SHOULDER_X = 0.27;
+    const ARM_HALF = 0.155;
+    const setArm = (mesh: THREE.InstancedMesh, hand: THREE.InstancedMesh, i: number, s: CrowdSpot, side: number, lift: number, y: number) => {
       // arm pivots at the shoulder; lift 0 = hanging down, 1 = straight up
       const a = yaw[i];
       const fx = Math.sin(a);
       const fz = Math.cos(a);
       const rx = Math.cos(a);
       const rz = -Math.sin(a);
-      const shoulderX = s.x + rx * side * 0.3 * s.sc;
-      const shoulderZ = s.z + rz * side * 0.3 * s.sc;
-      const shoulderY = y + 0.58 * s.sc;
+      const shoulderX = s.x + rx * side * SHOULDER_X * s.sc;
+      const shoulderZ = s.z + rz * side * SHOULDER_X * s.sc;
+      const shoulderY = y + SHOULDER_Y * s.sc;
       const ang = lift * Math.PI * 0.95; // rotate around the forward axis
       e.set(0, a, side * (Math.PI - ang) * -1, 'YXZ');
       qArm.setFromEuler(e);
       // offset the arm center from the shoulder along its own direction
       const dirY = -Math.cos(ang);
       const lateral = Math.sin(ang) * side;
-      const half = 0.19 * s.sc;
+      const half = ARM_HALF * s.sc;
       p.set(shoulderX + rx * lateral * half + fx * 0.02, shoulderY + dirY * half, shoulderZ + rz * lateral * half + fz * 0.02);
       m4.compose(p, qArm, sc.set(s.sc, s.sc, s.sc));
       mesh.setMatrixAt(i, m4);
+      // round hand at the end of the arm
+      const hl = (ARM_HALF * 2 + 0.03) * s.sc;
+      p.set(shoulderX + rx * lateral * hl + fx * 0.02, shoulderY + dirY * hl, shoulderZ + rz * lateral * hl + fz * 0.02);
+      m4.compose(p, qArm, sc);
+      hand.setMatrixAt(i, m4);
     };
 
+    const legTilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.08);
+    let capK = 0;
+    let bucketK = 0;
+    let pompK = 0;
     spots.forEach((s, i) => {
       yaw[i] = facing(s.x, s.z) + (r() - 0.5) * 0.5;
       baseY[i] = s.y;
@@ -789,60 +868,75 @@ class Crowd {
       armSide[i] = r() < 0.5 ? -1 : 1;
       const shirt = shirts[Math.floor(r() * shirts.length)];
       const skin = skins[Math.floor(r() * skins.length)];
-      q.setFromAxisAngle(UP, yaw[i]);
-      sc.set(s.sc, s.sc, s.sc);
-      m4.compose(p.set(s.x, s.y + 0.36 * s.sc, s.z), q, sc);
-      bodies.setMatrixAt(i, m4);
-      bodies.setColorAt(i, shirt);
-      m4.compose(p.set(s.x, s.y + 0.92 * s.sc, s.z), q, sc);
-      heads.setMatrixAt(i, m4);
-      heads.setColorAt(i, skin);
-      armsL.setColorAt(i, shirt);
-      armsR.setColorAt(i, shirt);
-      setArm(armsL, i, s, -1, raise[i], s.y);
-      setArm(armsR, i, s, 1, raise[i], s.y);
-      // face: two eyes + two cheeks on the front of the head
-      const fx = Math.sin(yaw[i]);
-      const fz = Math.cos(yaw[i]);
-      const rx = Math.cos(yaw[i]);
-      const rz = -Math.sin(yaw[i]);
+      const pants = pantsCols[Math.floor(r() * pantsCols.length)];
+      const shoe = shoeCols[Math.floor(r() * shoeCols.length)];
+
+      // legs + shoes (short, slightly apart, one foot a bit forward like the Stumble pose)
       for (const side of [-1, 1]) {
         const k = i * 2 + (side + 1) / 2;
-        m4.compose(p.set(s.x + fx * 0.24 * s.sc + rx * side * 0.1 * s.sc, s.y + 0.97 * s.sc, s.z + fz * 0.24 * s.sc + rz * side * 0.1 * s.sc), q, sc);
-        eyes.setMatrixAt(k, m4);
-        m4.compose(p.set(s.x + fx * 0.19 * s.sc + rx * side * 0.19 * s.sc, s.y + 0.87 * s.sc, s.z + fz * 0.19 * s.sc + rz * side * 0.19 * s.sc), q, sc);
-        cheeks.setMatrixAt(k, m4);
+        const fwdFoot = side * 0.03;
+        place(legs, k, i, fwdFoot, side * 0.115, 0.21, legTilt);
+        legs.setColorAt(k, pants);
+        place(shoes, k, i, fwdFoot + 0.03, side * 0.115, 0.055);
+        shoes.setColorAt(k, shoe);
+      }
+      // stubby torso directly under the head (no neck)
+      place(torsos, i, i, 0, 0, 0.52);
+      torsos.setColorAt(i, shirt);
+      // oversized rounded-cube head
+      place(heads, i, i, 0, 0, 0.98);
+      heads.setColorAt(i, skin);
+      // face: two tiny vertical dot eyes, no mouth
+      for (const side of [-1, 1]) {
+        const k = i * 2 + (side + 1) / 2;
+        place(eyes, k, i, 0.245, side * 0.095, 1.0);
+      }
+      armsL.setColorAt(i, shirt);
+      armsR.setColorAt(i, shirt);
+      handsL.setColorAt(i, skin);
+      handsR.setColorAt(i, skin);
+      setArm(armsL, handsL, i, s, -1, raise[i], s.y);
+      setArm(armsR, handsR, i, s, 1, raise[i], s.y);
+
+      // outfit
+      if (outfit[i] === 1) {
+        const hc = hatCols[Math.floor(r() * hatCols.length)];
+        place(capDomes, capK, i, -0.01, 0, 1.19);
+        capDomes.setColorAt(capK, hc);
+        place(capVisors, capK, i, 0.3, 0, 1.2);
+        capVisors.setColorAt(capK, hc);
+        capK++;
+      } else if (outfit[i] === 2) {
+        const hc = r() < 0.6 ? white : hatCols[Math.floor(r() * hatCols.length)];
+        place(bucketTops, bucketK, i, 0, 0, 1.3);
+        bucketTops.setColorAt(bucketK, hc);
+        place(bucketBrims, bucketK, i, 0, 0, 1.21);
+        bucketBrims.setColorAt(bucketK, hc);
+        // sunglasses parked on top of the hat
+        place(bucketShades, bucketK, i, 0.22, 0, 1.33);
+        bucketK++;
+      } else if (outfit[i] === 3) {
+        pomps.setColorAt(pompK, hairCols[Math.floor(r() * hairCols.length)]);
+        place(pomps, pompK, i, 0.04, 0, 1.3);
+        // sunglasses on the face (cover the eyes)
+        place(faceShades, pompK, i, 0.255, 0, 1.01);
+        pompK++;
       }
     });
     flagIdx.forEach((si, f) => {
       const s = spots[si];
       q.setFromAxisAngle(UP, yaw[si]);
-      baseFlag[f] = s.y + 1.45 * s.sc;
+      baseFlag[f] = s.y + 1.5 * s.sc;
       m4.compose(p.set(s.x, baseFlag[f], s.z), q, sc.set(s.sc, s.sc, s.sc));
       flags.setMatrixAt(f, m4);
       flags.setColorAt(f, flagColors[Math.floor(r() * flagColors.length)]);
     });
-    bodies.castShadow = heads.castShadow = true;
-    for (const im of [bodies, heads, armsL, armsR, eyes, cheeks, flags]) im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    scene.add(bodies, heads, armsL, armsR, eyes, cheeks, flags);
+    heads.castShadow = torsos.castShadow = true;
+    const all = [heads, torsos, eyes, armsL, armsR, handsL, handsR, legs, shoes, capDomes, capVisors, bucketTops, bucketBrims, bucketShades, pomps, faceShades, flags];
+    for (const im of all) im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(...all);
 
-    const bArr = bodies.instanceMatrix.array as Float32Array;
-    const hArr = heads.instanceMatrix.array as Float32Array;
-    const eArr = eyes.instanceMatrix.array as Float32Array;
-    const cArr = cheeks.instanceMatrix.array as Float32Array;
     const fArr = flags.instanceMatrix.array as Float32Array;
-    const bodyBase = new Float32Array(N);
-    const headBase = new Float32Array(N);
-    const eyeBaseY = new Float32Array(N * 2);
-    const cheekBaseY = new Float32Array(N * 2);
-    for (let i = 0; i < N; i++) {
-      bodyBase[i] = bArr[i * 16 + 13];
-      headBase[i] = hArr[i * 16 + 13];
-      eyeBaseY[i * 2] = eArr[i * 32 + 13];
-      eyeBaseY[i * 2 + 1] = eArr[i * 32 + 29];
-      cheekBaseY[i * 2] = cArr[i * 32 + 13];
-      cheekBaseY[i * 2 + 1] = cArr[i * 32 + 29];
-    }
     const offs = new Float32Array(N);
     let t = 0;
     let armTick = 0;
@@ -864,31 +958,23 @@ class Crowd {
         }
         if (s.amp > 0) off += s.amp * Math.abs(Math.sin(t * 3.6 + s.phase));
         offs[i] = off;
-        bArr[i * 16 + 13] = bodyBase[i] + off;
-        hArr[i * 16 + 13] = headBase[i] + off;
-        eArr[i * 32 + 13] = eyeBaseY[i * 2] + off;
-        eArr[i * 32 + 29] = eyeBaseY[i * 2 + 1] + off;
-        cArr[i * 32 + 13] = cheekBaseY[i * 2] + off;
-        cArr[i * 32 + 29] = cheekBaseY[i * 2 + 1] + off;
         if (doArms) {
           const y = baseY[i] + off;
           const swing = 0.5 + 0.5 * Math.sin(t * 5 + s.phase);
           const liftL = Math.max(waveLift, raise[i] ? 0.85 + 0.15 * swing : armSide[i] < 0 && s.amp > 0 ? swing : 0.05);
           const liftR = Math.max(waveLift, raise[i] ? 0.85 + 0.15 * (1 - swing) : armSide[i] > 0 && s.amp > 0 ? swing : 0.05);
-          setArm(armsL, i, s, -1, liftL, y);
-          setArm(armsR, i, s, 1, liftR, y);
+          setArm(armsL, handsL, i, s, -1, liftL, y);
+          setArm(armsR, handsR, i, s, 1, liftR, y);
         }
       }
-      for (let f = 0; f < flagIdx.length; f++) fArr[f * 16 + 13] = baseFlag[f] + offs[flagIdx[f]] * 1.3;
-      bodies.instanceMatrix.needsUpdate = true;
-      heads.instanceMatrix.needsUpdate = true;
-      eyes.instanceMatrix.needsUpdate = true;
-      cheeks.instanceMatrix.needsUpdate = true;
-      if (doArms) {
-        armsL.instanceMatrix.needsUpdate = true;
-        armsR.instanceMatrix.needsUpdate = true;
+      for (const b of bobs) {
+        (b.mesh.instanceMatrix.array as Float32Array)[b.k * 16 + 13] = b.y + offs[b.i];
       }
-      if (flagIdx.length) flags.instanceMatrix.needsUpdate = true;
+      for (let f = 0; f < flagIdx.length; f++) fArr[f * 16 + 13] = baseFlag[f] + offs[flagIdx[f]] * 1.3;
+      for (const im of all) {
+        if ((im === armsL || im === armsR || im === handsL || im === handsR) && !doArms) continue;
+        if (im.count > 0) im.instanceMatrix.needsUpdate = true;
+      }
     };
   }
 }

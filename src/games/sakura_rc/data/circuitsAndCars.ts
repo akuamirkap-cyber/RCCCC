@@ -100,8 +100,8 @@ export const DEFAULT_SMOKE_CONFIG: SmokeConfig = {
   amount: 1.0,
   puffSize: 1.0,
   lifetime: 1.0,
-  opacity: 0.85,
-  rubberTint: 0.15,
+  opacity: 0.9,
+  rubberTint: 0.2,
   wheelSpinSwirl: true,
 };
 
@@ -130,8 +130,8 @@ export const SMOKE_PRESETS: Record<
       amount: 1.0,
       puffSize: 1.0,
       lifetime: 1.0,
-      opacity: 0.85,
-      rubberTint: 0.15,
+      opacity: 0.9,
+      rubberTint: 0.2,
       wheelSpinSwirl: true,
     },
   },

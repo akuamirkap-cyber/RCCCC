@@ -147,14 +147,7 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
     body.add(box(0.62, 0.22, 0.1, brakeMat, -0.6, 0.74, -2.14, false));
     body.add(box(0.6, 0.07, 0.08, brakeMat, 0, 0.74, -2.13, false));
     body.add(box(0.5, 0.06, 0.06, brakeMat, 0, 1.22, -2.26, false));
-    for (const sx of [-0.6, 0.6]) {
-      const g = new THREE.Sprite(glowMat);
-      g.position.set(sx, 0.74, -2.3);
-      g.scale.set(1.3, 0.8, 1);
-      g.visible = false;
-      body.add(g);
-      brakeGlows.push(g);
-    }
+    // (lingkaran glow sprite lampu rem dihapus — tampak seperti cakram bulat aneh di belakang mobil)
     for (const sx of [-0.5, 0.5]) {
       const f = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.9, 6), flameMat);
       f.rotation.x = Math.PI / 2;
@@ -193,14 +186,6 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
     body.add(box(0.5, 0.3, 0.1, brakeMat, -0.65, 1.0, -1.52, false));
     body.add(box(0.7, 0.08, 0.08, brakeMat, 0, 1.0, -1.52, false));
     body.add(box(0.6, 0.07, 0.07, brakeMat, 0, 1.62, -1.64, false));
-    for (const sx of [-0.65, 0.65]) {
-      const g = new THREE.Sprite(glowMat);
-      g.position.set(sx, 1.0, -1.7);
-      g.scale.set(1.3, 0.9, 1);
-      g.visible = false;
-      body.add(g);
-      brakeGlows.push(g);
-    }
     // exhaust flames
     for (const sx of [-0.45, 0.45]) {
       const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.3, 8), rimMat);
@@ -223,15 +208,10 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
 /** Lights up the tail lights (emissive + additive glow) while braking / using the handbrake. */
 export function setBrakeLights(model: CarModel, on: boolean, time: number) {
   model.brakeMat.emissiveIntensity = on ? 5 : 0.45;
-  const glow = on ? 0.8 + Math.sin(time * 28) * 0.12 : 0;
-  model.glowMat.opacity = glow;
-  for (const g of model.brakeGlows) {
-    g.visible = on;
-    if (on) {
-      const s = 1.25 + Math.sin(time * 22) * 0.12;
-      g.scale.set(s * 1.1, s * 0.7, 1);
-    }
-  }
+  // Hanya emissive pada lampu rem (tanpa sprite lingkaran glow)
+  model.glowMat.opacity = 0;
+  for (const g of model.brakeGlows) g.visible = false;
+  void time;
 }
 
 /** Removes a car model from the scene and frees its GPU resources. */

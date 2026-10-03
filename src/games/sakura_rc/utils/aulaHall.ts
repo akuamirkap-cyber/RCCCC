@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildStaticStumbleFans } from './stumbleFans';
 
 /* ============================================================
    AULA HALL BUILDER — Gedung 256x168x26 adaptif bounds sirkuit
@@ -985,41 +986,19 @@ export function buildAulaHall(
       [seats[i], seats[j]] = [seats[j], seats[i]];
     }
     const filled = seats.slice(0, Math.floor(seats.length * 0.72));
-    const shirtPalette = [
-      '#EF4444', '#F97316', '#FACC15', '#22C55E', '#06B6D4',
-      '#3B82F6', '#A855F7', '#EC4899', '#F8FAFC', '#1F2937',
-    ];
-    const skinPalette = ['#F1C27D', '#E0AC69', '#C68642', '#8D5524', '#FFDBAC'];
-    const bodyMesh = new THREE.InstancedMesh(
-      new THREE.CylinderGeometry(0.3, 0.38, 0.95, 8),
-      new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.0 }),
-      filled.length
+    // Penonton gaya Stumble Guys (kepala kotak-bulat besar, mata titik, badan gempal, topi acak),
+    // semuanya menghadap ke tengah lintasan.
+    const fans = buildStaticStumbleFans(
+      filled.map((st) => ({
+        x: st.x,
+        y: st.y,
+        z: st.z,
+        yaw: Math.atan2(cx - st.x, cz - st.z) + (rng() - 0.5) * 0.4,
+        sc: 0.95 + rng() * 0.2,
+      })),
+      rng
     );
-    const headMesh = new THREE.InstancedMesh(
-      new THREE.SphereGeometry(0.24, 10, 8),
-      new THREE.MeshStandardMaterial({ roughness: 0.7, metalness: 0.0 }),
-      filled.length
-    );
-    const tmpColor = new THREE.Color();
-    filled.forEach((s, i) => {
-      const sc = 0.9 + rng() * 0.2;
-      dummy.position.set(s.x, s.y + 0.48 * sc, s.z);
-      dummy.scale.setScalar(sc);
-      dummy.rotation.set(0, 0, 0);
-      dummy.updateMatrix();
-      bodyMesh.setMatrixAt(i, dummy.matrix);
-      bodyMesh.setColorAt(i, tmpColor.set(shirtPalette[Math.floor(rng() * shirtPalette.length)]));
-      dummy.position.set(s.x, s.y + (0.95 + 0.22) * sc, s.z);
-      dummy.updateMatrix();
-      headMesh.setMatrixAt(i, dummy.matrix);
-      headMesh.setColorAt(i, tmpColor.set(skinPalette[Math.floor(rng() * skinPalette.length)]));
-    });
-    dummy.scale.setScalar(1);
-    bodyMesh.instanceMatrix.needsUpdate = true;
-    headMesh.instanceMatrix.needsUpdate = true;
-    if (bodyMesh.instanceColor) bodyMesh.instanceColor.needsUpdate = true;
-    if (headMesh.instanceColor) headMesh.instanceColor.needsUpdate = true;
-    aulaGroup.add(bodyMesh, headMesh);
+    aulaGroup.add(fans);
   }
 
   // --- 11. Rostrum driver stand 48 m (sisi selatan) ---
