@@ -11,7 +11,7 @@ export type BodyShellMode = 'painted' | 'translucent' | 'naked_chassis';
 
 export type TireCompound = 'hdpe_ptile' | 'poly_slick' | 'silver_dot';
 
-export type SoundMode = 'rb26_soundbox' | 'pro_brushless';
+export type SoundMode = 'rb26_soundbox' | 'pro_brushless' | 'real_brushless_hd';
 
 export type SmokeMode = 'new_pipeline' | 'legacy';
 

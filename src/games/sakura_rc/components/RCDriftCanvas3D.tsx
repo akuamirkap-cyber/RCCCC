@@ -234,14 +234,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const harunaRuntimeTrack = isHarunaMap ? buildHarunaTrack() : null;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(
-      MENU_MODE ? '#2a1440' : useHarunaWorld ? '#e6eeeb' : '#141A26'
+      MENU_MODE ? '#2a1440' : useHarunaWorld ? '#e6eeeb' : '#1A2030'
     );
     // Haruna memakai kabut horizon lembut ala Art of Rally; aula tetap memakai fog volumetrik.
     scene.fog = MENU_MODE
       ? new THREE.FogExp2('#2a1440', 0.00008)
       : useHarunaWorld
       ? new THREE.Fog('#e6eeeb', 115, 760)
-      : new THREE.FogExp2('#141A26', 0.0016);
+      : new THREE.FogExp2('#1A2030', 0.0011);
 
     const camera = new THREE.PerspectiveCamera(
       MENU_MODE ? 48 : 46,
@@ -268,8 +268,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.AgXToneMapping;
-    renderer.toneMappingExposure = 0.95;
+    renderer.toneMapping = useHarunaWorld ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = useHarunaWorld ? 0.95 : 1.0;
 
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
@@ -281,20 +281,21 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const hdriRenderTarget = useHarunaWorld ? null : buildProceduralHDREnv(pmremGenerator);
     if (hdriRenderTarget) {
       scene.environment = hdriRenderTarget.texture;
-      scene.environmentIntensity = 0.6;
+      // HDRI aula HD: pantulan panel LED & skylight terlihat jelas di bodi/lantai
+      scene.environmentIntensity = MENU_MODE ? 0.6 : 0.8;
     }
 
     // Haruna: daylight dingin + matahari rendah hangat, meniru pencahayaan Mt. Akina.
     const ambientLight = new THREE.AmbientLight(
       useHarunaWorld ? '#F1EEE8' : '#E8E2D8',
-      useHarunaWorld ? 0.78 : 0.5
+      useHarunaWorld ? 0.78 : 0.25
     );
     scene.add(ambientLight);
 
     const hemiLight = new THREE.HemisphereLight(
       useHarunaWorld ? '#D6E8F5' : '#FFF4E6',
-      useHarunaWorld ? '#9C9970' : '#1E293B',
-      useHarunaWorld ? 1.05 : 0.4
+      useHarunaWorld ? '#9C9970' : '#3A3F4C',
+      useHarunaWorld ? 1.05 : 0.5
     );
     scene.add(hemiLight);
 
@@ -309,8 +310,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       useHarunaWorld ? 84 : 28
     );
     mainDirLight.castShadow = true;
-    mainDirLight.shadow.mapSize.width = 2048;
-    mainDirLight.shadow.mapSize.height = 2048;
+    mainDirLight.shadow.mapSize.width = useHarunaWorld ? 2048 : 3072;
+    mainDirLight.shadow.mapSize.height = useHarunaWorld ? 2048 : 3072;
+    mainDirLight.shadow.normalBias = 0.02;
     mainDirLight.shadow.camera.near = 5;
     mainDirLight.shadow.camera.far = useHarunaWorld ? 300 : 140;
     const d = 30;
@@ -356,7 +358,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           pitRect: { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity },
           judgeTowerPos: new THREE.Vector3(),
         }
-      : buildAulaHall(scene, circuit.accentColor, hallFrame);
+      : buildAulaHall(scene, circuit.accentColor, hallFrame, circuit.hallTheme);
     const aulaGroup = aulaBuilt.aulaGroup;
 
     // Haruna road, gutters, guardrails, terrain, lake and trees — world asli tetap dipakai,
@@ -2781,7 +2783,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         state.rpm,
         driftDegAbs,
         currentSpeed * 1.6,
-        isTurboEngaged
+        isTurboEngaged,
+        throttleActive ? 1 : 0,
+        !!brakePressed
       );
 
       // 6. 5-STAGE DRIFT SMOKE PIPELINE (NEW 640 RING-BUFFER + SWIRL ORBIT vs LEGACY MODE)

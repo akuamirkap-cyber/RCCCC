@@ -967,6 +967,11 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
                         title: 'SILKY RC BRUSHLESS',
                         sub: 'Smooth Geared Motor Hum',
                       },
+                      {
+                        id: 'real_brushless_hd',
+                        title: 'REAL BRUSHLESS HD ★',
+                        sub: 'Super realistis: whine motor, gear mesh, ESC, ban & gema aula',
+                      },
                     ] as { id: SoundMode; title: string; sub: string }[]
                   ).map((sm) => {
                     const active = (tuning.soundMode || 'rb26_soundbox') === sm.id;

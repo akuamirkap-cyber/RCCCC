@@ -4,6 +4,7 @@ import {
   CarCustomization,
   CircuitDef,
   GameMode,
+  SoundMode,
   TuningSetup,
 } from '../types/rcDrift';
 import { PRO_SUSPENSION_KITS, SMOKE_PRESETS } from '../data/circuitsAndCars';
@@ -298,6 +299,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   options={[
                     { v: 'rb26_soundbox', label: 'RB26' },
                     { v: 'pro_brushless', label: 'BRUSH' },
+                    { v: 'real_brushless_hd', label: 'REAL HD' },
                     { v: 'mute', label: 'MUTE' },
                   ]}
                   value={soundValue}
@@ -307,7 +309,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                     } else {
                       onChangeTuning({
                         ...tuning,
-                        soundMode: v as 'rb26_soundbox' | 'pro_brushless',
+                        soundMode: v as SoundMode,
                       });
                       if (isMuted) onToggleMute();
                     }
