@@ -18,15 +18,30 @@ import {
   computeHallFrame,
 } from '../utils/aulaHall';
 import { DIORAMA_CAR, buildMenuDiorama } from '../utils/menuDiorama';
-import {
-  buildTrack as buildHarunaTrack,
-  projectGlobal as projectHarunaGlobal,
-} from '../../haruna_new/game/track';
+import { buildTrack as buildHarunaTrack } from '../../haruna_new/game/track';
 import { buildWorld as buildHarunaWorld } from '../../haruna_new/game/world';
 import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
 import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 import { createBMWCarMesh } from '@/utils/bmwCar';
 import { ENEMY_BOTS_DATA } from '../data/circuitsAndCars';
+import {
+  BotBrainState,
+  BotNeighbor,
+  BotPersonality,
+  BotTrack,
+  BotZone,
+  buildBotTrack,
+  carSpheres,
+  CarSphere,
+  ContactResult,
+  createBotBrain,
+  deepestSphereContact,
+  personalityFromSpec,
+  projectToTrack,
+  resolveSoftContact,
+  SphereContact,
+  stepBotAI,
+} from '../utils/botAi';
 
 interface RCDriftCanvas3DProps {
   circuit: CircuitDef;
@@ -967,6 +982,19 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const normal = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
       smoothTrackFrames.push({ pt, normal });
     }
+
+    // --- AI LOOKUP-TABLE LINTASAN (arc-length) -------------------------------
+    // AI rival + pencarian posisi pemain memakai LUT ini, bukan ratusan panggilan
+    // curve.getPointAt() per frame. Selain jauh lebih ringan (menghilangkan frame
+    // spike yang membuat gerakan bot terasa "lag/kaku"), hasil proyeksinya juga
+    // kontinu sehingga setir bot tidak bergetar.
+    const botTrack: BotTrack = buildBotTrack(
+      smoothTrackFrames.map((f) => ({ x: f.pt.x, z: f.pt.z })),
+      halfWidth,
+      !isHarunaMap
+    );
+    // Jarak aman yang selalu dihormati bot terhadap pembatas (meter).
+    const BOT_SAFE_MARGIN = 1.3;
 
     // High-detail Pro RC P-Tile Track Surface Texture with Chevrons, Racing Shoulders & Rubber Drift Groove
     const createTrackSurfaceTexture = () => {
@@ -2146,12 +2174,19 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         .clone()
         .addScaledVector(bNorm, bot.startGridOffset);
       const bHeading = Math.atan2(bTan.x, bTan.z);
+      const bStartPos = new THREE.Vector3(bPos.x, bPos.y + harunaRideHeight, bPos.z);
+      // Otak AI memegang pos/vel yang SAMA (shared reference) dengan state render,
+      // sehingga tidak ada copy bolak-balik per frame.
+      const brain: BotBrainState = createBotBrain(bStartPos, bHeading, bStartT, bot.startGridOffset);
+      const personality: BotPersonality = personalityFromSpec(bot, index);
 
       return {
         def: bot,
         rig: botRigs[index],
-        pos: new THREE.Vector3(bPos.x, bPos.y + harunaRideHeight, bPos.z),
-        vel: new THREE.Vector3(0, 0, 0),
+        brain,
+        personality,
+        pos: brain.pos,
+        vel: brain.vel,
         speed: 0,
         heading: bHeading,
         velocityAngle: bHeading,
@@ -2159,9 +2194,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         frontSteerAngle: 0,
         lastSplineT: bStartT,
         lapCount: 1,
-        lateralOffsetTarget: bot.startGridOffset,
         currentLateralOffset: bot.startGridOffset,
-        smoothTargetSlip: 0,
         recoveryFactor: 0,
         collisionCooldown: 0,
         slideAcc: 0,
@@ -2169,16 +2202,59 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         driftDegAbs: 0,
         driftDegSigned: 0,
         totalProgress: (bot.startGridT < 0 ? bot.startGridT : bot.startGridT),
-        // Tactical AI & Driving Personality State
-        tacticalState: 'racing' as 'racing' | 'overtaking' | 'defending' | 'feint_entry' | 'recovering',
-        overtakeOffset: 0,
-        overtakeTimer: 0,
-        feintTimer: 0,
-        feintPhase: 0,
+        // Tactical AI & Driving Personality State (diisi dari brain tiap frame)
+        tacticalState: 'racing' as BotBrainState['tacticalState'],
         draftBoost: 1.0,
       };
     });
     const aiState = botStates[0];
+
+    // Buffer bersama untuk loop AI/kontak (tanpa alokasi per frame → tanpa GC hitch).
+    const mkSphereBuf = (): CarSphere[] => [
+      { offset: 0, x: 0, z: 0, radius: 0 },
+      { offset: 0, x: 0, z: 0, radius: 0 },
+      { offset: 0, x: 0, z: 0, radius: 0 },
+    ];
+    const playerSphereBuf = mkSphereBuf();
+    const sphereBuffers = botStates.map(() => mkSphereBuf());
+    const contactBuf: SphereContact = { nx: 1, nz: 0, penetration: 0, cx: 0, cz: 0, offsetA: 0, offsetB: 0 };
+    const contactBufB: SphereContact = { nx: 1, nz: 0, penetration: 0, cx: 0, cz: 0, offsetA: 0, offsetB: 0 };
+    const contactResult: ContactResult = { impulse: 0, closingSpeed: 0, pushSign: 1 };
+    const contactResultB: ContactResult = { impulse: 0, closingSpeed: 0, pushSign: 1 };
+    const contactPoint = new THREE.Vector3();
+    const neighborScratch: BotNeighbor[] = [];
+    const zoneList: BotZone[] = circuit.clippingZones.map((cz, i) => ({
+      t: cz.t,
+      // Stagger kecil antar bot dibuat di sisi AI; di sini cukup offset zona.
+      offset: THREE.MathUtils.clamp(cz.offset + (i % 2 === 0 ? 0.03 : -0.03), -0.95, 0.95),
+    }));
+    const aiInput = {
+      dt: 1 / 60,
+      time: 0,
+      active: false,
+      paceScale: 1,
+      gapToPlayerM: 0,
+      neighbors: neighborScratch,
+      zones: zoneList,
+      isLeader: false,
+      rand: Math.random,
+      safeMargin: BOT_SAFE_MARGIN,
+    };
+    // Badan fisik untuk solver kontak lunak. Pemain sedikit lebih "berat" supaya
+    // senggolan bot tidak melempar pemain, tapi tetap terasa.
+    const playerBody = { pos: state.pos, vel: state.vel, heading: state.heading, invMass: 0.82, kick: null as THREE.Vector3 | null };
+    const botBodies = botStates.map((b) => ({
+      pos: b.pos,
+      vel: b.vel,
+      heading: b.heading,
+      invMass: 1.0,
+      kick: b.brain.kick,
+      kickSpinSink: (dw: number) => {
+        b.brain.kickSpin += dw;
+      },
+    }));
+    const PLAYER_CONTACT_OPTS = { smoothTau: 0.07, maxDvPerFrame: 0.95, maxSepSpeed: 2.8, friction: 0.3, restitution: 0.28 };
+    const BOT_CONTACT_OPTS = { smoothTau: 0.08, maxDvPerFrame: 0.8, maxSepSpeed: 2.4, friction: 0.34, restitution: 0.22 };
 
     const triggerCallout = (
       text: string,
@@ -2204,52 +2280,19 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
-    const findClosestSplineT = (pos: THREE.Vector3) => {
-      // Haruna punya ribuan meter jalan; gunakan proyeksi segmen aslinya supaya
-      // posisi y tetap tepat di atas aspal dan tidak menembus saat hairpin.
-      if (isHarunaMap && harunaRuntimeTrack) {
-        const projected = projectHarunaGlobal(harunaRuntimeTrack, pos.x, pos.z);
-        const segmentLength =
-          harunaRuntimeTrack.dist[Math.min(projected.i + 1, harunaRuntimeTrack.n - 1)] -
-          harunaRuntimeTrack.dist[projected.i];
-        const routeDistance = harunaRuntimeTrack.dist[projected.i] + segmentLength * projected.f;
-        const routeT = THREE.MathUtils.clamp(
-          routeDistance / harunaRuntimeTrack.length,
-          0,
-          1
-        );
-        return {
-          t: routeT,
-          dist: projected.d,
-          // Follow the smoothed Aula overlay height, not the removed Haruna road.
-          height: trackCurve.getPointAt(routeT).y,
-        };
-      }
-
-      let bestT = state.lastSplineT;
-      let bestDistSq = Infinity;
-      const searchSteps = 240;
-      for (let i = 0; i < searchSteps; i++) {
-        const t = i / searchSteps;
-        const pt = trackCurve.getPointAt(t);
-        const dSq = (pt.x - pos.x) ** 2 + (pt.z - pos.z) ** 2;
-        if (dSq < bestDistSq) {
-          bestDistSq = dSq;
-          bestT = t;
-        }
-      }
-      // Sub-millimeter local refinement around closest sample
-      const fineStep = 1 / (searchSteps * 10);
-      for (let offset = -5; offset <= 5; offset++) {
-        const t = (bestT + offset * fineStep + 1) % 1;
-        const pt = trackCurve.getPointAt(t);
-        const dSq = (pt.x - pos.x) ** 2 + (pt.z - pos.z) ** 2;
-        if (dSq < bestDistSq) {
-          bestDistSq = dSq;
-          bestT = t;
-        }
-      }
-      return { t: bestT, dist: Math.sqrt(bestDistSq), height: 0 };
+    const findClosestSplineT = (pos: THREE.Vector3, hintT = state.lastSplineT) => {
+      // Proyeksi cepat lewat LUT arc-length: jendela lokal di sekitar posisi
+      // terakhir (plus fallback scan penuh yang tetap murah). Menggantikan
+      // pencarian global 240 + 11 langkah curve.getPointAt() yang dulu dipanggil
+      // untuk pemain DAN 5 bot setiap frame — sumber utama frame-spike "lag/kaku".
+      const proj = projectToTrack(botTrack, pos.x, pos.z, hintT, 42);
+      return {
+        t: proj.t,
+        dist: proj.dist,
+        // Haruna tetap butuh elevasi overlay Aula yang sudah dihaluskan,
+        // bukan aspal Haruna lama yang sudah dijadikan underlay.
+        height: isHarunaMap ? trackCurve.getPointAt(proj.t).y : 0,
+      };
     };
 
     // --- 9. MAIN 60FPS SIMULATION & RENDER LOOP ---
@@ -3036,334 +3079,100 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       let tsuisoSyncActive = false;
 
       if (showBots) {
-        // Multi-sphere bounding volume helper for RC car body collision detection
-        const getCarSpheres = (pos: THREE.Vector3, heading: number) => {
-          const fwdX = Math.sin(heading);
-          const fwdZ = Math.cos(heading);
-          return [
-            { offset: 1.05, center: new THREE.Vector3(pos.x + fwdX * 1.05, 0, pos.z + fwdZ * 1.05), radius: 0.88 },
-            { offset: 0.0, center: new THREE.Vector3(pos.x, 0, pos.z), radius: 0.92 },
-            { offset: -1.05, center: new THREE.Vector3(pos.x - fwdX * 1.05, 0, pos.z - fwdZ * 1.05), radius: 0.88 },
-          ];
-        };
-        const playerSpheres = getCarSpheres(state.pos, state.heading);
+        // ------------------------------------------------------------------
+        // AI RIVAL SAKURA RC — loop 60fps bebas alokasi.
+        // Semua keputusan mengemudi ada di utils/botAi.ts (murni & teruji offline);
+        // di sini hanya: siapkan input → jalankan otak → render → kontak fisik.
+        // ------------------------------------------------------------------
+        const playerSpheres = carSpheres(state.pos.x, state.pos.z, state.heading, playerSphereBuf);
+        const timeSec = now * 0.001;
 
         // Update each of the 5 autonomous enemy bots
         botStates.forEach((bState, bIdx) => {
-          // A. Spline position & lap tracking
-          const bClosest = findClosestSplineT(bState.pos);
-          const bCrossedStart = bState.lastSplineT > 0.85 && bClosest.t < 0.15;
-          if (bCrossedStart) {
-            bState.lapCount++;
-          }
-          bState.lastSplineT = bClosest.t;
-          bState.totalProgress = (bState.lapCount - 1) + bClosest.t;
+          const brain: BotBrainState = bState.brain;
+          const prevT = bState.lastSplineT;
 
-          const bTrackPt = trackCurve.getPointAt(bClosest.t);
-          const bTrackTan = trackCurve.getTangentAt(bClosest.t).normalize();
-          const bTrackNorm = new THREE.Vector3(-bTrackTan.z, 0, bTrackTan.x);
-          const bTrackAngle = Math.atan2(bTrackTan.x, bTrackTan.z);
-
-          // B. Individual Curvature Lookahead (Calculated for THIS bot's position for organic, fluid movement)
-          const bTanNear = trackCurve.getTangentAt((bClosest.t + 0.022) % 1).normalize();
-          const bTanMid = trackCurve.getTangentAt((bClosest.t + 0.052) % 1).normalize();
-          const bTanFar = trackCurve.getTangentAt((bClosest.t + 0.090) % 1).normalize();
-          const bCurvNear = wrapAngle(Math.atan2(bTanNear.x, bTanNear.z) - bTrackAngle);
-          const bCurvMid = wrapAngle(Math.atan2(bTanMid.x, bTanMid.z) - Math.atan2(bTanNear.x, bTanNear.z));
-          const bCurvFar = wrapAngle(Math.atan2(bTanFar.x, bTanFar.z) - Math.atan2(bTanMid.x, bTanMid.z));
-          const botCurvature = bCurvNear * 1.5 + bCurvMid * 1.8 + bCurvFar * 1.0;
-          const isApproachingCorner = Math.abs(botCurvature) > 0.16;
-
-          // C. Track Boundary & Deviation Detection (Intelligent Recovery System)
-          const bToCenter = new THREE.Vector3().subVectors(bState.pos, bTrackPt);
-          const bLatOffset = bToCenter.dot(bTrackNorm);
-          const bLatDist = Math.abs(bLatOffset);
-          const roadCorridorLimit = halfWidth - 0.70;
-          const isOffTrack = bLatDist > roadCorridorLimit;
-          const headingToTrackDiff = wrapAngle(bState.heading - bTrackAngle);
-          const isFacingWrongWay = Math.abs(headingToTrackDiff) > Math.PI * 0.46;
-
-          // Smooth continuous recovery factor (0 = normal race/drift mode, 1 = clean recovery mode)
-          const targetRecovery = (isOffTrack || isFacingWrongWay) ? 1.0 : 0.0;
-          bState.recoveryFactor = THREE.MathUtils.lerp(
-            bState.recoveryFactor,
-            targetRecovery,
-            dt * (isOffTrack ? 4.8 : 3.2)
-          );
-
-          // D. Tactical Traffic Scanner & Situational Awareness (Smart Overtake, Defense & Slipstream)
-          let carAhead: { pos: THREE.Vector3; distSpline: number; latOffset: number; isPlayer: boolean } | null = null;
-          let carBehind: { distSpline: number; latOffset: number } | null = null;
-          let minAheadDist = 0.075;
-          let minBehindDist = -0.055;
-
-          // Scan Player
-          let pSplineDist = closest.t - bClosest.t;
-          if (pSplineDist < -0.5) pSplineDist += 1;
-          if (pSplineDist > 0.5) pSplineDist -= 1;
-          if (pSplineDist > 0.003 && pSplineDist < minAheadDist) {
-            minAheadDist = pSplineDist;
-            const pToCenter = new THREE.Vector3().subVectors(state.pos, trackPt);
-            carAhead = {
-              pos: state.pos,
-              distSpline: pSplineDist,
-              latOffset: pToCenter.dot(trackNormal),
-              isPlayer: true,
-            };
-          } else if (pSplineDist < -0.003 && pSplineDist > minBehindDist) {
-            minBehindDist = pSplineDist;
-            const pToCenter = new THREE.Vector3().subVectors(state.pos, trackPt);
-            carBehind = {
-              distSpline: pSplineDist,
-              latOffset: pToCenter.dot(trackNormal),
-            };
-          }
-
-          // Scan Other Bots
-          botStates.forEach((otherB, oIdx) => {
-            if (oIdx === bIdx) return;
-            let oSplineDist = otherB.lastSplineT - bClosest.t;
-            if (oSplineDist < -0.5) oSplineDist += 1;
-            if (oSplineDist > 0.5) oSplineDist -= 1;
-            if (oSplineDist > 0.003 && oSplineDist < minAheadDist) {
-              minAheadDist = oSplineDist;
-              const oToCenter = new THREE.Vector3().subVectors(otherB.pos, bTrackPt);
-              carAhead = {
-                pos: otherB.pos,
-                distSpline: oSplineDist,
-                latOffset: oToCenter.dot(bTrackNorm),
-                isPlayer: false,
-              };
-            } else if (oSplineDist < -0.003 && oSplineDist > minBehindDist) {
-              minBehindDist = oSplineDist;
-              const oToCenter = new THREE.Vector3().subVectors(otherB.pos, bTrackPt);
-              carBehind = {
-                distSpline: oSplineDist,
-                latOffset: oToCenter.dot(bTrackNorm),
-              };
+          // A. Peta lalu lintas sekitar (pemain + 5 bot) dalam meter arc-length
+          neighborScratch.length = 0;
+          const addNeighbor = (x: number, z: number, t: number, lat: number, spd: number, isPlayer: boolean) => {
+            let dT = t - prevT;
+            if (botTrack.closed) {
+              if (dT < -0.5) dT += 1;
+              if (dT > 0.5) dT -= 1;
             }
-          });
-
-          // Drafting / Slipstream Pull
-          if (carAhead && carAhead.distSpline < 0.040 && Math.abs(carAhead.latOffset - bState.currentLateralOffset) < 1.6) {
-            bState.draftBoost = THREE.MathUtils.lerp(bState.draftBoost, 1.08, dt * 3.5);
-          } else {
-            bState.draftBoost = THREE.MathUtils.lerp(bState.draftBoost, 1.0, dt * 2.0);
+            neighborScratch.push({ x, z, lateral: lat, aheadM: dT * botTrack.length, speed: spd, isPlayer });
+          };
+          addNeighbor(state.pos.x, state.pos.z, closest.t, lateralOffset, currentSpeed, true);
+          for (let oi = 0; oi < botStates.length; oi++) {
+            if (oi === bIdx) continue;
+            const o = botStates[oi];
+            addNeighbor(o.pos.x, o.pos.z, o.lastSplineT, o.currentLateralOffset, o.speed, false);
           }
 
-          // Tactical Decision-Making & Maneuver Offsets
-          if (bState.recoveryFactor > 0.1) {
-            bState.tacticalState = 'recovering';
-            bState.overtakeTimer = 0;
-            bState.overtakeOffset = THREE.MathUtils.lerp(bState.overtakeOffset, 0, dt * 4.0);
-          } else if (carAhead && carAhead.distSpline < 0.055) {
-            // Trailing closely: attempt intelligent overtake maneuver
-            bState.overtakeTimer = Math.max(0, bState.overtakeTimer - dt);
-            if (bState.overtakeTimer <= 0) {
-              bState.overtakeTimer = 1.6 + Math.random() * 1.4;
-              let chosenOvertakeOffset = 0;
-              // Pass based on unique driver archetype:
-              if (bState.def.style === 'apex_gutter') {
-                // Takumi: Hunts the tight inside curb
-                const insideDir = -Math.sign(botCurvature || 1);
-                chosenOvertakeOffset = insideDir * (halfWidth * 0.48);
-              } else if (bState.def.style === 'aggressive_dive') {
-                // Kenji: Dives deep inside to trade paint
-                chosenOvertakeOffset = -Math.sign(carAhead.latOffset || 1) * (halfWidth * 0.44);
-              } else if (bState.def.style === 'smooth_momentum') {
-                // Takashi: Sweeps around the outside with rolling momentum
-                chosenOvertakeOffset = Math.sign(carAhead.latOffset || -1) * (halfWidth * 0.42);
-              } else if (bState.def.style === 'tactical_cutter') {
-                // Ryosuke: Analyzes open space, cuts opposite to leader's position
-                chosenOvertakeOffset = (carAhead.latOffset > 0 ? -1 : 1) * (halfWidth * 0.40);
-              } else {
-                // Nakazato: Heavy power slide on dominant lateral line
-                chosenOvertakeOffset = Math.sign(bState.def.lateralPreference || 1) * (halfWidth * 0.45);
-              }
-              bState.overtakeOffset = chosenOvertakeOffset;
-            }
-            bState.tacticalState = 'overtaking';
-          } else if (bState.rank === 1 || (carBehind && carBehind.distSpline > -0.035)) {
-            // Defending lead: subtly guard the inside line into upcoming corners
-            const insideGuard = -Math.sign(botCurvature || 1) * (halfWidth * 0.26);
-            bState.overtakeOffset = THREE.MathUtils.lerp(bState.overtakeOffset, insideGuard, dt * 2.8);
-            bState.tacticalState = 'defending';
-          } else {
-            bState.overtakeOffset = THREE.MathUtils.lerp(bState.overtakeOffset, 0, dt * 2.0);
-            bState.tacticalState = 'racing';
+          // B. Gap ke pemain (meter) → rubber-band halus, bukan lompatan 0.95/1.02/1.08
+          let gapT = prevT - closest.t;
+          if (botTrack.closed) {
+            if (gapT < -0.5) gapT += 1;
+            if (gapT > 0.5) gapT -= 1;
           }
 
-          // E. Scandinavian Flick / Feint Drift Initiation (Authentic Pro RC Drifting)
-          if (isApproachingCorner && bState.recoveryFactor < 0.1) {
-            if (bState.feintTimer <= 0 && Math.random() < bState.def.feintDriftChance * dt * 2.5) {
-              bState.feintTimer = 0.28;
-              bState.feintPhase = Math.sign(botCurvature || 1); // counter-flick outward!
-            }
-          }
-          let feintOffset = 0;
-          if (bState.feintTimer > 0) {
-            bState.feintTimer -= dt;
-            bState.tacticalState = 'feint_entry';
-            feintOffset = bState.feintPhase * (halfWidth * 0.28);
-          }
-
-          // F. Human-like Lap Variance & Micro-Steering Jitter
-          const lapVariance = Math.sin(bState.lapCount * 4.3 + bIdx * 2.7) * (halfWidth * 0.20) * bState.def.lineWanderRate;
-          const humanJitter = Math.sin(now * 0.0075 + bIdx * 11.3) * 0.024 * (1 - bState.recoveryFactor);
-
-          // G. Clipping Zone Hunting & Smart Re-entry Waypoint
-          let bFoundZoneOffset: number | null = null;
-          for (const cz of circuit.clippingZones) {
-            let distAhead = cz.t - bClosest.t;
-            if (distAhead < -0.5) distAhead += 1;
-            if (distAhead > 0.5) distAhead -= 1;
-            if (distAhead >= -0.01 && distAhead <= 0.14) {
-              const stagger = bIdx % 2 === 0 ? 0.35 : -0.35;
-              bFoundZoneOffset = cz.offset * (halfWidth - 1.25) + stagger;
+          // C. Slipstream: bot yang menempel di belakang mobil lain dapat dorongan
+          let draftTarget = 1.0;
+          for (const nb of neighborScratch) {
+            if (nb.aheadM > 0.4 && nb.aheadM < 9.5 && Math.abs(nb.lateral - bState.currentLateralOffset) < 1.8) {
+              draftTarget = 1.07;
               break;
             }
           }
+          bState.draftBoost = THREE.MathUtils.lerp(bState.draftBoost, draftTarget, dt * 3.0);
 
-          // Smart Re-entry Waypoint: calculates an oblique forward merge target ahead on track (not a sharp 90° turn)
-          const rejoinAheadStep = THREE.MathUtils.clamp(0.045 + (bLatDist / halfWidth) * 0.038, 0.042, 0.095);
-          const rejoinT = (bClosest.t + rejoinAheadStep) % 1;
-          const rejoinCenterPt = trackCurve.getPointAt(rejoinT);
-          const rejoinTan = trackCurve.getTangentAt(rejoinT).normalize();
-          const rejoinNorm = new THREE.Vector3(-rejoinTan.z, 0, rejoinTan.x);
-          const safeRejoinOffset = THREE.MathUtils.clamp(-Math.sign(bLatOffset) * 0.85, -1.4, 1.4);
-          const targetRejoinPt = rejoinCenterPt.clone().addScaledVector(rejoinNorm, safeRejoinOffset);
+          // D. Jalankan otak AI (garis balap, model kecepatan tikungan, recovery, taktik)
+          aiInput.dt = dt;
+          aiInput.time = timeSec;
+          aiInput.active = state.raceStarted;
+          aiInput.paceScale =
+            speedFactor * (curTuning.botPace === 'chill' ? 0.8 : 1.0) * bState.draftBoost;
+          aiInput.gapToPlayerM = gapT * botTrack.length;
+          aiInput.neighbors = neighborScratch;
+          aiInput.zones = zoneList;
+          aiInput.isLeader = bState.rank === 1;
+          aiInput.rand = Math.random;
+          aiInput.safeMargin = BOT_SAFE_MARGIN;
+          stepBotAI(brain, bState.personality, botTrack, aiInput);
 
-          // Normal racing line lateral offset factoring driving styles, tactical pass, feint flick, and lap variance
-          const baseApexSwing = -Math.sign(botCurvature || 1) * (halfWidth * 0.40);
-          const stylePreferenceOffset = bState.def.lateralPreference * (halfWidth * 0.32);
-          const normalLateralTarget = (bFoundZoneOffset !== null ? bFoundZoneOffset : baseApexSwing)
-            + stylePreferenceOffset
-            + bState.overtakeOffset
-            + feintOffset
-            + lapVariance;
+          // E. Lap & progress
+          const bT = brain.trackT;
+          if (bState.lastSplineT > 0.85 && bT < 0.15) bState.lapCount++;
+          bState.lastSplineT = bT;
+          bState.totalProgress = (bState.lapCount - 1) + bT;
 
-          bState.lateralOffsetTarget = THREE.MathUtils.lerp(normalLateralTarget, 0, bState.recoveryFactor);
-          bState.currentLateralOffset = THREE.MathUtils.lerp(
-            bState.currentLateralOffset,
-            bState.lateralOffsetTarget,
-            dt * (isOffTrack ? 5.5 : 4.0)
-          );
+          // F. Sinkronisasi state render dari otak
+          bState.heading = brain.heading;
+          bState.velocityAngle = brain.velocityAngle;
+          bState.angularVel = brain.angularVel;
+          bState.speed = brain.speed;
+          bState.frontSteerAngle = brain.frontSteerAngle;
+          bState.driftDegSigned = brain.driftDegSigned;
+          bState.driftDegAbs = brain.driftDegAbs;
+          bState.recoveryFactor = brain.recovery;
+          bState.tacticalState = brain.tacticalState;
+          bState.currentLateralOffset = brain.lateral;
 
-          // Normal adaptive lookahead for on-track flow
-          const lookAheadSpan = THREE.MathUtils.clamp(0.028 + (bState.speed / 28) * 0.018, 0.024, 0.048);
-          const normalLookT = (bClosest.t + lookAheadSpan) % 1;
-          const normalLookPt = trackCurve.getPointAt(normalLookT);
-          const normalLookTan = trackCurve.getTangentAt(normalLookT).normalize();
-          const normalLookNorm = new THREE.Vector3(-normalLookTan.z, 0, normalLookTan.x);
-          const normalTargetPt = normalLookPt.clone().addScaledVector(normalLookNorm, bState.currentLateralOffset);
-
-          // Seamlessly blend normal target point with smart rejoin waypoint based on recoveryFactor
-          const targetWorldPt = normalTargetPt.clone().lerp(targetRejoinPt, bState.recoveryFactor);
-
-          // H. Dynamic Adaptive Target Speed, Braking Profiles & Pack Balancing
-          // Braking bias profiles:
-          let cornerSlowdown = 1.0;
-          if (bState.def.brakingBias === 'late') {
-            cornerSlowdown = Math.max(0.88, 1.0 - Math.min(0.12, Math.abs(botCurvature) * 0.18));
-          } else if (bState.def.brakingBias === 'early_apex') {
-            cornerSlowdown = Math.max(0.82, 1.0 - Math.min(0.18, Math.abs(botCurvature) * 0.24));
-          } else if (bState.def.brakingBias === 'trail') {
-            cornerSlowdown = Math.max(0.86, 1.0 - Math.min(0.14, Math.abs(botCurvature) * 0.20));
-          } else {
-            cornerSlowdown = Math.max(0.85, 1.0 - Math.min(0.15, Math.abs(botCurvature) * 0.22));
-          }
-
-          const bBaseSpeed = curTuning.botPace === 'chill' ? bState.def.baseSpeed * 0.8 : bState.def.baseSpeed;
-
-          // Dynamic competitive pack rubber-banding
-          let splineGap = bClosest.t - closest.t;
-          if (splineGap < -0.5) splineGap += 1;
-          if (splineGap > 0.5) splineGap -= 1;
-          const rubberBand = splineGap < -0.06 ? 1.08 : splineGap > 0.12 ? 0.95 : 1.02;
-
-          // When off-track or facing wrong way, moderate pace smoothly to steer and regain grip cleanly
-          const recoverySpeedFactor = THREE.MathUtils.lerp(1.0, isFacingWrongWay ? 0.46 : 0.78, bState.recoveryFactor);
-          const targetAiSpeed = state.raceStarted
-            ? bBaseSpeed * speedFactor * cornerSlowdown * rubberBand * recoverySpeedFactor * bState.draftBoost
-            : 0;
-          bState.speed = THREE.MathUtils.lerp(bState.speed, targetAiSpeed, dt * 5.0);
-
-          // I. Fluid Proportional Steering & Velocity Direction with Human Micro-Corrections
-          const toTargetVec = new THREE.Vector3().subVectors(targetWorldPt, bState.pos);
-          const desiredVelAngle = Math.atan2(toTargetVec.x, toTargetVec.z);
-          const velAngleError = wrapAngle(desiredVelAngle - bState.velocityAngle);
-          const steerTurnRate = THREE.MathUtils.lerp(5.8, 8.5, bState.recoveryFactor);
-          bState.velocityAngle = wrapAngle(bState.velocityAngle + (velAngleError + humanJitter) * steerTurnRate * dt);
-
-          bState.vel.set(
-            Math.sin(bState.velocityAngle) * bState.speed,
-            0,
-            Math.cos(bState.velocityAngle) * bState.speed
-          );
-          bState.pos.addScaledVector(bState.vel, dt);
-
-          // J. Organic Drift Slip Angle & Style-Specific Counter-Steer
-          const manjiWave = Math.abs(botCurvature) < 0.08 ? Math.sin((now + bIdx * 900) * 0.0055) * 0.28 : 0;
-          // Slip angle scaled by driver's unique archetype driftAngleFactor
-          const rawTargetSlip = (1 - bState.recoveryFactor) * THREE.MathUtils.clamp(
-            (botCurvature * 2.3 * bState.def.driftAngleFactor) + manjiWave,
-            -1.25,
-            1.25
-          );
-
-          bState.smoothTargetSlip = THREE.MathUtils.lerp(bState.smoothTargetSlip, rawTargetSlip, dt * 5.5);
-
-          let desiredHeading = wrapAngle(bState.velocityAngle + bState.smoothTargetSlip);
-          if (isFacingWrongWay) {
-            // Smooth rapid re-orientation towards forward track direction
-            desiredHeading = bTrackAngle;
-          }
-
-          const headingTurnSpeed = isFacingWrongWay ? 10.5 : 7.2;
-          const headingErr = wrapAngle(desiredHeading - bState.heading);
-          bState.angularVel = THREE.MathUtils.lerp(bState.angularVel, headingErr * headingTurnSpeed, dt * 8.5);
-          bState.heading = wrapAngle(bState.heading + bState.angularVel * dt);
-
-          // K. Soft Elastic Boundary Cushion (Prevents Sticking / Teleporting)
-          const maxTrackHalfWidth = halfWidth - 0.50;
-          if (bLatDist > maxTrackHalfWidth) {
-            const excess = bLatDist - maxTrackHalfWidth;
-            const sgn = Math.sign(bLatOffset);
-            // Progressive elastic cushion inward
-            bState.pos.addScaledVector(bTrackNorm, -sgn * Math.min(0.06, excess * 0.25));
-            // Dampen only the outward velocity component so the car drives inward freely
-            const outwardSpeed = bState.vel.dot(bTrackNorm) * sgn;
-            if (outwardSpeed > 0) {
-              bState.vel.addScaledVector(bTrackNorm, -sgn * outwardSpeed * 1.35);
-              bState.velocityAngle = Math.atan2(bState.vel.x, bState.vel.z);
-            }
-          }
-
-          // L. Visual Transforms & Style-Specific Counter-Steer on 3D Car Rig
-          if (isHarunaMap) bState.pos.y = bClosest.height + harunaRideHeight;
+          // G. Transform visual & counter-steer servo pada rig 3D
+          if (isHarunaMap) bState.pos.y = trackCurve.getPointAt(bT).y + harunaRideHeight;
           bState.rig.root.position.copy(bState.pos);
           bState.rig.root.rotation.y = bState.heading;
-
-          const bSlipSignedRad = wrapAngle(bState.heading - bState.velocityAngle);
-          bState.driftDegSigned = THREE.MathUtils.radToDeg(bSlipSignedRad);
-          bState.driftDegAbs = Math.abs(bState.driftDegSigned);
-
-          const bCounterSteerTarget = THREE.MathUtils.clamp(
-            -bSlipSignedRad * 1.05,
-            -THREE.MathUtils.degToRad(75),
-            THREE.MathUtils.degToRad(75)
-          );
-          // Counter-steer rate varies by driver archetype (Takumi 20.0 vs Takashi 14.0)
-          bState.frontSteerAngle = THREE.MathUtils.lerp(bState.frontSteerAngle, bCounterSteerTarget, dt * bState.def.counterSteerRate);
           bState.rig.flKnuckle.rotation.y = bState.frontSteerAngle;
           bState.rig.frKnuckle.rotation.y = bState.frontSteerAngle;
           bState.rig.servoHorn.rotation.y = bState.frontSteerAngle * 0.8;
           bState.rig.coolingFan.rotation.y += dt * 35;
 
-          // Dynamic Body Roll & Pitch (Scales with driver aggression)
+          // Body roll mengikuti sudut drift & gaya gedor pembalap
           bState.rig.bodyShellGroup.rotation.z = THREE.MathUtils.lerp(
             bState.rig.bodyShellGroup.rotation.z,
-            THREE.MathUtils.degToRad(Math.max(-5.0, Math.min(5.0, bState.driftDegSigned * 0.085 * (0.8 + bState.def.aggression * 0.4)))),
+            THREE.MathUtils.degToRad(
+              Math.max(-5.0, Math.min(5.0, bState.driftDegSigned * 0.085 * (0.8 + bState.def.aggression * 0.4)))
+            ),
             dt * 9
           );
           bState.rig.bodyShellGroup.rotation.x = -0.02;
@@ -3377,7 +3186,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             axle.rotation.x += rate * dt;
           });
 
-          // J. Bot Tire Smoke & Skidmarks
+          // H. Asap ban & jejak rem bot
           if (bState.driftDegAbs > 12 && bState.speed > 5) {
             const bFwdX = Math.sin(bState.heading);
             const bFwdZ = Math.cos(bState.heading);
@@ -3411,11 +3220,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             }
 
             if (smokeCfg.amount > 0) {
-              const botSmokeIntensity = Math.min(1, (Math.abs(bSlipSignedRad) / 0.7) * Math.min(1, bState.speed / 12.0));
+              const botSmokeIntensity = Math.min(
+                1,
+                (Math.abs(wrapAngle(bState.heading - bState.velocityAngle)) / 0.7) * Math.min(1, bState.speed / 12.0)
+              );
               const botRate = (10 + botSmokeIntensity * 10) * smokeCfg.amount;
               bState.slideAcc += dt * botRate;
 
-              const bSlideSign = Math.sign(bSlipSignedRad) || 1;
+              const bSlideSign = Math.sign(wrapAngle(bState.heading - bState.velocityAngle)) || 1;
               while (bState.slideAcc >= 1.0) {
                 bState.slideAcc -= 1.0;
                 const baseTire = Math.random() < 0.5 ? bRL : bRR;
@@ -3435,100 +3247,65 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             }
           }
 
-          // K. Silky-Smooth Two-Way Collision Physics (Player <-> Bot)
+          // I. KONTAK FISIK PLAYER <-> BOT — tabrakan tetap terjadi, tapi responnya
+          //    spring-damper + rate-limited: momentum dipindah bertahap beberapa
+          //    frame, jadi tidak ada sentakan kaku / mobil "melompat".
           bState.collisionCooldown = Math.max(0, bState.collisionCooldown - dt);
-          const aiSpheres = getCarSpheres(bState.pos, bState.heading);
+          const bSpheres = carSpheres(bState.pos.x, bState.pos.z, bState.heading, sphereBuffers[bIdx]);
+          const contact = deepestSphereContact(playerSpheres, bSpheres, contactBuf);
+          if (contact) {
+            playerBody.heading = state.heading;
+            botBodies[bIdx].heading = bState.heading;
+            const res = resolveSoftContact(
+              playerBody,
+              botBodies[bIdx],
+              contact.nx,
+              contact.nz,
+              contact.penetration,
+              dt,
+              PLAYER_CONTACT_OPTS,
+              contactResult
+            );
 
-          let deepestOverlap = 0;
-          let bestNormal = new THREE.Vector3(1, 0, 0);
-          let contactPoint = new THREE.Vector3();
-          let pHitOffset = 0;
-          let aiHitOffset = 0;
-
-          for (const ps of playerSpheres) {
-            for (const as of aiSpheres) {
-              const dx = ps.center.x - as.center.x;
-              const dz = ps.center.z - as.center.z;
-              const dist = Math.hypot(dx, dz);
-              const minSep = ps.radius + as.radius;
-              if (dist < minSep) {
-                const overlap = minSep - dist;
-                if (overlap > deepestOverlap) {
-                  deepestOverlap = overlap;
-                  if (dist > 0.0001) {
-                    bestNormal.set(dx / dist, 0, dz / dist);
-                  } else {
-                    bestNormal.set(Math.sin(state.heading), 0, Math.cos(state.heading));
-                  }
-                  contactPoint.copy(ps.center).add(as.center).multiplyScalar(0.5);
-                  contactPoint.y = state.pos.y + 0.42;
-                  pHitOffset = ps.offset;
-                  aiHitOffset = as.offset;
-                }
-              }
-            }
-          }
-
-          if (deepestOverlap > 0) {
-            // Smooth progressive positional separation (prevents visual snapping/jitter)
-            const pushDist = Math.min(0.09, deepestOverlap * 0.38);
-            state.pos.addScaledVector(bestNormal, pushDist * 0.5);
-            bState.pos.addScaledVector(bestNormal, -pushDist * 0.5);
-
-            const rvx = state.vel.x - bState.vel.x;
-            const rvz = state.vel.z - bState.vel.z;
-            const velAlongNormal = rvx * bestNormal.x + rvz * bestNormal.z;
-
-            // Gentle elastic contact impulse with coefficient of restitution ~0.32
-            const closingSpeed = -velAlongNormal; // > 0 when closing in
-            const bounceImpulse = closingSpeed > 0 ? closingSpeed * 0.52 : 0;
-            const contactSpring = Math.min(2.2, deepestOverlap * 3.2);
-            const impulseMag = Math.min(6.8, bounceImpulse + contactSpring);
-
-            state.vel.x += bestNormal.x * impulseMag;
-            state.vel.z += bestNormal.z * impulseMag;
-
-            bState.vel.x -= bestNormal.x * impulseMag;
-            bState.vel.z -= bestNormal.z * impulseMag;
-
+            // Arah gerak pemain mengikuti kontak secara halus (bukan snap instan).
             const newPlayerSpd = state.vel.length();
             if (newPlayerSpd > 0.3) {
+              const desiredVA = Math.atan2(state.vel.x, state.vel.z);
+              const blend = 1 - Math.exp(-dt * 14);
+              state.velocityAngle = wrapAngle(
+                state.velocityAngle + wrapAngle(desiredVA - state.velocityAngle) * blend
+              );
               currentSpeed = Math.min(maxSpeed * 1.15, newPlayerSpd);
-              state.velocityAngle = Math.atan2(state.vel.x, state.vel.z);
             }
 
-            const newAiSpd = bState.vel.length();
-            if (newAiSpd > 0.3) {
-              bState.speed = Math.min(26, newAiSpd);
-              bState.velocityAngle = Math.atan2(bState.vel.x, bState.vel.z);
-            }
+            // Bot "mengingat" sisi kontak lalu membuka ruang → tidak nabrak berulang.
+            brain.contactTimer = 0.6;
+            brain.contactSide =
+              Math.sign(-contact.nx * Math.cos(bState.heading) + contact.nz * Math.sin(bState.heading)) || 1;
 
-            // Damped rotational deflection torque
-            const pCross = Math.sin(state.heading) * bestNormal.z - Math.cos(state.heading) * bestNormal.x;
-            const aiCross = Math.sin(bState.heading) * bestNormal.z - Math.cos(bState.heading) * bestNormal.x;
-            state.angularVel = state.angularVel * 0.94 + pCross * pHitOffset * impulseMag * 0.085;
-            bState.angularVel = bState.angularVel * 0.94 - aiCross * aiHitOffset * impulseMag * 0.090;
-
-            // Zero-Lag Visual Sync: Update 3D meshes immediately so collision renders smoothly without 1-frame lag
+            // Zero-lag visual sync supaya kontak tampil di frame yang sama.
             playerRig.root.position.copy(state.pos);
             playerRig.root.rotation.y = state.heading;
             bState.rig.root.position.copy(bState.pos);
             bState.rig.root.rotation.y = bState.heading;
 
-            spawnCollisionSparks(contactPoint, impulseMag > 4.5 ? 7 : 4);
+            if (res.impulse > 0.02) {
+              contactPoint.set(contact.cx, state.pos.y + 0.42, contact.cz);
+              spawnCollisionSparks(contactPoint, res.impulse > 0.3 ? 6 : 3);
+            }
 
-            if (bState.collisionCooldown <= 0) {
+            if (bState.collisionCooldown <= 0 && res.impulse > 0.04) {
               bState.collisionCooldown = 0.28;
-              rcSound.playCollisionSound(Math.min(1, impulseMag / 8));
+              rcSound.playCollisionSound(Math.min(1, res.closingSpeed / 7));
 
-              if (impulseMag < 5.0 && driftDegAbs > 12) {
+              if (res.closingSpeed < 4.5 && driftDegAbs > 12) {
                 state.comboPoints += 200;
                 triggerCallout(
                   `DOOR RUB! +200 WITH ${bState.def.shortName}`,
                   'AGGRESSIVE BATTLE PAINT TRADE',
                   'volt'
                 );
-              } else {
+              } else if (res.closingSpeed >= 4.5) {
                 triggerCallout(
                   `CLASH WITH ${bState.def.shortName}!`,
                   'DRIFT BATTLE CONTACT',
@@ -3538,86 +3315,44 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             }
           }
 
-          // L. Realistic Multi-Sphere Bot vs Bot Collision Physics (No Sticking, Elastic Separation)
+          // J. KONTAK FISIK BOT <-> BOT — solver lembut yang sama (saling gesek,
+          //    tidak menempel, tidak saling melempar).
           for (let j = bIdx + 1; j < botStates.length; j++) {
             const other = botStates[j];
-            const otherSpheres = getCarSpheres(other.pos, other.heading);
-            let botOverlap = 0;
-            let botNormal = new THREE.Vector3(1, 0, 0);
-            let botContactPt = new THREE.Vector3();
-            let bHitA = 0;
-            let bHitB = 0;
+            const otherSpheres = carSpheres(other.pos.x, other.pos.z, other.heading, sphereBuffers[j]);
+            const bc = deepestSphereContact(bSpheres, otherSpheres, contactBufB);
+            if (!bc) continue;
+            botBodies[bIdx].heading = bState.heading;
+            botBodies[j].heading = other.heading;
+            const bRes = resolveSoftContact(
+              botBodies[bIdx],
+              botBodies[j],
+              bc.nx,
+              bc.nz,
+              bc.penetration,
+              dt,
+              BOT_CONTACT_OPTS,
+              contactResultB
+            );
 
-            for (const asA of aiSpheres) {
-              for (const asB of otherSpheres) {
-                const bdx = asA.center.x - asB.center.x;
-                const bdz = asA.center.z - asB.center.z;
-                const dist = Math.hypot(bdx, bdz);
-                const minSep = asA.radius + asB.radius;
-                if (dist < minSep) {
-                  const ov = minSep - dist;
-                  if (ov > botOverlap) {
-                    botOverlap = ov;
-                    if (dist > 0.0001) {
-                      botNormal.set(bdx / dist, 0, bdz / dist);
-                    } else {
-                      botNormal.set(Math.sin(bState.heading), 0, Math.cos(bState.heading));
-                    }
-                    botContactPt.copy(asA.center).add(asB.center).multiplyScalar(0.5);
-                    botContactPt.y = bState.pos.y + 0.42;
-                    bHitA = asA.offset;
-                    bHitB = asB.offset;
-                  }
-                }
-              }
+            // Keduanya saling memberi ruang sebentar supaya battle tetap mengalir.
+            brain.contactTimer = Math.max(brain.contactTimer, 0.45);
+            brain.contactSide =
+              Math.sign(-bc.nx * Math.cos(bState.heading) + bc.nz * Math.sin(bState.heading)) || 1;
+            other.brain.contactTimer = Math.max(other.brain.contactTimer, 0.45);
+            other.brain.contactSide =
+              Math.sign(bc.nx * Math.cos(other.heading) - bc.nz * Math.sin(other.heading)) || 1;
+
+            if (bRes.impulse > 0.12 && (frameCounter + bIdx) % 3 === 0) {
+              contactPoint.set(bc.cx, bState.pos.y + 0.42, bc.cz);
+              spawnCollisionSparks(contactPoint, 3);
             }
 
-            if (botOverlap > 0) {
-              // Smooth progressive separation
-              const botPush = Math.min(0.08, botOverlap * 0.35);
-              bState.pos.addScaledVector(botNormal, botPush * 0.5);
-              other.pos.addScaledVector(botNormal, -botPush * 0.5);
-
-              const bRvx = bState.vel.x - other.vel.x;
-              const bRvz = bState.vel.z - other.vel.z;
-              const bVn = bRvx * botNormal.x + bRvz * botNormal.z;
-              const bClosing = -bVn;
-              const bBounce = bClosing > 0 ? bClosing * 0.48 : 0;
-              const bSpring = Math.min(2.0, botOverlap * 3.0);
-              const bImpulse = Math.min(6.2, bBounce + bSpring);
-
-              bState.vel.x += botNormal.x * bImpulse;
-              bState.vel.z += botNormal.z * bImpulse;
-              other.vel.x -= botNormal.x * bImpulse;
-              other.vel.z -= botNormal.z * bImpulse;
-
-              const bSpdA = bState.vel.length();
-              if (bSpdA > 0.3) {
-                bState.speed = Math.min(26, bSpdA);
-                bState.velocityAngle = Math.atan2(bState.vel.x, bState.vel.z);
-              }
-              const bSpdB = other.vel.length();
-              if (bSpdB > 0.3) {
-                other.speed = Math.min(26, bSpdB);
-                other.velocityAngle = Math.atan2(other.vel.x, other.vel.z);
-              }
-
-              // Angular deflection torque
-              const aCross = Math.sin(bState.heading) * botNormal.z - Math.cos(bState.heading) * botNormal.x;
-              const bCross = Math.sin(other.heading) * botNormal.z - Math.cos(other.heading) * botNormal.x;
-              bState.angularVel = bState.angularVel * 0.94 + aCross * bHitA * bImpulse * 0.08;
-              other.angularVel = other.angularVel * 0.94 - bCross * bHitB * bImpulse * 0.08;
-
-              if (bImpulse > 3.0 && (frameCounter + bIdx) % 3 === 0) {
-                spawnCollisionSparks(botContactPt, 3);
-              }
-
-              // Immediately sync both bot rigs to avoid frame stutter
-              bState.rig.root.position.copy(bState.pos);
-              bState.rig.root.rotation.y = bState.heading;
-              other.rig.root.position.copy(other.pos);
-              other.rig.root.rotation.y = other.heading;
-            }
+            // Sinkron rig seketika supaya tidak ada stutter 1 frame.
+            bState.rig.root.position.copy(bState.pos);
+            bState.rig.root.rotation.y = bState.heading;
+            other.rig.root.position.copy(other.pos);
+            other.rig.root.rotation.y = other.heading;
           }
         });
 
