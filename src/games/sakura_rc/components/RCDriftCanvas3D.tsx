@@ -30,6 +30,7 @@ import {
   BotPersonality,
   BotTrack,
   BotZone,
+  BOT_MIN_PACE,
   buildBotTrack,
   carSpheres,
   CarSphere,
@@ -3130,8 +3131,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           aiInput.dt = dt;
           aiInput.time = timeSec;
           aiInput.active = state.raceStarted;
+          // Bot memakai formula kecepatan pemain, minimal di level preset "sedang"
+          // (1.35x) walau pemain memilih normal — lebih cepat lagi kalau pemain 2x.
           aiInput.paceScale =
-            speedFactor * (curTuning.botPace === 'chill' ? 0.8 : 1.0) * bState.draftBoost;
+            Math.max(speedFactor, BOT_MIN_PACE) *
+            (curTuning.botPace === 'chill' ? 0.85 : 1.0) *
+            bState.draftBoost;
           aiInput.gapToPlayerM = gapT * botTrack.length;
           aiInput.neighbors = neighborScratch;
           aiInput.zones = zoneList;

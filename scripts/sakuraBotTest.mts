@@ -146,7 +146,7 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
         dt,
         time,
         active: true,
-        paceScale: 1,
+        paceScale: 1.35, // preset 'sedang'
         gapToPlayerM: 0,
         neighbors,
         zones: circuit.clippingZones.map((z) => ({ t: z.t, offset: z.offset })),
