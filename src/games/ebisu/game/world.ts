@@ -856,7 +856,10 @@ class Crowd {
 
 /** Standard 70 cm traffic cone merged into one vertex-coloured geometry (base, body, two bands). */
 function makeTrafficConeGeometry(): THREE.BufferGeometry {
-  const paint = (g: THREE.BufferGeometry, hex: string) => {
+  const paint = (src: THREE.BufferGeometry, hex: string) => {
+    // RoundedBoxGeometry is non-indexed while CylinderGeometry is indexed → normalise to non-indexed before merging
+    const g = src.index ? src.toNonIndexed() : src;
+    if (g !== src) src.dispose();
     const c = new THREE.Color(hex);
     const n = g.attributes.position.count;
     const col = new Float32Array(n * 3);
@@ -892,8 +895,12 @@ function makeTrafficConeGeometry(): THREE.BufferGeometry {
   const top = new THREE.CylinderGeometry(0.035, 0.035, 0.02, 10);
   top.translate(0, 0.73, 0);
   parts.push(paint(top, ORANGE));
-  const merged = mergeGeometries(parts, false)!;
+  const merged = mergeGeometries(parts, false);
   parts.forEach((g) => g.dispose());
+  if (!merged) {
+    // should never happen, but never let a cone take the whole world down
+    return new THREE.ConeGeometry(0.17, 0.7, 12).translate(0, 0.35, 0);
+  }
   return merged;
 }
 
