@@ -231,13 +231,23 @@ interface HudProps {
   onCycleEngine?: () => void;
   muted: boolean;
   isTouch: boolean;
+  /** 'mobile' = compact landscape HUD with on-screen steer / drift / nitro buttons. */
+  layout?: 'pc' | 'mobile';
 }
 
 const CAMERA_ICON: Record<HudState['camera'], string> = { rally: '🎨', chase: '🎬', cockpit: '🪟', far: '🚁' };
 
-export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPause, onToggleMute, onCycleCamera, onCycleEngine, muted, isTouch }: HudProps) {
+export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPause, onToggleMute, onCycleCamera, onCycleEngine, muted, isTouch: isTouchDevice, layout = 'pc' }: HudProps) {
   const active = hud.phase === 'racing' || hud.phase === 'countdown' || hud.phase === 'finished';
   const racing = hud.phase === 'racing';
+  const mobile = layout === 'mobile';
+  // Mobile layout always behaves like touch (buttons + "tap" hints), PC layout follows the device
+  const isTouch = mobile || isTouchDevice;
+  const [steerHeld, setSteerHeld] = useState<'left' | 'right' | null>(null);
+  const steerBtn = (side: 'left' | 'right', down: boolean) => {
+    setSteerHeld(down ? side : (prev) => (prev === side ? null : prev));
+    onSteer(side, down);
+  };
   const speedPct = Math.min(100, (hud.speed / Math.max(60, hud.topSpeed)) * 100);
 
   const driftValue = useMemo<DriftView | null>(
@@ -259,7 +269,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
   const zone = useLinger(zoneValue, 400);
 
   return (
-    <div className="eb-hud pointer-events-none absolute inset-0 overflow-hidden text-white">
+    <div className={cn('eb-hud pointer-events-none absolute inset-0 overflow-hidden text-white', mobile && 'eb-hud--mobile')}>
       {/* Touch steering zones */}
       {active && (
         <>
@@ -315,7 +325,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
       {active && (
         <>
           {/* Top left: position / lap / score (below the PILIH GAME / BODY BMW chips) */}
-          <div className="absolute left-3 top-14 sm:left-5 sm:top-16">
+          <div className="eb-corner-tl absolute left-3 top-14 sm:left-5 sm:top-16">
             <div className="eb-panel eb-panel--slant flex items-stretch gap-4 px-4 py-2.5 pr-7">
               <div className="flex flex-col justify-center">
                 <div className="eb-label">Pos</div>
@@ -348,7 +358,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           </div>
 
           {/* Top center: timer + zone strip */}
-          <div className="absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-2 sm:top-4">
+          <div className="eb-corner-tc absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-2 sm:top-4">
             <div className="eb-panel flex items-center gap-4 px-5 py-1.5">
               <div className="flex flex-col items-center">
                 <span className="eb-label">Time</span>
@@ -373,7 +383,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           </div>
 
           {/* Drift meter: high above the car (higher still for the top-down rally cam) */}
-          <div className={cn('absolute left-1/2 -translate-x-1/2', hud.camera === 'rally' ? 'top-[20%] sm:top-[17%]' : 'top-[27%] sm:top-[24%]')}>
+          <div className={cn('eb-center absolute left-1/2 -translate-x-1/2', hud.camera === 'rally' ? 'top-[20%] sm:top-[17%]' : 'top-[27%] sm:top-[24%]')}>
             {drift && <DriftMeter view={drift.value} leaving={drift.leaving} />}
             {hud.wrongWay && racing && (
               <div className="anim-flash flex justify-center">
@@ -388,7 +398,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           </div>
 
           {/* Top right: minimap + buttons */}
-          <div className="absolute right-3 top-3 flex flex-col items-end gap-2 sm:right-5 sm:top-4">
+          <div className="eb-corner-tr absolute right-3 top-3 flex flex-col items-end gap-2 sm:right-5 sm:top-4">
             {minimap && (
               <div className="eb-panel eb-map">
                 <MiniMap data={minimap} hud={hud} />
@@ -425,7 +435,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           </div>
 
           {/* Bottom left: speed */}
-          <div className="absolute bottom-4 left-3 sm:bottom-6 sm:left-5">
+          <div className={cn('eb-corner-bl absolute', mobile ? 'bottom-3 left-[11.5rem]' : 'bottom-4 left-3 sm:bottom-6 sm:left-5')}>
             <div className="eb-panel eb-panel--slant px-4 py-2.5 pr-8">
               <div className="flex items-end gap-2">
                 <span className={cn('eb-num text-6xl sm:text-7xl', hud.boosting && 'eb-grad-accent')}>{hud.speed}</span>
@@ -444,7 +454,10 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
 
           {/* Bottom right: manual boost meter — tap / SHIFT to fire when ready */}
           <div
-            className="pointer-events-auto absolute bottom-4 right-3 cursor-pointer select-none transition active:scale-95 sm:bottom-6 sm:right-5"
+            className={cn(
+              'eb-corner-br pointer-events-auto absolute cursor-pointer select-none transition active:scale-95',
+              mobile ? 'bottom-3 right-[12.5rem]' : 'bottom-4 right-3 sm:bottom-6 sm:right-5',
+            )}
             style={{ touchAction: 'none' }}
             role="button"
             aria-label={hud.boosting ? 'Boosting' : hud.boostReady ? 'Fire boost' : 'Boost meter'}
@@ -479,7 +492,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
 
           {/* Zone ahead */}
           {racing && hud.zoneAhead && !hud.isDrifting && !hud.zone && (
-            <div className="absolute bottom-[8rem] left-1/2 -translate-x-1/2 sm:bottom-[9rem]">
+            <div className={cn('absolute left-1/2 -translate-x-1/2', mobile ? 'bottom-[6.5rem]' : 'bottom-[8rem] sm:bottom-[9rem]')}>
               <div className="eb-panel flex items-center gap-2.5 px-3.5 py-1.5 text-sm font-extrabold uppercase tracking-[0.16em]">
                 <span className="anim-chevrons text-[#b47cff]">»»</span>
                 <span className="text-white">Drift zone</span>
@@ -493,7 +506,11 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           {racing && (
             <button
               type="button"
-              className={cn('eb-drift-btn pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 select-none sm:bottom-6', !isTouch && 'hidden sm:flex')}
+              className={cn(
+                'eb-drift-btn pointer-events-auto absolute select-none',
+                mobile ? 'bottom-3 right-3 eb-drift-btn--mobile' : 'bottom-4 left-1/2 -translate-x-1/2 sm:bottom-6',
+                !isTouch && 'hidden sm:flex',
+              )}
               style={{ touchAction: 'none' }}
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId);
@@ -511,8 +528,33 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
             </button>
           )}
 
-          {/* Touch hint on the sides */}
-          {isTouch && racing && hud.raceTime < 4 && (
+          {/* Mobile landscape: on-screen steer buttons (left) */}
+          {mobile && racing && (
+            <div className="pointer-events-auto absolute bottom-3 left-3 flex gap-2">
+              {(['left', 'right'] as const).map((side) => (
+                <button
+                  key={side}
+                  type="button"
+                  className={cn('eb-steer-btn', steerHeld === side && 'eb-steer-btn--on')}
+                  style={{ touchAction: 'none' }}
+                  aria-label={side === 'left' ? 'Steer left' : 'Steer right'}
+                  onPointerDown={(e) => {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    steerBtn(side, true);
+                  }}
+                  onPointerUp={() => steerBtn(side, false)}
+                  onPointerCancel={() => steerBtn(side, false)}
+                  onLostPointerCapture={() => steerBtn(side, false)}
+                  onContextMenu={(e) => e.preventDefault()}
+                >
+                  {side === 'left' ? '◀' : '▶'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Touch hint on the sides (PC-layout touch devices only) */}
+          {isTouch && !mobile && racing && hud.raceTime < 4 && (
             <>
               <div className="anim-flash absolute bottom-1/3 left-6 text-5xl text-white/70 drop-shadow-lg">◀</div>
               <div className="anim-flash absolute bottom-1/3 right-6 text-5xl text-white/70 drop-shadow-lg">▶</div>

@@ -276,3 +276,85 @@
   50% { opacity: 0.35; }
 }
 .eb-anim-blink { animation: eb-blink 0.7s ease-in-out infinite; }
+
+/* ============================================================
+   MOBILE LANDSCAPE LAYOUT (compact HUD + on-screen controls)
+   ============================================================ */
+.eb-chip--cyan {
+  border-color: rgba(55, 228, 255, 0.5);
+  color: #d4f8ff;
+  background: linear-gradient(180deg, rgba(55, 228, 255, 0.22), rgba(55, 228, 255, 0.08)), var(--eb-ink-2);
+}
+.eb-chips-mobile .eb-chip {
+  height: 1.8rem;
+  padding: 0 0.6rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+}
+.eb-hud--mobile .eb-corner-tl { transform: scale(0.74); transform-origin: top left; top: 2.9rem !important; }
+.eb-hud--mobile .eb-corner-tc { transform: translateX(-50%) scale(0.78); transform-origin: top center; }
+.eb-hud--mobile .eb-corner-tr { transform: scale(0.78); transform-origin: top right; }
+.eb-hud--mobile .eb-corner-bl { transform: scale(0.78); transform-origin: bottom left; }
+.eb-hud--mobile .eb-corner-br { transform: scale(0.78); transform-origin: bottom right; }
+.eb-hud--mobile .eb-center { transform: translateX(-50%) scale(0.82); transform-origin: top center; }
+.eb-hud--mobile .eb-map svg { width: 5.5rem; height: 5.5rem; }
+
+.eb-steer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.6rem;
+  height: 4.6rem;
+  border-radius: 18px;
+  background: var(--eb-ink);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.6rem;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: transform 0.06s ease, background 0.1s ease;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.eb-steer-btn--on {
+  background: linear-gradient(180deg, rgba(55, 228, 255, 0.35), rgba(55, 228, 255, 0.12)), var(--eb-ink);
+  border-color: rgba(55, 228, 255, 0.6);
+  transform: scale(0.94);
+}
+.eb-drift-btn--mobile {
+  width: 5.6rem;
+  height: 5.6rem;
+  font-size: 1rem;
+}
+@media (max-height: 420px) {
+  .eb-hud--mobile .eb-corner-tl { transform: scale(0.66); }
+  .eb-hud--mobile .eb-corner-tc { transform: translateX(-50%) scale(0.7); }
+  .eb-hud--mobile .eb-corner-tr { transform: scale(0.7); }
+  .eb-hud--mobile .eb-corner-bl { transform: scale(0.7); }
+  .eb-hud--mobile .eb-corner-br { transform: scale(0.7); }
+  .eb-steer-btn { width: 4rem; height: 4rem; }
+  .eb-drift-btn--mobile { width: 4.8rem; height: 4.8rem; }
+}
+
+/* rotate-device prompt */
+.eb-rotate-icon {
+  width: 5rem;
+  height: 5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.eb-rotate-phone {
+  display: block;
+  width: 2.2rem;
+  height: 3.6rem;
+  border: 3px solid #fff;
+  border-radius: 8px;
+  box-shadow: 0 0 30px rgba(55, 228, 255, 0.5);
+  animation: eb-rotate 1.6s ease-in-out infinite;
+}
+@keyframes eb-rotate {
+  0%, 20% { transform: rotate(0deg); }
+  60%, 100% { transform: rotate(-90deg); }
+}

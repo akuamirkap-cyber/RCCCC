@@ -17,6 +17,7 @@ import {
 import { loadPrefs, savePrefs, type CameraMode, type CarStyle, type SmokeSettings, type VisualPrefs } from './game/prefs';
 import { Hud, type MinimapData, type Popup } from './components/Hud';
 import './components/hud.css';
+import { cn } from './utils/cn';
 import { PauseOverlay, ResultScreen, StartScreen, type BestRecords } from './components/Screens';
 import { TuningPanel } from './components/TuningPanel';
 import { VisualPanel } from './components/VisualPanel';
@@ -85,6 +86,47 @@ const initialHud: HudState = {
 
 const isTouchDevice = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
 
+/** Display mode: PC (keyboard, large HUD) vs Mobile Landscape (touch buttons, compact HUD). */
+export type DisplayMode = 'auto' | 'pc' | 'mobile';
+const DISPLAY_KEY = 'ebisu.displayMode';
+function loadDisplayMode(): DisplayMode {
+  try {
+    const v = localStorage.getItem(DISPLAY_KEY);
+    if (v === 'pc' || v === 'mobile' || v === 'auto') return v;
+  } catch {
+    // ignore
+  }
+  return 'auto';
+}
+function useIsPortrait() {
+  const [portrait, setPortrait] = useState(() => (typeof window !== 'undefined' ? window.innerHeight > window.innerWidth : false));
+  useEffect(() => {
+    const onResize = () => setPortrait(window.innerHeight > window.innerWidth);
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+    };
+  }, []);
+  return portrait;
+}
+/** Best-effort fullscreen + landscape lock for phones (ignored on desktop / unsupported browsers). */
+async function enterLandscapeFullscreen() {
+  try {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
+  } catch {
+    // ignore
+  }
+  try {
+    const so = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    if (so && typeof so.lock === 'function') await so.lock('landscape');
+  } catch {
+    // ignore
+  }
+}
+
 type PanelKind = 'none' | 'tuning' | 'visual';
 
 export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }) {
@@ -107,6 +149,22 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
   const [setup, setSetup] = useState<GameSetup>(loadSetup);
   const setupRef = useRef(setup);
   setupRef.current = setup;
+
+  // Display mode (PC / Mobile Landscape / Auto)
+  const [displayMode, setDisplayMode] = useState<DisplayMode>(loadDisplayMode);
+  const mobileUI = displayMode === 'mobile' || (displayMode === 'auto' && isTouchDevice);
+  const portrait = useIsPortrait();
+  const cycleDisplayMode = () => {
+    setDisplayMode((m) => {
+      const next: DisplayMode = m === 'auto' ? 'pc' : m === 'pc' ? 'mobile' : 'auto';
+      try {
+        localStorage.setItem(DISPLAY_KEY, next);
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   // Visual prefs (camera, car style, smoke)
   const [prefs, setPrefs] = useState<VisualPrefs>(initialPrefs);
@@ -279,6 +337,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
   const start = () => {
     setPopups([]);
     setPanel('none');
+    if (mobileUI) void enterLandscapeFullscreen();
     gameRef.current?.startRace();
   };
 
@@ -416,7 +475,22 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
         onCycleEngine={cycleEngine}
         muted={muted}
         isTouch={isTouchDevice}
+        layout={mobileUI ? 'mobile' : 'pc'}
       />
+
+      {/* Mobile landscape mode: ask to rotate while in portrait */}
+      {mobileUI && portrait && (
+        <div className="eb-hud fixed inset-0 z-[70] flex flex-col items-center justify-center gap-4 bg-[#07090f]/92 text-center text-white backdrop-blur-md">
+          <div className="eb-rotate-icon" aria-hidden>
+            <span className="eb-rotate-phone" />
+          </div>
+          <div className="eb-num text-3xl">PUTAR HP KAMU</div>
+          <div className="eb-label !text-xs text-white/70">Mode mobile landscape — mainkan dengan layar mendatar</div>
+          <button type="button" onClick={cycleDisplayMode} className="eb-chip mt-2 cursor-pointer">
+            Ganti ke mode PC
+          </button>
+        </div>
+      )}
 
       {phase === 'menu' && (
         <StartScreen
@@ -477,7 +551,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
       )}
 
       {/* Floating Top Buttons: PILIH GAME & ADJUST BODY BMW */}
-      <div className="eb-hud fixed top-3 left-3 z-50 flex items-center gap-1.5 sm:left-5 sm:top-4">
+      <div className={cn('eb-hud fixed top-3 left-3 z-50 flex items-center gap-1.5 sm:left-5 sm:top-4', mobileUI && 'eb-hud--mobile eb-chips-mobile')}>
         {onSwitchGame && (
           <button
             onClick={() => {
@@ -500,6 +574,15 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
           title="Atur panjang, lebar, tinggi dan letak ketinggian (offset Y) body BMW GLB"
         >
           <span>Body BMW</span>
+        </button>
+
+        <button
+          onClick={cycleDisplayMode}
+          className={cn('eb-chip cursor-pointer', mobileUI && 'eb-chip--cyan')}
+          title="Mode tampilan: Auto / PC / Mobile Landscape"
+        >
+          <span>{displayMode === 'auto' ? (mobileUI ? '📱' : '🖥') : displayMode === 'pc' ? '🖥' : '📱'}</span>
+          <span>{displayMode === 'auto' ? `Auto · ${mobileUI ? 'Mobile' : 'PC'}` : displayMode === 'pc' ? 'PC' : 'Mobile'}</span>
         </button>
       </div>
 
