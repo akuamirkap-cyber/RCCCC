@@ -45,6 +45,7 @@ import {
   resolveSoftContact,
   SphereContact,
   stepBotAI,
+  frameAt,
 } from '../utils/botAi';
 
 interface RCDriftCanvas3DProps {
@@ -925,6 +926,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       'centripetal',
       isHarunaMap ? 0.2 : 0.5
     );
+    // Default three.js hanya 200 pembagian arc-length -> untuk Haruna 6 km, getPointAt(t)
+    // meleset sampai 16 m horizontal / 1.3 m vertikal (mobil melayang & tersangkut di hairpin).
+    rawCurve.arcLengthDivisions = isHarunaMap ? 12000 : 2400;
+    rawCurve.updateArcLengths();
 
     // Terapkan smoothing yang sama seperti Tokyo Grand Aula ke centerline Haruna.
     // Batas endpoint dipertahankan supaya downhill tidak membuat sambungan palsu.
@@ -966,6 +971,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       'centripetal',
       isHarunaMap ? 0.2 : 0.5
     );
+    trackCurve.arcLengthDivisions = isHarunaMap ? 12000 : 2400;
+    trackCurve.updateArcLengths();
     // Haruna is several kilometers long; more samples prevent faceted road edges.
     const trackSamples = isHarunaMap ? 1600 : 640;
     const halfWidth = circuit.trackWidth * 0.5;
@@ -1009,6 +1016,58 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     );
     // Jarak aman yang selalu dihormati bot terhadap pembatas (meter).
     const BOT_SAFE_MARGIN = 1.3;
+
+    // --- LUT ELEVASI (indeks sama dengan botTrack.frames) ---
+    // Semua posisi/arah/elevasi pemain & bot diambil dari LUT yang SAMA (parameter 2D arc-length),
+    // bukan campuran getPointAt(t) 3D vs t LUT -> tidak ada lagi offset antar keduanya.
+    const frameHeights = smoothTrackFrames.map((f) => f.pt.y);
+    const trackHeightAtT = (t: number): number => {
+      if (!isHarunaMap) return 0;
+      const frames = botTrack.frames;
+      const sAt = THREE.MathUtils.clamp(t, 0, 1) * botTrack.length;
+      let lo = 0;
+      let hi = frames.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (frames[mid].s <= sAt) lo = mid;
+        else hi = mid;
+      }
+      const a = frames[lo];
+      const b = frames[hi];
+      const f = b.s > a.s ? THREE.MathUtils.clamp((sAt - a.s) / (b.s - a.s), 0, 1) : 0;
+      return frameHeights[lo] + (frameHeights[hi] - frameHeights[lo]) * f;
+    };
+    /** Kemiringan turunan (+ = menurun searah lintasan) di sekitar t, dirata-rata ±windowM */
+    const trackSlopeAtT = (t: number, windowM = 3.0): number => {
+      if (!isHarunaMap) return 0;
+      const d = windowM / botTrack.length;
+      const t0 = Math.max(0, t - d);
+      const t1 = Math.min(1, t + d);
+      const segM = Math.max(0.5, (t1 - t0) * botTrack.length);
+      return (trackHeightAtT(t0) - trackHeightAtT(t1)) / segM;
+    };
+    const _upVec = new THREE.Vector3(0, 1, 0);
+    const _groundN = new THREE.Vector3();
+    const _qYaw = new THREE.Quaternion();
+    const _qTilt = new THREE.Quaternion();
+    /** Orientasi root mobil: yaw heading + ikut kemiringan aspal (pitch/roll) agar roda napak */
+    const orientCarRoot = (root: THREE.Object3D, heading: number, t: number) => {
+      if (!isHarunaMap) {
+        root.rotation.set(0, heading, 0);
+        return;
+      }
+      const fr = frameAt(botTrack, t, _scratchFrame);
+      const slopeDown = trackSlopeAtT(t);
+      // Bidang aspal menurun searah tangen lintasan: normal = (slope*dx, 1, slope*dz)
+      const dx = Math.sin(fr.heading);
+      const dz = Math.cos(fr.heading);
+      _groundN.set(slopeDown * dx, 1, slopeDown * dz).normalize();
+      _qYaw.setFromAxisAngle(_upVec, heading);
+      _qTilt.setFromUnitVectors(_upVec, _groundN);
+      root.quaternion.copy(_qTilt).multiply(_qYaw);
+    };
+    const _scratchFrame = { x: 0, z: 0, nx: 0, nz: 0, heading: 0 };
+    const _scratchFrame2 = { x: 0, z: 0, nx: 0, nz: 0, heading: 0 };
 
     // High-detail Pro RC P-Tile Track Surface Texture with Chevrons, Racing Shoulders & Rubber Drift Groove
     const createTrackSurfaceTexture = () => {
@@ -2267,7 +2326,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // Row 3: Bot 4 Takumi (Right) & Bot 5 Nakazato (Left)
     const playerStartT = 0.012;
     const playerGridOffset = -2.0;
-    const harunaRideHeight = isHarunaMap ? trackSurfaceLift + 0.08 : 0;
+    const harunaRideHeight = isHarunaMap ? trackSurfaceLift + 0.03 : 0; // ban (r=0.35, dasar y=0) tepat menyentuh permukaan ribbon (+0.028)
 
     const startTangent = trackCurve.getTangentAt(playerStartT).normalize();
     const startNormal = new THREE.Vector3(-startTangent.z, 0, startTangent.x);
@@ -2453,7 +2512,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         dist: proj.dist,
         // Haruna tetap butuh elevasi overlay Aula yang sudah dihaluskan,
         // bukan aspal Haruna lama yang sudah dijadikan underlay.
-        height: isHarunaMap ? trackCurve.getPointAt(proj.t).y : 0,
+        height: trackHeightAtT(proj.t),
       };
     };
 
@@ -2565,9 +2624,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const throttleActive = manualThrottle;
 
       const closest = findClosestSplineT(state.pos);
-      const trackPt = trackCurve.getPointAt(closest.t);
-      const trackTan = trackCurve.getTangentAt(closest.t).normalize();
-      const trackAngle = Math.atan2(trackTan.x, trackTan.z);
+      const closestFrame = frameAt(botTrack, closest.t, _scratchFrame2);
+      const trackPt = new THREE.Vector3(closestFrame.x, closest.height, closestFrame.z);
+      const trackAngle = closestFrame.heading;
+      const trackTan = new THREE.Vector3(Math.sin(trackAngle), 0, Math.cos(trackAngle));
 
       // Check lap / downhill finish progression.
       const crossedStart = state.lastSplineT > 0.85 && closest.t < 0.15;
@@ -2660,13 +2720,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       let maxCurvAhead = 0;
       let slopeAhead = 0; // + = turunan, - = tanjakan (hanya Haruna)
       if (needTrackScan) {
-        const trackLen = trackCurve.getLength();
+        const trackLen = botTrack.length;
         let prevAng = trackAngle;
         let prevT = closest.t;
         for (const aheadM of [7, 16, 28]) {
           const tA = routeClosed ? (closest.t + aheadM / trackLen) % 1 : Math.min(0.9999, closest.t + aheadM / trackLen);
-          const tanA = trackCurve.getTangentAt(tA);
-          const angA = Math.atan2(tanA.x, tanA.z);
+          const angA = frameAt(botTrack, tA, _scratchFrame).heading;
           let dAng = angA - prevAng;
           while (dAng > Math.PI) dAng -= Math.PI * 2;
           while (dAng < -Math.PI) dAng += Math.PI * 2;
@@ -2677,8 +2736,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
         if (isHarunaMap) {
           const tS = Math.min(0.9999, closest.t + 14 / trackLen);
-          const hA = trackCurve.getPointAt(tS).y;
-          slopeAhead = THREE.MathUtils.clamp((trackPt.y - hA) / 14, -0.16, 0.16);
+          const hA = trackHeightAtT(tS);
+          slopeAhead = THREE.MathUtils.clamp((closest.height - hA) / 14, -0.16, 0.16);
         }
       }
 
@@ -2854,14 +2913,16 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         dt * 18
       );
 
+      let playerRoadT = closest.t;
       if (isHarunaMap) {
-        // Ikuti elevasi segmen aspal Haruna secara presisi: mobil Sakura tetap menempel
-        // pada turunan, bukan melayang atau masuk ke bawah road mesh.
+        // Ikuti elevasi aspal Haruna dari LUT yang sama dengan proyeksi posisi: mobil napak,
+        // tidak melayang/tenggelam; root juga dimiringkan mengikuti pitch/roll turunan.
         const roadProjection = findClosestSplineT(state.pos);
+        playerRoadT = roadProjection.t;
         state.pos.y = roadProjection.height + harunaRideHeight;
       }
       playerRig.root.position.copy(state.pos);
-      playerRig.root.rotation.y = state.heading;
+      orientCarRoot(playerRig.root, state.heading, playerRoadT);
 
       const driftDegSigned = THREE.MathUtils.radToDeg(
         wrapAngle(state.heading - state.velocityAngle)
@@ -3440,9 +3501,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           bState.currentLateralOffset = brain.lateral;
 
           // G. Transform visual & counter-steer servo pada rig 3D
-          if (isHarunaMap) bState.pos.y = trackCurve.getPointAt(bT).y + harunaRideHeight;
+          if (isHarunaMap) bState.pos.y = trackHeightAtT(bT) + harunaRideHeight;
           bState.rig.root.position.copy(bState.pos);
-          bState.rig.root.rotation.y = bState.heading;
+          orientCarRoot(bState.rig.root, bState.heading, bT);
           bState.rig.flKnuckle.rotation.y = bState.frontSteerAngle;
           bState.rig.frKnuckle.rotation.y = bState.frontSteerAngle;
           bState.rig.servoHorn.rotation.y = bState.frontSteerAngle * 0.8;
@@ -3646,12 +3707,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
         // Sinkron ulang semua rig setelah kontak → tidak ada stutter 1 frame.
         playerRig.root.position.copy(state.pos);
-        playerRig.root.rotation.y = state.heading;
+        orientCarRoot(playerRig.root, state.heading, closest.t);
         for (const b of botStates) {
           b.speed = b.brain.speed;
           b.collisionCooldown = Math.max(0, b.collisionCooldown - dt);
           b.rig.root.position.copy(b.pos);
-          b.rig.root.rotation.y = b.heading;
+          orientCarRoot(b.rig.root, b.heading, b.brain.trackT);
         }
 
         // I. Real-Time 6-Car Dynamic Rank Leaderboard Calculation
