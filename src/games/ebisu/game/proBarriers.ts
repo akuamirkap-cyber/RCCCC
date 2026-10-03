@@ -229,3 +229,158 @@ export function makeTrafficCone(): { geometry: THREE.BufferGeometry; materials: 
   ];
   return { geometry, materials };
 }
+
+/* ------------------------------------------------------------------ */
+/*  Sponsor hoardings                                                  */
+/* ------------------------------------------------------------------ */
+
+const SPONSOR_FONT = '"Barlow Condensed", "Arial Narrow", Impact, Arial, sans-serif';
+
+/** One 8 m panel per brand — drift / tuning industry names, each with its own livery. */
+const BRANDS: [string, string, string][] = [
+  ['TOYO TIRES', '#c8102e', '#ffffff'],
+  ['HKS', '#111318', '#ffffff'],
+  ['ADVAN', '#e30613', '#ffffff'],
+  ['GReddy', '#ffffff', '#1d4ed8'],
+  ['D1 GRAND PRIX', '#0b0d12', '#ffb703'],
+  ['WORK WHEELS', '#ffffff', '#111318'],
+  ['TEIN', '#009b3a', '#ffffff'],
+  ['FALKEN', '#1d4ed8', '#5ee6ff'],
+  ['BRIDE', '#111318', '#ff6a00'],
+  ['EBISU CIRCUIT', '#ff5a1f', '#ffffff'],
+  ['NANKANG', '#ffd60a', '#111318'],
+  ['TOMEI', '#7f1d1d', '#ffffff'],
+];
+
+/** Long strip texture: `count` consecutive brand panels starting at `offset` (so different walls show different brands). */
+export function makeSponsorStrip(offset = 0, count = 6): THREE.CanvasTexture {
+  const pw = 512;
+  const ph = 128;
+  const c = document.createElement('canvas');
+  c.width = pw * count;
+  c.height = ph;
+  const ctx = c.getContext('2d')!;
+  for (let k = 0; k < count; k++) {
+    const [name, bg, fg] = BRANDS[(offset + k) % BRANDS.length];
+    const x0 = k * pw;
+    ctx.fillStyle = bg;
+    ctx.fillRect(x0, 0, pw, ph);
+    // frame + subtle gloss
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(x0, 0, pw, 6);
+    ctx.fillRect(x0, ph - 6, pw, 6);
+    ctx.fillRect(x0, 0, 3, ph);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(x0, 8, pw, ph * 0.3);
+    ctx.font = `800 ${name.length > 10 ? 60 : 76}px ${SPONSOR_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = fg;
+    ctx.fillText(name, x0 + pw / 2, ph / 2 + 4);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/** Vertical wall following the track over a sample range (double-sided, u = metres / uScale). */
+function buildRangeWall(track: Track, start: number, len: number, offset: number, y0: number, y1: number, uScale: number): THREE.BufferGeometry {
+  const n = track.count;
+  const s = track.samples;
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const idx: number[] = [];
+  for (let k = 0; k <= len; k++) {
+    const sm = s[(start + k) % n];
+    const x = sm.x + sm.rx * offset;
+    const z = sm.z + sm.rz * offset;
+    const u = (k * track.spacing) / uScale;
+    pos.push(x, y0, z, x, y1, z);
+    uv.push(u, 0, u, 1);
+  }
+  for (let k = 0; k < len; k++) {
+    const a = k * 2;
+    idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+export interface SponsorOptions extends BarrierOptions {
+  /** sample ranges to skip (start straight: grandstand + pit wall handle their own branding) */
+  skipStart?: number;
+  skipEnd?: number;
+}
+
+/**
+ * Places sponsor hoardings where a real circuit sells them:
+ *  - continuous boards along every straight, BOTH sides, just behind the Armco
+ *  - "TV corner" boards on the outside of every drift zone (fence line, under the crowd's eye-line)
+ *  - framed by a dark top rail + posts so they read as real signage panels
+ */
+export function buildSponsorBoards(scene: THREE.Scene, track: Track, zones: DriftZone[], o: SponsorOptions): void {
+  const n = track.count;
+  const s = track.samples;
+  const Y = o.groundY;
+  const inZone = new Uint8Array(n);
+  for (const z of zones) for (let k = 0; k < z.len; k++) inZone[(z.start + k) % n] = 1;
+
+  const railMat = new THREE.MeshStandardMaterial({ color: '#1b1e25', roughness: 0.6, metalness: 0.4 });
+  const postGeo = new THREE.BoxGeometry(0.1, 1.3, 0.1);
+  const postSpots: { x: number; z: number; y: number }[] = [];
+  let brandOffset = 0;
+
+  const placeWall = (start: number, len: number, offset: number, y0: number, y1: number) => {
+    const tex = makeSponsorStrip(brandOffset, 6);
+    tex.anisotropy = o.aniso;
+    brandOffset += 5;
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.75, side: THREE.DoubleSide });
+    const wall = new THREE.Mesh(buildRangeWall(track, start, len, offset, y0, y1, 8), mat);
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    scene.add(wall);
+    // top rail
+    const rail = new THREE.Mesh(buildRangeWall(track, start, len, offset, y1, y1 + 0.07, 8), railMat);
+    scene.add(rail);
+    for (let k = 0; k <= len; k += 6) {
+      const sm = s[(start + k) % n];
+      postSpots.push({ x: sm.x + sm.rx * offset, z: sm.z + sm.rz * offset, y: (y0 + y1) / 2 });
+    }
+  };
+
+  // straights
+  const skipA = o.skipStart ?? 0;
+  const skipB = o.skipEnd ?? n;
+  let runStart = -1;
+  for (let i = 0; i <= n; i++) {
+    const straight = i < n && Math.abs(s[i].curv) < 0.006 && !inZone[i] && !(i < skipA || i > skipB);
+    if (straight && runStart < 0) runStart = i;
+    if (!straight && runStart >= 0) {
+      const len = i - runStart;
+      if (len >= 20) {
+        for (const side of [1, -1] as const) placeWall(runStart + 2, len - 4, (WALL_DIST + 1.3) * side, Y + 0.05, Y + 1.3);
+      }
+      runStart = -1;
+    }
+  }
+  // corner boards on the outside of every zone (fence line)
+  for (const z of zones) {
+    const side = -z.dir;
+    placeWall(z.start, z.len, (WALL_DIST + 1.95) * side, Y, Y + 1.1);
+  }
+
+  if (postSpots.length) {
+    const posts = new THREE.InstancedMesh(postGeo, railMat, postSpots.length);
+    const m4 = new THREE.Matrix4();
+    postSpots.forEach((ps, i) => {
+      m4.makeTranslation(ps.x, ps.y, ps.z);
+      posts.setMatrixAt(i, m4);
+    });
+    scene.add(posts);
+  }
+}

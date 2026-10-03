@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { buildProCircuit } from './proCircuit';
 import type { LightingRig } from './lighting';
 import { buildProStand, buildStartGantry, buildProForest, makeRoadText } from './proVenue';
-import { buildGuardrails, buildCornerBlocks, makeTrafficCone } from './proBarriers';
+import { buildGuardrails, buildCornerBlocks, makeTrafficCone, buildSponsorBoards, makeSponsorStrip } from './proBarriers';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
 import { zoneLookup, type DriftZone } from './zones';
@@ -168,43 +168,6 @@ function makeTextTexture(text: string, o: TextOpts = {}): THREE.CanvasTexture {
   ctx.fillStyle = o.fg ?? '#ffffff';
   ctx.fillText(text, w / 2, h / 2 + size * 0.05);
   const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-function makeSponsorTexture(): THREE.CanvasTexture {
-  const panels: [string, string, string, number][] = [
-    ['エビスサーキット', '#c8102e', '#ffffff', 58],
-    ['DRIFT 天国', '#15181f', '#ffd166', 64],
-    ['FUJI TIRE 富士', '#0a3d91', '#ffffff', 54],
-    ['APEX 山', '#ffd23f', '#15181f', 72],
-  ];
-  const pw = 512;
-  const ph = 128;
-  const c = document.createElement('canvas');
-  c.width = pw * panels.length;
-  c.height = ph;
-  const ctx = c.getContext('2d')!;
-  panels.forEach(([text, bg, fg, size], i) => {
-    const x0 = i * pw;
-    ctx.fillStyle = bg;
-    ctx.fillRect(x0, 0, pw, ph);
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(x0, ph - 14, pw, 14);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(x0 + pw - 4, 0, 4, ph);
-    ctx.font = `700 ${size}px ${FONT}, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineWidth = 8;
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.strokeText(text, x0 + pw / 2, ph / 2 + 2);
-    ctx.fillStyle = fg;
-    ctx.fillText(text, x0 + pw / 2, ph / 2 + 2);
-  });
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
@@ -1146,6 +1109,13 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   pitWall.castShadow = true;
   pitWall.receiveShadow = true;
   pit.add(pitWall);
+  // sponsor strip on the track-facing side of the pit wall
+  const pitSponsorTex = makeSponsorStrip(3, 9);
+  pitSponsorTex.anisotropy = aniso;
+  const pitSponsor = new THREE.Mesh(new THREE.PlaneGeometry(70, 0.7), new THREE.MeshStandardMaterial({ map: pitSponsorTex, roughness: 0.75 }));
+  pitSponsor.position.set(-0.21, 0.5, 0);
+  pitSponsor.rotation.y = -Math.PI / 2;
+  pit.add(pitSponsor);
   const garageTex = makeGarageTexture();
   garageTex.anisotropy = aniso;
   const wallMat = new THREE.MeshStandardMaterial({ color: '#d7dde6', roughness: 0.9 });
@@ -1300,10 +1270,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }
   }
 
-  /* ---------- Sponsor walls + crowds along the other straights ---------- */
-  const sponsorTex = makeSponsorTexture();
-  sponsorTex.anisotropy = aniso;
-  const sponsorMat = new THREE.MeshStandardMaterial({ map: sponsorTex, roughness: 0.85, side: THREE.DoubleSide });
+  /* ---------- Sponsor hoardings (straights both sides + corner boards) + crowds along the straights ---------- */
+  buildSponsorBoards(scene, track, zones, { groundY: GROUND_Y, aniso, rand, skipStart: 66, skipEnd: n - 30 });
   const runs: { a: number; len: number }[] = [];
   let runStart = -1;
   for (let i = 0; i <= n; i++) {
@@ -1317,14 +1285,11 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   }
   runs.forEach((run, ri) => {
     const side = ri % 2 === 0 ? 1 : -1;
-    const wall = new THREE.Mesh(buildWallStrip(track, run.a + 3, run.len - 6, (WALL_DIST + 0.3) * side, GROUND_Y, GROUND_Y + 1.1, 32), sponsorMat);
-    wall.castShadow = true;
-    scene.add(wall);
     for (let k = 3; k < run.len - 3; k += 3) {
       const s = samples[run.a + k];
       for (let row = 0; row < 2; row++) {
         if (rand() > 0.55) continue;
-        const off = (WALL_DIST + 2.0 + row * 1.15 + (rand() - 0.5) * 0.5) * side;
+        const off = (WALL_DIST + 2.4 + row * 1.15 + (rand() - 0.5) * 0.5) * side;
         crowd.add(s.x + s.rx * off + s.tx * (rand() - 0.5) * 1.5, GROUND_Y, s.z + s.rz * off + s.tz * (rand() - 0.5) * 1.5, { jumpChance: 0.3 });
       }
     }
