@@ -8,6 +8,7 @@ import {
   LiveTelemetry,
   SessionResult,
   TuningSetup,
+  UnderglowMode,
 } from '../types/rcDrift';
 import { rcSound } from '../utils/soundEngine';
 import {
@@ -73,7 +74,9 @@ interface RCCarRig {
   bodyShellGroup: THREE.Group;
   bodyPaintMaterials: THREE.MeshStandardMaterial[];
   anodizedMaterials: THREE.MeshStandardMaterial[];
-  neonMaterial: THREE.MeshBasicMaterial;
+  neonMaterial: THREE.MeshBasicMaterial;      // tabung neon di bawah sill (unlit, tidak kena tone map)
+  neonGlowMaterial: THREE.MeshBasicMaterial;  // proyeksi cahaya lembut di lantai (additive)
+  neonSpillMaterial: THREE.MeshBasicMaterial; // spill lebar sangat halus (additive)
   neonLight: THREE.PointLight;
   flKnuckle: THREE.Group;
   frKnuckle: THREE.Group;
@@ -206,6 +209,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     });
 
     rig.neonMaterial.color.set(neonColor);
+    rig.neonGlowMaterial.color.set(neonColor);
+    rig.neonSpillMaterial.color.set(neonColor);
     rig.neonLight.color.set(neonColor);
 
     // Ganti warna di menu langsung terlihat di mobil poster diorama
@@ -218,6 +223,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         mat.color.set(chassisAnodizeColor);
       });
       poster.neonMaterial.color.set(neonColor);
+      poster.neonGlowMaterial.color.set(neonColor);
+      poster.neonSpillMaterial.color.set(neonColor);
       poster.neonLight.color.set(neonColor);
     }
   }, [customization]);
@@ -1437,6 +1444,108 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const petals = sakuraGarden.petals;
     if (!isHarunaMap) buildHangingStartBanners(scene, trackCurve, hallFrame.height);
 
+    // --- 5Z. UNDERGLOW TEXTURES (dibuat sekali, dipakai semua mobil) ---
+    let _underglowTex: THREE.CanvasTexture | null = null;
+    let _underglowSpillTex: THREE.CanvasTexture | null = null;
+    const getUnderglowTexture = () => {
+      if (_underglowTex) return _underglowTex;
+      const S = 256;
+      const c = document.createElement('canvas');
+      c.width = S;
+      c.height = Math.round(S * 1.5);
+      const ctx = c.getContext('2d')!;
+      // Rounded-rect footprint dengan falloff lembut: gambar berlapis dari besar-transparan ke kecil-terang
+      const layers = 26;
+      for (let i = 0; i < layers; i++) {
+        const t = i / (layers - 1); // 0 = terluar
+        const inset = t * 0.42;
+        const w = c.width * (1 - inset);
+        const h = c.height * (1 - inset * 0.9);
+        const r = Math.min(w, h) * 0.32;
+        const a = 0.035 + Math.pow(t, 2.2) * 0.12;
+        ctx.fillStyle = `rgba(255,255,255,${a.toFixed(4)})`;
+        const x0 = (c.width - w) / 2;
+        const y0 = (c.height - h) / 2;
+        ctx.beginPath();
+        ctx.moveTo(x0 + r, y0);
+        ctx.arcTo(x0 + w, y0, x0 + w, y0 + h, r);
+        ctx.arcTo(x0 + w, y0 + h, x0, y0 + h, r);
+        ctx.arcTo(x0, y0 + h, x0, y0, r);
+        ctx.arcTo(x0, y0, x0 + w, y0, r);
+        ctx.closePath();
+        ctx.fill();
+      }
+      // Hot-line di tepi (tempat tabung neon) — ciri khas NFS-U2
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 7;
+      const ex = c.width * 0.21, ey = c.height * 0.17;
+      ctx.beginPath();
+      ctx.roundRect(ex, ey, c.width - ex * 2, c.height - ey * 2, 26);
+      ctx.stroke();
+      _underglowTex = new THREE.CanvasTexture(c);
+      _underglowTex.colorSpace = THREE.SRGBColorSpace;
+      return _underglowTex;
+    };
+    const getUnderglowSpillTexture = () => {
+      if (_underglowSpillTex) return _underglowSpillTex;
+      const S = 128;
+      const c = document.createElement('canvas');
+      c.width = S;
+      c.height = S;
+      const ctx = c.getContext('2d')!;
+      const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+      g.addColorStop(0, 'rgba(255,255,255,0.55)');
+      g.addColorStop(0.45, 'rgba(255,255,255,0.16)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, S, S);
+      _underglowSpillTex = new THREE.CanvasTexture(c);
+      return _underglowSpillTex;
+    };
+
+    // Animasi underglow per frame: mode steady / pulse / strobe / rainbow + reaksi gas & drift
+    const _ugColor = new THREE.Color();
+    const applyUnderglow = (
+      rig: RCCarRig,
+      baseHex: string,
+      mode: UnderglowMode,
+      intensity01: number,
+      tSec: number,
+      drive01: number,
+      phase = 0
+    ) => {
+      if (mode === 'off' || intensity01 <= 0.001) {
+        rig.neonGlowMaterial.opacity = 0;
+        rig.neonSpillMaterial.opacity = 0;
+        rig.neonLight.intensity = 0;
+        rig.neonMaterial.color.set('#1A1D26');
+        return;
+      }
+      let k = 1;
+      if (mode === 'pulse') {
+        k = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(tSec * 2.6 + phase));
+      } else if (mode === 'strobe') {
+        const beat = (tSec * 3.2 + phase) % 1;
+        k = beat < 0.1 ? 1.25 : beat < 0.2 ? 0.25 : beat < 0.3 ? 1.1 : 0.35;
+      }
+      if (mode === 'rainbow') {
+        _ugColor.setHSL(((tSec * 0.12 + phase * 0.1) % 1 + 1) % 1, 1, 0.55);
+      } else {
+        _ugColor.set(baseHex);
+      }
+      // Reaksi gas/drift: +25% saat ngegas & drift
+      k *= 0.85 + drive01 * 0.3;
+      const amp = intensity01 * k;
+      rig.neonGlowMaterial.color.copy(_ugColor);
+      rig.neonSpillMaterial.color.copy(_ugColor);
+      rig.neonLight.color.copy(_ugColor);
+      rig.neonGlowMaterial.opacity = Math.min(1, 1.0 * amp);
+      rig.neonSpillMaterial.opacity = Math.min(1, 0.4 * amp);
+      rig.neonLight.intensity = 3.2 * amp;
+      // Tabung: warna neon yang "menyala" (sedikit ke putih saat terang)
+      rig.neonMaterial.color.copy(_ugColor).lerp(new THREE.Color('#FFFFFF'), 0.15 * Math.min(1, amp));
+    };
+
     // --- 6. BUILD 1:10 RWD RC DRIFT CHASSIS + WOBBLE-FREE WHEELS + SKYLINE GT-R ---
     const createRCCarRig = (
       _bodyId: CarCustomization['bodyId'],
@@ -1772,18 +1881,56 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       bodyShellGroup.visible = shellMode !== 'naked_chassis';
 
-      const neonMaterial = new THREE.MeshBasicMaterial({
+      // ===== UNDERGLOW ala NFS UNDERGROUND 2 =====
+      // 1) Proyeksi cahaya di lantai: rounded-rect gradient additive mengikuti footprint mobil
+      const neonGlowMaterial = new THREE.MeshBasicMaterial({
         color: neonHex,
+        map: getUnderglowTexture(),
         transparent: true,
-        opacity: 0.85,
+        opacity: 0.95,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
       });
-      const neonPad = new THREE.Mesh(new THREE.PlaneGeometry(1.55, 2.95), neonMaterial);
-      neonPad.rotation.x = -Math.PI / 2;
-      neonPad.position.y = 0.04;
-      root.add(neonPad);
+      const neonGlow = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 4.6), neonGlowMaterial);
+      neonGlow.rotation.x = -Math.PI / 2;
+      neonGlow.position.y = 0.035;
+      neonGlow.renderOrder = 2;
+      root.add(neonGlow);
+      // 2) Spill lebar sangat halus (bleed ke lantai sekitar)
+      const neonSpillMaterial = new THREE.MeshBasicMaterial({
+        color: neonHex,
+        map: getUnderglowSpillTexture(),
+        transparent: true,
+        opacity: 0.35,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const neonSpill = new THREE.Mesh(new THREE.PlaneGeometry(6.4, 8.4), neonSpillMaterial);
+      neonSpill.rotation.x = -Math.PI / 2;
+      neonSpill.position.y = 0.03;
+      neonSpill.renderOrder = 1;
+      root.add(neonSpill);
+      // 3) 4 tabung neon terlihat di bawah sill (kiri/kanan/depan/belakang) + strip inti putih
+      const neonMaterial = new THREE.MeshBasicMaterial({ color: neonHex, toneMapped: false });
+      const tubeCoreMat = new THREE.MeshBasicMaterial({ color: '#FFFFFF', toneMapped: false });
+      const mkTube = (w: number, l: number, x: number, z: number) => {
+        const tube = new THREE.Mesh(new THREE.BoxGeometry(w, 0.05, l), neonMaterial);
+        tube.position.set(x, 0.15, z);
+        root.add(tube);
+        const core = new THREE.Mesh(new THREE.BoxGeometry(w * 0.4, 0.052, l * 0.96), tubeCoreMat);
+        core.position.set(x, 0.15, z);
+        root.add(core);
+      };
+      mkTube(0.07, 1.75, 0.62, 0.02);
+      mkTube(0.07, 1.75, -0.62, 0.02);
+      mkTube(1.0, 0.07, 0, 1.46);
+      mkTube(1.0, 0.07, 0, -1.44);
 
-      const neonLight = new THREE.PointLight(neonHex, 1.1, 6.5);
-      neonLight.position.set(0, 0.35, 0);
+      // 4) Cahaya nyata agar kolong, roda & dinding dekat ikut terwarnai
+      const neonLight = new THREE.PointLight(neonHex, 2.6, 7.5, 2);
+      neonLight.position.set(0, 0.3, 0);
       root.add(neonLight);
 
       const turboSparkMesh = new THREE.Mesh(
@@ -1802,6 +1949,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         bodyPaintMaterials,
         anodizedMaterials,
         neonMaterial,
+        neonGlowMaterial,
+        neonSpillMaterial,
         neonLight,
         flKnuckle,
         frKnuckle,
@@ -2339,6 +2488,18 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           camera.updateProjectionMatrix();
         }
         harunaSky?.follow(camera.position);
+        const poster = dioramaCarRigRef.current;
+        if (poster) {
+          const cust = customRef.current;
+          applyUnderglow(
+            poster,
+            cust.neonColor,
+            cust.underglowMode ?? 'steady',
+            cust.underglowIntensity ?? 0.8,
+            now * 0.001,
+            0.3
+          );
+        }
         renderer.render(scene, camera);
         return;
       }
@@ -2761,6 +2922,37 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       playerRig.frKnuckle.rotation.y = state.frontSteerAngle;
       playerRig.servoHorn.rotation.y = state.frontSteerAngle * 0.8;
       playerRig.coolingFan.rotation.y += dt * 35;
+
+      // Underglow NFS-U2: pemain mengikuti mode & intensitas custom, bot steady dengan fase berbeda
+      {
+        const tSec = now * 0.001;
+        const cust = customRef.current;
+        const drive01 = Math.min(
+          1,
+          (throttleActive ? 0.5 : 0) + Math.min(0.5, driftDegAbs / 80) + (isTurboEngaged ? 0.25 : 0)
+        );
+        applyUnderglow(
+          playerRig,
+          cust.neonColor,
+          cust.underglowMode ?? 'steady',
+          cust.underglowIntensity ?? 0.8,
+          tSec,
+          drive01
+        );
+        if (frameCounter % 2 === 0) {
+          botRigs.forEach((rig, i) => {
+            applyUnderglow(
+              rig,
+              ENEMY_BOTS_DATA[i]?.neonColor ?? '#00F0FF',
+              i % 3 === 0 ? 'pulse' : 'steady',
+              0.7,
+              tSec,
+              0.4,
+              i * 1.7
+            );
+          });
+        }
+      }
 
       const targetRpm = throttleActive
         ? 16000 +

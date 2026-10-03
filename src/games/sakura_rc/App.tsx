@@ -58,6 +58,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     chassisAnodizeColor: '#F59E0B',
     neonColor: '#00F0FF',
     wheelColor: '#F8FAFC',
+    underglowMode: 'steady',
+    underglowIntensity: 0.8,
   });
 
   const [rcCredits, setRcCredits] = useState<number>(3500);

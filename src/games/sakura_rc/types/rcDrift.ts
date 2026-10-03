@@ -82,7 +82,13 @@ export interface CarCustomization {
   chassisAnodizeColor: string;
   neonColor: string;
   wheelColor: string;
+  /** Underglow ala NFS Underground 2: off / steady / pulse (breathing) / strobe / rainbow (hue cycle) */
+  underglowMode?: UnderglowMode;
+  /** 0..1 kecerahan underglow (default 0.8) */
+  underglowIntensity?: number;
 }
+
+export type UnderglowMode = 'off' | 'steady' | 'pulse' | 'strobe' | 'rainbow';
 
 export interface ClippingZoneDef {
   id: string;
