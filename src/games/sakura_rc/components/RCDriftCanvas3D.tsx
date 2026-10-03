@@ -26,6 +26,12 @@ import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 import { createBMWCarMesh } from '@/utils/bmwCar';
 import { ENEMY_BOTS_DATA } from '../data/circuitsAndCars';
 import {
+  JumpRamp,
+  buildJumpRampGroup,
+  findJumpRampSpots,
+  rampSurfaceAt,
+} from '../utils/jumpRamps';
+import {
   applyBotImpulse,
   BotBrainState,
   BotNeighbor,
@@ -1051,9 +1057,17 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const _qYaw = new THREE.Quaternion();
     const _qTilt = new THREE.Quaternion();
     /** Orientasi root mobil: yaw heading + ikut kemiringan aspal (pitch/roll) agar roda napak */
-    const orientCarRoot = (root: THREE.Object3D, heading: number, t: number) => {
+    const orientCarRoot = (root: THREE.Object3D, heading: number, t: number, pitchSlopeDown = 0) => {
       if (!isHarunaMap) {
-        root.rotation.set(0, heading, 0);
+        if (Math.abs(pitchSlopeDown) < 1e-4) {
+          root.rotation.set(0, heading, 0);
+          return;
+        }
+        // Aula: pitch mengikuti ramp / sikap melayang, searah heading mobil
+        _groundN.set(pitchSlopeDown * Math.sin(heading), 1, pitchSlopeDown * Math.cos(heading)).normalize();
+        _qYaw.setFromAxisAngle(_upVec, heading);
+        _qTilt.setFromUnitVectors(_upVec, _groundN);
+        root.quaternion.copy(_qTilt).multiply(_qYaw);
         return;
       }
       const fr = frameAt(botTrack, t, _scratchFrame);
@@ -1068,6 +1082,13 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     };
     const _scratchFrame = { x: 0, z: 0, nx: 0, nz: 0, heading: 0 };
     const _scratchFrame2 = { x: 0, z: 0, nx: 0, nz: 0, heading: 0 };
+
+    // --- AIR JUMP RAMPS (aula saja): gundukan kicker otomatis di lurusan terpanjang ---
+    const jumpRamps: JumpRamp[] = isHarunaMap
+      ? []
+      : findJumpRampSpots(botTrack, circuit.clippingZones.map((z) => z.t), 2);
+    const JUMP_GRAVITY = 13.5; // sedikit > 9.81 agar lompatan terasa padat, tidak melayang lama
+    const rampGroundAt = (t: number) => rampSurfaceAt(jumpRamps, botTrack, t);
 
     // High-detail Pro RC P-Tile Track Surface Texture with Chevrons, Racing Shoulders & Rubber Drift Groove
     const createTrackSurfaceTexture = () => {
@@ -1191,6 +1212,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // Main Pro P-Tile Track Surface (satin, tidak silau)
     const trackMesh = buildTrackRibbon(circuit.trackWidth, 0.028, '#161C28', 0.34, true);
     scene.add(trackMesh);
+
+    // Mesh ramp air-jump (permukaan + dinding hazard + pylon LED berkedip)
+    const rampPylonMats: THREE.MeshStandardMaterial[] = [];
+    for (const r of jumpRamps) {
+      const built = buildJumpRampGroup(r, botTrack, halfWidth, trackSurfaceLift + 0.028, circuit.accentColor);
+      scene.add(built.group);
+      rampPylonMats.push(...built.pylonMats);
+    }
 
     // Ideal D1 Drift Line Groove
     const grooveMesh = buildTrackRibbon(0.42, 0.036, circuit.accentColor, 0.16, false);
@@ -2371,6 +2400,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       pitchPrevSpeed: 0,
       pitchAccelSmooth: 0,
       cornerLockBlend: 0, // 0 = lurusan (boost penuh), 1 = tikungan (kecepatan normal)
+      // Air jump
+      carY: 0,
+      carVy: 0,
+      airborne: false,
+      airTime: 0,
+      lastGroundH: 0,
+      landShake: 0,
+      jumpCount: 0,
       suspRollDeg: 0,
       suspRollVel: 0,
       suspHeave: 0,
@@ -2423,6 +2460,11 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         // Tactical AI & Driving Personality State (diisi dari brain tiap frame)
         tacticalState: 'racing' as BotBrainState['tacticalState'],
         draftBoost: 1.0,
+        // Air jump (visual + y) untuk bot
+        airY: 0,
+        airVy: 0,
+        airborne: false,
+        lastGroundH: 0,
       };
     });
     const aiState = botStates[0];
@@ -2792,7 +2834,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       // Gravitasi turunan Haruna: menggelinding sendiri saat lepas gas, tanjakan sedikit menahan
       const gravityAccel = isHarunaMap ? 9.81 * slopeAhead * 0.75 : 0;
-      if (throttleActive) {
+      if (state.airborne) {
+        // Melayang: ban tidak menyentuh aspal -> tidak ada akselerasi/rem, hanya drag udara tipis
+        currentSpeed = Math.max(0, currentSpeed - 0.6 * dt);
+      } else if (throttleActive) {
         currentSpeed =
           currentSpeed > maxSpeed
             ? Math.max(maxSpeed, currentSpeed - 24.0 * dt) // batas turun (mis. masuk tikungan) -> melambat mulus
@@ -2814,7 +2859,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       const steerTurnRate =
         steerInput *
-        3.5 *
+        (state.airborne ? 0.9 : 3.5) *
         frontDiveTurnBoost *
         ifsTurnBoost *
         (0.65 + 0.35 * Math.min(1, currentSpeed / 8));
@@ -2847,7 +2892,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             handlingAssistNorm * 0.35
         ) *
         compoundGrip *
-        (throttleActive ? 0.82 : 1.35);
+        (throttleActive ? 0.82 : 1.35) *
+        (state.airborne ? 0.04 : 1.0); // di udara arah laju tidak berubah
 
       let angleDiff = wrapAngle(state.heading - state.velocityAngle);
       const maxHoldableSlip =
@@ -2914,15 +2960,66 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       );
 
       let playerRoadT = closest.t;
+      let playerPitchSlope = 0;
       if (isHarunaMap) {
         // Ikuti elevasi aspal Haruna dari LUT yang sama dengan proyeksi posisi: mobil napak,
         // tidak melayang/tenggelam; root juga dimiringkan mengikuti pitch/roll turunan.
         const roadProjection = findClosestSplineT(state.pos);
         playerRoadT = roadProjection.t;
         state.pos.y = roadProjection.height + harunaRideHeight;
+      } else if (jumpRamps.length > 0) {
+        // --- AIR JUMP: ikuti permukaan ramp, lepas landas balistik, mendarat dengan hentakan ---
+        const proj2 = findClosestSplineT(state.pos);
+        const ground = rampGroundAt(proj2.t);
+        const groundH = ground.h;
+        if (!state.airborne) {
+          // Kecepatan vertikal yang "dibawa" permukaan (slope x laju maju searah lintasan)
+          const fwdAlong = Math.cos(wrapAngle(state.velocityAngle - trackAngle));
+          const surfVy = ground.slope * currentSpeed * fwdAlong;
+          const predictedY = state.carY + state.carVy * dt - 0.5 * JUMP_GRAVITY * dt * dt;
+          if (predictedY > groundH + 0.012 && state.carVy > 0.05) {
+            // Permukaan jatuh lebih cepat daripada gravitasi -> lepas landas (lewati puncak kicker)
+            state.airborne = true;
+            state.airTime = 0;
+            state.carVy -= JUMP_GRAVITY * dt;
+            state.carY = predictedY;
+          } else {
+            state.carY = groundH;
+            state.carVy = surfVy;
+          }
+          playerPitchSlope = -ground.slope * fwdAlong;
+        } else {
+          state.carVy -= JUMP_GRAVITY * dt;
+          state.carY += state.carVy * dt;
+          state.airTime += dt;
+          if (state.carY <= groundH) {
+            // MENDARAT
+            const impact = Math.max(0, -state.carVy);
+            state.carY = groundH;
+            state.carVy = 0;
+            state.airborne = false;
+            state.jumpCount++;
+            state.suspHeaveVel -= impact * 0.35;
+            state.landShake = Math.min(1, impact / 7);
+            const airMs = Math.round(state.airTime * 1000);
+            const bonus = Math.round(120 + state.airTime * 420);
+            state.comboPoints += bonus;
+            triggerCallout(
+              `AIR TIME ${(airMs / 1000).toFixed(2)}s`,
+              `${ground.ramp ? ground.ramp.label : 'JUMP'} LANDED // +${bonus} PTS`,
+              'amber'
+            );
+            rcSound.playCollisionSound(Math.min(0.9, 0.25 + impact * 0.07));
+          } else {
+            // Sikap di udara: hidung sedikit naik saat melesat, turun saat jatuh
+            playerPitchSlope = -THREE.MathUtils.clamp(state.carVy / Math.max(6, currentSpeed), -0.35, 0.35) * 0.7;
+          }
+        }
+        state.pos.y = state.carY;
+        state.lastGroundH = groundH;
       }
       playerRig.root.position.copy(state.pos);
-      orientCarRoot(playerRig.root, state.heading, playerRoadT);
+      orientCarRoot(playerRig.root, state.heading, playerRoadT, playerPitchSlope);
 
       const driftDegSigned = THREE.MathUtils.radToDeg(
         wrapAngle(state.heading - state.velocityAngle)
@@ -2994,7 +3091,11 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       // Apply Ride Height (`rideHeightMm`: 4.0mm .. 8.0mm), Pitch Squat & Body Roll to 3D Shell & Chassis
       const rideHeightOffset = (susp.rideHeightMm - 5.5) * 0.025;
       const squatDropY = -Math.abs(state.suspPitchDeg) * 0.008;
-      playerRig.bodyShellGroup.position.y = rideHeightOffset + squatDropY;
+      // Heave (hentakan mendarat air-jump): pegas-peredam vertikal pada bodi
+      const heaveAccel = -state.suspHeave * springStiffness * 1.1 - state.suspHeaveVel * damperDamping * 0.9;
+      state.suspHeaveVel += heaveAccel * dt;
+      state.suspHeave = THREE.MathUtils.clamp(state.suspHeave + state.suspHeaveVel * dt, -0.16, 0.08);
+      playerRig.bodyShellGroup.position.y = rideHeightOffset + squatDropY + state.suspHeave;
       playerRig.bodyShellGroup.rotation.z = THREE.MathUtils.degToRad(state.suspRollDeg);
       // Negative X rotation in our car coordinate system (+Z forward) pitches nose UP (Rear Squat!)
       playerRig.bodyShellGroup.rotation.x = THREE.MathUtils.degToRad(-state.suspPitchDeg);
@@ -3501,9 +3602,38 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           bState.currentLateralOffset = brain.lateral;
 
           // G. Transform visual & counter-steer servo pada rig 3D
-          if (isHarunaMap) bState.pos.y = trackHeightAtT(bT) + harunaRideHeight;
+          let botPitchSlope = 0;
+          if (isHarunaMap) {
+            bState.pos.y = trackHeightAtT(bT) + harunaRideHeight;
+          } else if (jumpRamps.length > 0) {
+            const g = rampGroundAt(bT);
+            if (!bState.airborne) {
+              const surfVy = g.slope * bState.speed;
+              const predictedY = bState.airY + bState.airVy * dt - 0.5 * JUMP_GRAVITY * dt * dt;
+              if (predictedY > g.h + 0.012 && bState.airVy > 0.05) {
+                bState.airborne = true;
+                bState.airVy -= JUMP_GRAVITY * dt;
+                bState.airY = predictedY;
+              } else {
+                bState.airY = g.h;
+                bState.airVy = surfVy;
+              }
+              botPitchSlope = -g.slope;
+            } else {
+              bState.airVy -= JUMP_GRAVITY * dt;
+              bState.airY += bState.airVy * dt;
+              if (bState.airY <= g.h) {
+                bState.airY = g.h;
+                bState.airVy = 0;
+                bState.airborne = false;
+              } else {
+                botPitchSlope = -THREE.MathUtils.clamp(bState.airVy / Math.max(6, bState.speed), -0.35, 0.35) * 0.7;
+              }
+            }
+            bState.pos.y = bState.airY;
+          }
           bState.rig.root.position.copy(bState.pos);
-          orientCarRoot(bState.rig.root, bState.heading, bT);
+          orientCarRoot(bState.rig.root, bState.heading, bT, botPitchSlope);
           bState.rig.flKnuckle.rotation.y = bState.frontSteerAngle;
           bState.rig.frKnuckle.rotation.y = bState.frontSteerAngle;
           bState.rig.servoHorn.rotation.y = bState.frontSteerAngle * 0.8;
@@ -3609,6 +3739,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           for (let bi = 0; bi < botStates.length; bi++) {
             const bState = botStates[bi];
             const brain = bState.brain;
+            if (Math.abs(state.pos.y - bState.pos.y) > 0.75) continue; // salah satu sedang melayang
             const contact = deepestSphereContact(
               playerSph,
               sphereBuffers[bi],
@@ -3670,6 +3801,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             const bState = botStates[bi];
             for (let j = bi + 1; j < botStates.length; j++) {
               const other = botStates[j];
+              if (Math.abs(bState.pos.y - other.pos.y) > 0.75) continue;
               const bc = deepestSphereContact(
                 sphereBuffers[bi],
                 sphereBuffers[j],
@@ -3935,9 +4067,11 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         camera.position.lerp(standPos, dt * 4.0);
         camera.lookAt(state.pos.x * 0.88, state.pos.y + 0.6, state.pos.z * 0.88);
       } else {
+        state.landShake = Math.max(0, state.landShake - dt * 2.4);
+        const shake = state.landShake > 0 ? Math.sin(now * 0.045) * state.landShake * 0.22 : 0;
         const chaseOffset = new THREE.Vector3(
           -Math.sin(state.velocityAngle) * 7.4,
-          3.1,
+          3.1 + shake,
           -Math.cos(state.velocityAngle) * 7.4
         );
         camera.position.lerp(state.pos.clone().add(chaseOffset), dt * 8.5);
@@ -3951,6 +4085,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             )
           );
         camera.lookAt(lookAhead);
+      }
+
+      // Pylon LED ramp berkedip bergantian
+      if (rampPylonMats.length) {
+        const blink = 2.2 + 2.2 * Math.sin(now * 0.008);
+        for (let i = 0; i < rampPylonMats.length; i++) {
+          rampPylonMats[i].emissiveIntensity = i % 2 === 0 ? blink : 4.4 - blink;
+        }
       }
 
       // Key light mengikuti mobil pemain. Haruna memakai arah matahari rendah barat-daya;
