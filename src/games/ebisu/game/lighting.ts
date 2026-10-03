@@ -16,7 +16,7 @@ import type { LightingMode } from './prefs';
                 warm haze fog and lower exposure.
    ============================================================ */
 
-export const HDRI_URL = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/spruit_sunrise_1k.hdr';
+export const HDRI_URL = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/1k/kloofendal_48d_partly_cloudy_puresky_1k.hdr';
 
 export interface LightingRig {
   sun: THREE.DirectionalLight;
@@ -42,18 +42,18 @@ const STYLIZED = {
 };
 
 const REAL = {
-  hemiSky: 0xd7e4f5,
-  hemiGround: 0x6f7b52,
-  hemiI: 0.32,
-  sunColor: 0xffd3a2,
-  sunI: 3.1,
+  hemiSky: 0xd8e6f8,
+  hemiGround: 0x6f7f58,
+  hemiI: 0.3,
+  sunColor: 0xfff6ea, // neutral midday sun
+  sunI: 3.0,
   fillI: 0.12,
   exposure: 1.0,
   envI: 1.0,
-  fogColor: '#e9dcc6',
-  fogNear: 130,
-  fogFar: 950,
-  elevationDeg: 13,
+  fogColor: '#dfe8f3', // cool daylight haze
+  fogNear: 170,
+  fogFar: 1000,
+  elevationDeg: 46, // high sun = short neutral shadows
 };
 
 function flareTexture(kind: 'glow' | 'ring'): THREE.CanvasTexture {
@@ -63,10 +63,10 @@ function flareTexture(kind: 'glow' | 'ring'): THREE.CanvasTexture {
   const ctx = c.getContext('2d')!;
   const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
   if (kind === 'glow') {
-    g.addColorStop(0, 'rgba(255,245,225,1)');
-    g.addColorStop(0.12, 'rgba(255,225,180,0.75)');
-    g.addColorStop(0.35, 'rgba(255,190,120,0.22)');
-    g.addColorStop(1, 'rgba(255,170,90,0)');
+    g.addColorStop(0, 'rgba(255,252,245,1)');
+    g.addColorStop(0.12, 'rgba(255,245,225,0.7)');
+    g.addColorStop(0.35, 'rgba(240,235,220,0.18)');
+    g.addColorStop(1, 'rgba(230,230,230,0)');
   } else {
     g.addColorStop(0, 'rgba(255,255,255,0)');
     g.addColorStop(0.62, 'rgba(255,220,180,0.05)');
@@ -159,10 +159,10 @@ export class LightingController {
     if (!this.physSky) {
       const sky = new Sky();
       const u = sky.material.uniforms;
-      u.turbidity.value = 9;
-      u.rayleigh.value = 2.6;
-      u.mieCoefficient.value = 0.012;
-      u.mieDirectionalG.value = 0.86;
+      u.turbidity.value = 3.5;
+      u.rayleigh.value = 1.4;
+      u.mieCoefficient.value = 0.005;
+      u.mieDirectionalG.value = 0.8;
       u.sunPosition.value.copy(sunDir);
       // visible dome: a sphere sharing the Sky shader (its vertex shader pins depth to the far plane)
       const dome = new THREE.Mesh(new THREE.SphereGeometry(1400, 32, 16), sky.material);
@@ -262,7 +262,7 @@ export class LightingController {
     const v = 1 - (by + 0.5) / H;
     const theta = (u - 0.5) * Math.PI * 2;
     let el = (v - 0.5) * Math.PI;
-    el = THREE.MathUtils.clamp(Math.abs(el), THREE.MathUtils.degToRad(9), THREE.MathUtils.degToRad(42));
+    el = THREE.MathUtils.clamp(Math.abs(el), THREE.MathUtils.degToRad(25), THREE.MathUtils.degToRad(65));
     this.hdrSunDir = new THREE.Vector3(Math.cos(theta) * Math.cos(el), Math.sin(el), Math.sin(theta) * Math.cos(el));
     // horizon colour (a touch above the horizon line)
     const row = Math.floor(H * 0.47);
@@ -288,11 +288,11 @@ export class LightingController {
     const flare = new Lensflare();
     const glow = flareTexture('glow');
     const ring = flareTexture('ring');
-    flare.addElement(new LensflareElement(glow, 620, 0, new THREE.Color('#ffe2b8')));
-    flare.addElement(new LensflareElement(ring, 70, 0.55, new THREE.Color('#ffd0a0')));
-    flare.addElement(new LensflareElement(ring, 110, 0.72, new THREE.Color('#ffb98a')));
-    flare.addElement(new LensflareElement(ring, 60, 0.86, new THREE.Color('#ffe0c0')));
-    flare.addElement(new LensflareElement(ring, 160, 1.0, new THREE.Color('#ffc9a0')));
+    flare.addElement(new LensflareElement(glow, 520, 0, new THREE.Color('#fff7ea')));
+    flare.addElement(new LensflareElement(ring, 60, 0.55, new THREE.Color('#dfe9ff')));
+    flare.addElement(new LensflareElement(ring, 100, 0.72, new THREE.Color('#cfe3ff')));
+    flare.addElement(new LensflareElement(ring, 50, 0.86, new THREE.Color('#fff0dc')));
+    flare.addElement(new LensflareElement(ring, 140, 1.0, new THREE.Color('#d8e6ff')));
     this.rig.sun.add(flare);
     this.flare = flare;
     return flare;

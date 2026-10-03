@@ -1182,9 +1182,11 @@ export class Game {
     const wheelSpinRate = racingNow && (p.drifting || p.boostTime > 0) ? p.vf / dims.wheelRadius + 12 : p.vf / dims.wheelRadius;
     m.wheels.forEach((w, i) => (w.rotation.x += (i < 2 ? p.vf / dims.wheelRadius : wheelSpinRate) * dt));
     // positive rotation.y points a wheel to the car's left, so mirror the steer input (or counter-steer in sakura_rc mode)
+    // bigger visual lock (~40°) + natural counter-steer from the slip angle while sliding (visual only)
+    const pSlip = this.engine !== 'classic' && p.veh ? p.veh.slip : 0;
     const steerVis = this.engine === 'sakura_rc' && p.veh.frontSteerAngle !== undefined
       ? -p.veh.frontSteerAngle
-      : -p.steer * 0.45;
+      : THREE.MathUtils.clamp(-p.steer * 0.7 - pSlip * 1.2, -0.85, 0.85);
     m.frontWheels.forEach((w) => (w.rotation.y = steerVis));
     m.steeringWheel.rotation.z = this.engine === 'sakura_rc' ? steerVis * 1.8 : -p.steer * 1.4;
     const boosting = p.boostTime > 0;
@@ -1431,7 +1433,7 @@ export class Game {
     const steerVis = this.engine === 'sakura_rc' && ai.veh.frontSteerAngle !== undefined
       ? -ai.veh.frontSteerAngle
       : slipMode
-      ? -ai.veh.steer * 0.45
+      ? THREE.MathUtils.clamp(-ai.veh.steer * 0.7 - ai.veh.slip * 1.2, -0.85, 0.85)
       : THREE.MathUtils.clamp(ai.curv * 20, -0.4, 0.4);
     m.frontWheels.forEach((w) => (w.rotation.y = steerVis));
     m.steeringWheel.rotation.z = this.engine === 'sakura_rc' ? steerVis * 1.8 : slipMode ? -ai.veh.steer * 1.4 : THREE.MathUtils.clamp(ai.curv * 60, -1.2, 1.2);

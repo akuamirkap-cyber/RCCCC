@@ -1054,10 +1054,9 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   const coneSpots: { x: number; z: number; color: THREE.Color }[] = [];
   for (const z of zones) {
     const base = new THREE.Color(z.color);
-    const dark = base.clone().multiplyScalar(0.45);
     const paint = new THREE.Mesh(
-      buildRangeStrip(track, z.start, z.len, -HALF_WIDTH + 0.3, HALF_WIDTH - 0.3, 0.018, { len: 3, a: base, b: dark }),
-      new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.24, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      buildRangeStrip(track, z.start, z.len, -HALF_WIDTH + 0.3, HALF_WIDTH - 0.3, 0.018),
+      new THREE.MeshBasicMaterial({ color: base, transparent: true, opacity: 0.13, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
     );
     paint.renderOrder = 1;
     scene.add(paint);

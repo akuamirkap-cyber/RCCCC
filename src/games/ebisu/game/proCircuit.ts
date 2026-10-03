@@ -44,18 +44,6 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
   const rnd = mulberry32(90210);
   ctx.fillStyle = '#3a3c42';
   ctx.fillRect(0, 0, S, S);
-  // large tonal patches (repaved sections, wear)
-  for (let i = 0; i < 40; i++) {
-    const x = rnd() * S;
-    const y = rnd() * S;
-    const r = 90 + rnd() * 220;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    const light = rnd() < 0.5;
-    g.addColorStop(0, light ? 'rgba(110,112,118,0.05)' : 'rgba(30,31,36,0.06)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
   // height field for the grain (also used for the normal map)
   const h = new Float32Array(S * S);
   for (let i = 0; i < 160000; i++) {
@@ -70,7 +58,7 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
   for (let i = 0; i < S * S; i++) {
     const v = h[i];
     if (v === 0) continue;
-    const k = (v - 0.5) * 44;
+    const k = (v - 0.5) * 30;
     d[i * 4] = clamp(d[i * 4] + k, 0, 255);
     d[i * 4 + 1] = clamp(d[i * 4 + 1] + k, 0, 255);
     d[i * 4 + 2] = clamp(d[i * 4 + 2] + k + 2, 0, 255);
@@ -92,7 +80,7 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
   const nimg = nctx.createImageData(S, S);
   const nd = nimg.data;
   const H = (x: number, y: number) => h[((y + S) % S) * S + ((x + S) % S)];
-  const strength = 2.2;
+  const strength = 1.4;
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       const dx = (H(x + 1, y) - H(x - 1, y)) * strength;
@@ -269,7 +257,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
   const roadMat = new THREE.MeshStandardMaterial({
     map: tex.map,
     normalMap: tex.normalMap,
-    normalScale: new THREE.Vector2(0.3, 0.3),
+    normalScale: new THREE.Vector2(0.18, 0.18),
     roughness: 0.96,
     metalness: 0.0,
     color: '#c9cacd',
