@@ -59,6 +59,8 @@ interface Metrics {
   avgSpeed: number;
   maxDrift: number;
   contacts: number;
+  brakeTime: number; // detik dengan perlambatan > 2.5 m/s^2 (terlihat seperti ngerem)
+  limiters: Record<string, number>;
   states: Record<string, number>;
   lateralSamples: number[];
 }
@@ -95,10 +97,12 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
       avgSpeed: 0,
       maxDrift: 0,
       contacts: 0,
+      brakeTime: 0,
+      limiters: {},
       states: {},
       lateralSamples: [],
     };
-    return { def, brain, personality, m, lastT: t, lapStart: 0, prevAngVel: 0, prevReverse: false, speedAcc: 0, n: 0 };
+    return { def, brain, personality, m, lastT: t, lapStart: 0, prevAngVel: 0, prevReverse: false, speedAcc: 0, n: 0, prevSpeed: 0 };
   });
 
   // Pemain pasif: diam di grid (bot harus bisa menghindar / tetap lewat).
@@ -173,6 +177,13 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
       const jerk = Math.abs(b.brain.angularVel - b.prevAngVel) / dt;
       b.prevAngVel = b.brain.angularVel;
       if (time > 2) b.m.maxJerk = Math.max(b.m.maxJerk, jerk);
+      // Hitung hanya perlambatan saat mobil relatif lurus (<18°) = terlihat seperti ngerem;
+      // perlambatan saat sideways adalah scrub drift (teknik, bukan rem).
+      if (time > 3 && (b.prevSpeed - b.brain.speed) / dt > 2.5 && b.brain.driftDegAbs < 18) {
+        b.m.brakeTime += dt;
+        b.m.limiters[b.brain.limiter] = (b.m.limiters[b.brain.limiter] ?? 0) + dt;
+      }
+      b.prevSpeed = b.brain.speed;
       b.speedAcc += b.brain.speed;
       b.n++;
       b.m.maxDrift = Math.max(b.m.maxDrift, b.brain.driftDegAbs);
@@ -224,7 +235,7 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
     console.log(
       `${b.m.name.padEnd(16)} laps=${b.m.laps - 1} [${lapStr}] avgV=${b.m.avgSpeed.toFixed(1)} maxDrift=${b.m.maxDrift.toFixed(0)}° ` +
         `minWallGap=${b.m.minWallGap.toFixed(2)}m wall<0.6m=${b.m.wallTime.toFixed(1)}s recov=${b.m.recoveryTime.toFixed(1)}s ` +
-        `reverse=${b.m.reverseCount} maxJerk=${b.m.maxJerk.toFixed(1)} contacts=${b.m.contacts} latSD=${sd.toFixed(2)} | ${stateStr}`
+        `brake=${((b.m.brakeTime / time) * 100).toFixed(1)}%[${Object.entries(b.m.limiters).map(([k, v]) => `${k}:${((v / Math.max(0.01, b.m.brakeTime)) * 100).toFixed(0)}%`).join(',')}] reverse=${b.m.reverseCount} maxJerk=${b.m.maxJerk.toFixed(1)} contacts=${b.m.contacts} latSD=${sd.toFixed(2)} | ${stateStr}`
     );
     if (b.m.laps - 1 < 3) {
       ok = false;
@@ -250,7 +261,8 @@ function runCircuit(circuitIdx: number, dt: number, durationS: number) {
   });
   const spread = Math.max(...avgLaps) - Math.min(...avgLaps);
   console.log(`lap-time spread antar bot: ${spread.toFixed(2)}s  (avg laps: ${avgLaps.map((x) => x.toFixed(1)).join(', ')})`);
-  if (spread < 0.4) {
+  const meanLap = avgLaps.reduce((a, c) => a + c, 0) / avgLaps.length;
+  if (spread < meanLap * 0.015) {
     ok = false;
     console.log('   !! semua bot terlalu seragam');
   }

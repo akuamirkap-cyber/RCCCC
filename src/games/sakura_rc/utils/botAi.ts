@@ -317,14 +317,16 @@ interface StyleTrait {
 // setara, budget akselerasi lateral (grip) dibuat besar: bot menahan gas di
 // hampir semua tikungan dan hanya "angkat gas" di hairpin paling tajam.
 const STYLE_TRAITS: Record<string, StyleTrait> = {
-  aggressive_dive: { grip: 31, accel: 27, brake: 11.5, skill: 0.76, reaction: 0.155, authority: 7.2, turn: 3.9 },
-  smooth_momentum: { grip: 40, accel: 24, brake: 9.0, skill: 0.9, reaction: 0.085, authority: 5.8, turn: 3.1 },
-  tactical_cutter: { grip: 37, accel: 25.5, brake: 10.5, skill: 0.95, reaction: 0.07, authority: 6.6, turn: 3.4 },
-  apex_gutter: { grip: 38, accel: 25, brake: 10.0, skill: 0.86, reaction: 0.1, authority: 7.6, turn: 3.8 },
-  heavy_power: { grip: 30, accel: 28, brake: 10.5, skill: 0.72, reaction: 0.175, authority: 6.8, turn: 4.0 },
+  // PRO SPEC: semua pembalap level atas — bedanya hanya karakter (sudut,
+  // garis, timing), bukan "lambat vs cepat". Grip besar = gas terus di tikungan.
+  aggressive_dive: { grip: 70, accel: 30, brake: 12, skill: 0.93, reaction: 0.07, authority: 8.4, turn: 4.4 },
+  smooth_momentum: { grip: 76, accel: 29, brake: 10, skill: 0.97, reaction: 0.055, authority: 7.4, turn: 3.8 },
+  tactical_cutter: { grip: 74, accel: 29.5, brake: 11, skill: 0.98, reaction: 0.05, authority: 8.0, turn: 4.1 },
+  apex_gutter: { grip: 75, accel: 29.5, brake: 11, skill: 0.96, reaction: 0.06, authority: 8.8, turn: 4.4 },
+  heavy_power: { grip: 68, accel: 31, brake: 11.5, skill: 0.92, reaction: 0.075, authority: 8.0, turn: 4.5 },
 };
 
-const DEFAULT_TRAIT: StyleTrait = { grip: 36, accel: 25.5, brake: 10.0, skill: 0.82, reaction: 0.11, authority: 6.6, turn: 3.5 };
+const DEFAULT_TRAIT: StyleTrait = { grip: 72, accel: 29.5, brake: 11, skill: 0.95, reaction: 0.06, authority: 8.0, turn: 4.2 };
 
 /** Bias pengereman → seberapa tinggi kecepatan masuk tikungan yang berani diambil. */
 const BRAKING_K: Record<BrakingBias, number> = { late: 1.22, balanced: 1.0, early_apex: 0.86, trail: 1.08 };
@@ -336,13 +338,13 @@ const BRAKING_K: Record<BrakingBias, number> = { late: 1.22, balanced: 1.0, earl
  */
 export const PLAYER_BASE_SPEED = 22.5;
 /** Pemain Sakura RC bisa menahan turbo di lurusan (x1.18); bot dapat sebagian. */
-export const BOT_TURBO_SHARE = 1.1;
+export const BOT_TURBO_SHARE = 1.18;
 /** Bot minimal selalu memakai pace preset "sedang" (speedFactor 1.35). */
 export const BOT_MIN_PACE = 1.35;
 
 export function personalityFromSpec(spec: BotPersonalityInput, index: number): BotPersonality {
   const trait = STYLE_TRAITS[spec.style] ?? DEFAULT_TRAIT;
-  const skill = clamp(trait.skill - spec.lineWanderRate * 0.22 + (1 - spec.aggression) * 0.06, 0.42, 0.98);
+  const skill = clamp(trait.skill - spec.lineWanderRate * 0.06, 0.85, 0.99);
   return {
     // Top speed per bot: formula pemain x sedikit variasi karakter (±3%).
     baseSpeed: PLAYER_BASE_SPEED * BOT_TURBO_SHARE * (0.985 + spec.aggression * 0.03 + (spec.baseSpeed - 25) * 0.02),
@@ -423,6 +425,8 @@ export interface BotBrainState {
   frontSteerAngle: number;
   targetSpeed: number;
   lastContactImpulse: number;
+  /** Diagnostik: pembatas kecepatan yang sedang aktif. */
+  limiter: 'top' | 'corner' | 'wall' | 'recovery' | 'follow';
 }
 
 export function createBotBrain(pos: THREE.Vector3, heading: number, trackT: number, lateral: number): BotBrainState {
@@ -468,6 +472,7 @@ export function createBotBrain(pos: THREE.Vector3, heading: number, trackT: numb
     frontSteerAngle: 0,
     targetSpeed: 0,
     lastContactImpulse: 0,
+    limiter: 'top',
   };
 }
 
@@ -508,11 +513,9 @@ export interface BotStepInput {
 export const BOT_TUNING = {
   /** Batas lateral nyaman; di luar ini recovery mulai masuk (kontinu). */
   grooveInset: 1.15,
-  /** Mulai ada "tekanan" menjauhi dinding. */
-  edgePressureStart: 2.7,
   /** Batas fisik lunak: bot boleh menyentuh, tapi tidak menembus. */
   softWallInset: 0.85,
-  maxSlipRad: 1.18,
+  maxSlipRad: 1.25,
   cornerSpeedFloor: 10.5,
 };
 
@@ -562,13 +565,16 @@ export function stepBotAI(s: BotBrainState, p: BotPersonality, track: BotTrack, 
   s.recovery = smoothTo(s.recovery, recoveryTarget, recoveryTarget > s.recovery ? 5.2 : 2.4, dt);
 
   // Tekanan dinding: bot "merasakan" pagar sebelum menyentuhnya.
-  const edgeStart = halfWidth - BOT_TUNING.edgePressureStart;
+  // Tekanan dinding baru mulai DI LUAR koridor racing line (maxLat), supaya
+  // garis balap normal yang lebar tidak dianggap "bahaya" dan memicu angkat gas.
+  const edgeStart = maxLat + 0.15;
+  const edgeFull = halfWidth - 0.6;
   // Prediksi lateral ~0.55 s ke depan: bot mengantisipasi pembatas, bukan
   // bereaksi setelah menyentuhnya (inilah yang membuatnya tidak mepet pagar).
   const latVel = s.vel.x * P_CUR.nx + s.vel.z * P_CUR.nz;
   const predLat = s.lateral + latVel * 0.55;
   const predAbs = Math.max(absLat, Math.abs(predLat) * (Math.sign(predLat) === latSign ? 1 : 0));
-  const nearEdge = clamp((predAbs - edgeStart) / Math.max(0.4, BOT_TUNING.edgePressureStart - input.safeMargin), 0, 1);
+  const nearEdge = clamp((predAbs - edgeStart) / Math.max(0.35, edgeFull - edgeStart), 0, 1);
   s.wallPressure = smoothTo(s.wallPressure, nearEdge * nearEdge, nearEdge > s.wallPressure ? 10 : 5, dt);
 
   // --- D. Kesalahan kecil yang manusiawi (jarang, lalu dikoreksi rapi) ------
@@ -594,30 +600,34 @@ export function stepBotAI(s: BotBrainState, p: BotPersonality, track: BotTrack, 
     if (nb.aheadM <= 0.3 || nb.aheadM > 18) continue;
     const latGap = Math.abs(nb.lateral - s.lateral);
     if (latGap > 2.3) continue;
-    const overlap = 1 - clamp((latGap - 1.2) / 1.1, 0, 1); // 1 = tepat di belakang
-    const desiredGap = 3.4 + s.speed * 0.2 * (1 - p.aggression * 0.45);
-    const cap = Math.max(nb.speed, 0) + (nb.aheadM - desiredGap) * 1.25;
+    const overlap = 1 - clamp((latGap - 1.0) / 1.0, 0, 1); // 1 = tepat di belakang
+    const desiredGap = 2.6 + s.speed * 0.1 * (1 - p.aggression * 0.45);
+    const cap = Math.max(nb.speed, 0) + (nb.aheadM - desiredGap) * 1.4;
     // Blend: makin tepat di belakang, makin ketat batasnya.
     const blended = lerp(p.baseSpeed * input.paceScale * 1.5, cap, overlap);
     followCap = Math.min(followCap, blended);
   }
 
   // --- E. Kecepatan target: model tikungan + rubber-band halus --------------
+  // Pro drifter masuk tikungan "panas" (+12% di atas budget grip) dan membuang
+  // sisa kecepatan lewat scrub sudut drift — bukan lewat rem.
   const vCorner =
     SCAN.maxAbsCurv > 1e-4
-      ? Math.sqrt((p.grip * BRAKING_K[p.brakingBias]) / SCAN.maxAbsCurv)
+      ? Math.sqrt((p.grip * BRAKING_K[p.brakingBias]) / SCAN.maxAbsCurv) * 1.12
       : Number.POSITIVE_INFINITY;
   // Bot yang mepet dinding tidak boleh tetap ngebut.
   const topSpeed = p.baseSpeed * input.paceScale;
-  const wallSpeedCap = lerp(topSpeed, BOT_TUNING.cornerSpeedFloor + 5, s.wallPressure * 0.85);
+  const wallSpeedCap = lerp(topSpeed, topSpeed * 0.62, smoothstep((s.wallPressure - 0.35) / 0.65));
   const recoverySpeedCap = lerp(topSpeed, wrongWay ? 8 : 13, s.recovery);
 
   // Rubber-band kontinu terhadap pemain (tanpa lonjakan 0.95/1.02/1.08).
-  const rubberTarget = 1 - clamp(input.gapToPlayerM / 85, -1, 1) * 0.075;
+  // Bot pro tidak pernah "menahan diri" saat memimpin; hanya dapat dorongan
+  // kecil kalau tertinggal jauh supaya balapan tetap rapat.
+  const rubberTarget = 1 + clamp(-input.gapToPlayerM / 90, 0, 1) * 0.05;
   s.paceBias = smoothTo(s.paceBias, rubberTarget, 0.9, dt);
 
   // Pace noise halus per bot: ritme tiap lap tidak pernah persis sama.
-  const paceNoise = 1 + fbmNoise(p.seed + 5.5, time * 0.055) * 0.028 * (1.25 - p.skill);
+  const paceNoise = 1 + fbmNoise(p.seed + 5.5, time * 0.055) * 0.006;
   // Saat sudah berkomitmen menyalip (sudah bergeser ke sisi), bot menambah
   // dorongan sedikit supaya manuvernya tuntas — bukan menggantung di samping.
   const overtakeBoost = s.overtakeHold > 0 && s.tacticalState === 'overtaking' ? 1 + 0.06 * p.overtakeTendency : 1;
@@ -629,6 +639,12 @@ export function stepBotAI(s: BotBrainState, p: BotPersonality, track: BotTrack, 
     Math.max(followCap, 4.5)
   );
   s.targetSpeed = Math.max(input.active ? 2.2 : 0, rawTarget);
+  s.limiter =
+    rawTarget === vCorner ? 'corner'
+    : rawTarget === wallSpeedCap ? 'wall'
+    : rawTarget === recoverySpeedCap ? 'recovery'
+    : rawTarget === Math.max(followCap, 4.5) ? 'follow'
+    : 'top';
 
   // Integrasi kecepatan dengan batas akselerasi/rem → tidak ada lonjakan.
   if (!input.active) {
@@ -643,8 +659,12 @@ export function stepBotAI(s: BotBrainState, p: BotPersonality, track: BotTrack, 
     // lepas gas pemain 9.5 m/s^2). Rem sungguhan hanya kalau jauh di atas
     // target (hairpin / mepet pembatas / recovery).
     const over = s.speed - s.targetSpeed;
-    const brakeNeed = clamp((over - 3.5) / 6, 0, 1);
-    const decel = 9.5 * 0.6 + p.brakePower * brakeNeed;
+    const emergency = s.recovery > 0.3 || s.wallPressure > 0.6 || followCap < s.speed - 4;
+    const brakeNeed = emergency ? clamp((over - 2) / 5, 0, 1) : 0;
+    // Lepas gas sangat pelan (2.4 m/s^2) + scrub saat sedang sideways: kecepatan
+    // hilang justru ketika mobil sedang drift — terlihat seperti teknik, bukan rem.
+    const scrub = Math.abs(s.slipSmooth) * 4.2;
+    const decel = 2.4 + scrub + p.brakePower * brakeNeed;
     s.speed = Math.max(s.targetSpeed, s.speed - decel * dt);
   }
 
@@ -806,19 +826,27 @@ export function stepBotAI(s: BotBrainState, p: BotPersonality, track: BotTrack, 
   s.velocityAngle = wrapAngle(s.velocityAngle + turn * dt);
 
   // --- K. Sudut drift: dari akselerasi lateral, bukan konstanta tetap -------
-  const latAccel = Math.abs(s.curvPerceived) * Math.max(0, s.speed) * Math.max(0, s.speed);
+  // Pro drifter: inisiasi SEBELUM apex (pakai kelengkungan tikungan di depan
+  // kalau sudah dekat), lalu tahan sudut dalam sepanjang tikungan.
+  const entryBlend = clamp(1 - cornerDist / 18, 0, 1) * preCorner;
+  const curvForDrift =
+    Math.abs(SCAN.curvNow) > Math.abs(SCAN.curv) * entryBlend
+      ? s.curvPerceived
+      : lerp(s.curvPerceived, SCAN.curv, entryBlend);
+  const v2 = Math.max(0, s.speed) * Math.max(0, s.speed);
+  const latAccel = Math.abs(curvForDrift) * v2;
   const slipDemand =
-    Math.sign(s.curvPerceived || 1) *
-    Math.pow(clamp(latAccel / Math.max(4, p.grip * 0.55), 0, 1.5), 0.82) *
-    0.62 *
+    Math.sign(curvForDrift || 1) *
+    Math.pow(clamp(latAccel / Math.max(4, p.grip * 0.42), 0, 1.4), 0.7) *
+    0.86 *
     p.driftAngleFactor;
   // Manji ringan di lintasan lurus biar tidak kaku seperti kereta.
   const straight = 1 - clamp(Math.abs(SCAN.curvNow) / 0.02, 0, 1);
-  const manji = straight > 0.4 && s.speed > 10 ? Math.sin(time * (0.55 + (p.seed % 1) * 0.5) + p.seed) * 0.2 * straight : 0;
+  const manji = straight > 0.4 && s.speed > 10 ? Math.sin(time * (0.6 + (p.seed % 1) * 0.5) + p.seed) * 0.3 * straight : 0;
   const slipTarget = reversing
     ? 0
     : clamp((slipDemand + manji) * (1 - s.recovery) * (1 - s.wallPressure * 0.55), -BOT_TUNING.maxSlipRad, BOT_TUNING.maxSlipRad);
-  s.slipSmooth = smoothTo(s.slipSmooth, slipTarget, 3.4 + p.skill * 2.6, dt);
+  s.slipSmooth = smoothTo(s.slipSmooth, slipTarget, 4.5 + p.skill * 3.5, dt);
 
   const desiredHeading = reversing ? s.velocityAngle : wrapAngle(s.velocityAngle + s.slipSmooth);
   const headingErr = wrapAngle(desiredHeading - s.heading);
