@@ -26,7 +26,7 @@ import { BMWAdjustmentModal } from '@/components/BMWAdjustmentModal';
 
 export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) {
   const [circuit, setCircuit] = useState<CircuitDef>(RC_CIRCUITS[0]);
-  const [gameMode, setGameMode] = useState<GameMode>('tsuiso');
+  const [gameMode, setGameMode] = useState<GameMode>('race');
   const [cameraMode, setCameraMode] = useState<CameraMode>('chase_close');
   const [resetTrigger, setResetTrigger] = useState<number>(0);
   const [showBMWAdjust, setShowBMWAdjust] = useState<boolean>(false);

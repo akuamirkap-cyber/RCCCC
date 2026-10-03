@@ -193,6 +193,35 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
       ? (telemetry.leadCarHeadingRad * 180) / Math.PI
       : 0;
 
+  const raceStandings = useMemo(() => {
+    if (!telemetry.botRacers || telemetry.botRacers.length === 0) return [];
+    const playerEntry = {
+      id: 'player',
+      name: 'YOU (PLAYER)',
+      shortName: 'YOU',
+      color: '#00F0FF',
+      rank: telemetry.racePosition || 1,
+      speedKmh: Math.round(telemetry.speedKmh),
+      lap: telemetry.currentLap,
+      isPlayer: true,
+      styleLabel: 'PRO DRIFT PILOT',
+      tacticalState: '',
+    };
+    const botEntries = telemetry.botRacers.map((b) => ({
+      id: b.id,
+      name: b.name,
+      shortName: b.shortName,
+      color: b.color,
+      rank: b.rank,
+      speedKmh: b.speedKmh,
+      lap: b.lap,
+      isPlayer: false,
+      styleLabel: b.styleLabel || '',
+      tacticalState: b.tacticalState || '',
+    }));
+    return [playerEntry, ...botEntries].sort((a, b) => a.rank - b.rank);
+  }, [telemetry.botRacers, telemetry.racePosition, telemetry.speedKmh, telemetry.currentLap]);
+
   return (
     <div className="fixed inset-0 pointer-events-none z-10 flex flex-col justify-between p-3 sm:p-5">
       {/* TOP BAR: 3-CLUSTER TELEMETRY HEADER */}
@@ -244,9 +273,10 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           <div className="hud-panel rounded-xl p-1 flex items-center gap-1">
             {(
               [
-                { id: 'qualifying', label: 'SOLO QUALIFYING' },
-                { id: 'tsuiso', label: 'TSUISO TANDEM' },
-                { id: 'freedrift', label: 'FREE DRIFT' },
+                { id: 'race', label: 'RACE 6P 🏁' },
+                { id: 'tsuiso', label: 'TSUISO' },
+                { id: 'qualifying', label: 'QUALIFY' },
+                { id: 'freedrift', label: 'FREE' },
               ] as { id: GameMode; label: string }[]
             ).map((m) => {
               const active = gameMode === m.id;
@@ -254,7 +284,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                 <button
                   key={m.id}
                   onClick={() => onSelectGameMode(m.id)}
-                  className={`flex-1 px-2.5 py-1.5 rounded-lg font-display text-[11px] font-bold tracking-wider uppercase transition-all cursor-pointer ${
+                  className={`flex-1 px-2 py-1.5 rounded-lg font-display text-[10px] sm:text-[11px] font-bold tracking-wider uppercase transition-all cursor-pointer text-center ${
                     active
                       ? 'bg-[#00F0FF] text-[#0B0D13] shadow-[0_0_15px_rgba(0,240,255,0.5)]'
                       : 'text-slate-300 hover:text-white hover:bg-white/5'
@@ -379,8 +409,27 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                   );
                 })}
 
-                {/* Pro AI Rival Bot Live Position & Drift Heading Arrow */}
-                {(gameMode === 'tsuiso' || gameMode === 'freedrift') &&
+                {/* 5 Pro Enemy AI Bots on Minimap Radar */}
+                {telemetry.botRacers && telemetry.botRacers.length > 0 ? (
+                  telemetry.botRacers.map((b) => {
+                    const bHeadingDeg = (b.headingRad * 180) / Math.PI;
+                    return (
+                      <g
+                        key={b.id}
+                        transform={`translate(${b.x}, ${b.z}) rotate(${-bHeadingDeg + 180})`}
+                      >
+                        <circle r="4.8" fill={b.color} fillOpacity="0.4" />
+                        <polygon
+                          points="0,-4.5 3.2,3.4 0,1.6 -3.2,3.4"
+                          fill={b.color}
+                          stroke="#FFFFFF"
+                          strokeWidth="0.8"
+                        />
+                      </g>
+                    );
+                  })
+                ) : (
+                  (gameMode === 'tsuiso' || gameMode === 'freedrift' || gameMode === 'race') &&
                   telemetry.leadCarX !== undefined &&
                   telemetry.leadCarZ !== undefined && (
                     <g
@@ -394,19 +443,21 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
                         strokeWidth="0.9"
                       />
                     </g>
-                  )}
+                  )
+                )}
 
                 {/* Player Nissan Skyline GT-R Live Position & Drift Heading Arrow */}
                 {telemetry.carX !== undefined && telemetry.carZ !== undefined && (
                   <g
                     transform={`translate(${telemetry.carX}, ${telemetry.carZ}) rotate(${-carHeadingDeg + 180})`}
                   >
-                    <circle r="5.5" fill="#00F0FF" fillOpacity="0.28" />
+                    <circle r="5.8" fill="#00F0FF" fillOpacity="0.35" className="animate-ping" />
+                    <circle r="5.0" fill="#00F0FF" fillOpacity="0.28" />
                     <polygon
                       points="0,-4.8 3.6,3.8 0,2.0 -3.6,3.8"
                       fill="#00F0FF"
                       stroke="#FFFFFF"
-                      strokeWidth="0.9"
+                      strokeWidth="1.1"
                     />
                   </g>
                 )}
@@ -415,18 +466,103 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
               {/* Map Legend Overlay */}
               <div className="absolute bottom-1 left-2 right-2 flex items-center justify-between text-[8px] font-mono-tabular text-slate-400">
                 <span className="flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-[#00F0FF] inline-block" />
-                  SKYLINE R34
+                  <span className="w-2 h-2 rounded-full bg-[#00F0FF] inline-block shadow-[0_0_6px_#00F0FF]" />
+                  YOU (R34)
                 </span>
-                {gameMode === 'tsuiso' && (
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded-full bg-[#FF2A85] inline-block" />
-                    LEAD S15
-                  </span>
-                )}
-                <span className="text-[#CCFF00]">Z1-Z4 CLIPS</span>
+                <span className="flex items-center gap-1 text-slate-300">
+                  <span className="w-2 h-2 rounded-full bg-[#FF2A85] inline-block" />
+                  <span className="w-2 h-2 rounded-full bg-[#FF6B00] inline-block" />
+                  <span className="w-2 h-2 rounded-full bg-[#DC2626] inline-block" />
+                  <span>5 BOTS</span>
+                </span>
+                <span className="text-[#CCFF00]">Z1-Z4</span>
               </div>
             </div>
+
+            {/* LIVE 6-CAR RACE STANDINGS LEADERBOARD */}
+            {raceStandings.length > 0 && (
+              <div className="hud-panel rounded-xl p-2 font-mono-tabular border border-white/10 shadow-xl max-w-full">
+                <div className="flex items-center justify-between text-[9px] font-display font-extrabold uppercase tracking-wider text-slate-300 pb-1 mb-1 border-b border-white/10">
+                  <span className="flex items-center gap-1.5 text-amber-300">
+                    <span>🏁</span>
+                    <span>LIVE 6P STANDINGS</span>
+                  </span>
+                  <span className="text-slate-400 text-[8px]">SPEED • LAP</span>
+                </div>
+                <div className="space-y-1">
+                  {raceStandings.map((racer) => {
+                    const isP1 = racer.rank === 1;
+                    const isP2 = racer.rank === 2;
+                    const isP3 = racer.rank === 3;
+                    return (
+                      <div
+                        key={racer.id}
+                        className={`flex items-center justify-between px-2 py-0.5 rounded-lg text-[10px] transition-all ${
+                          racer.isPlayer
+                            ? 'bg-[#00F0FF]/20 border border-[#00F0FF]/60 text-white font-bold shadow-[0_0_10px_rgba(0,240,255,0.3)]'
+                            : 'bg-black/30 border border-white/5 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span
+                            className={`w-4 h-4 rounded flex items-center justify-center text-[9px] font-black shrink-0 ${
+                              isP1
+                                ? 'bg-amber-400 text-black shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                                : isP2
+                                ? 'bg-slate-200 text-black'
+                                : isP3
+                                ? 'bg-amber-700 text-white'
+                                : 'bg-white/10 text-slate-400'
+                            }`}
+                          >
+                            {racer.rank}
+                          </span>
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0 shadow-sm"
+                            style={{ backgroundColor: racer.color }}
+                          />
+                          <span
+                            className={`truncate text-[10px] ${
+                              racer.isPlayer ? 'text-[#00F0FF] font-black' : 'text-slate-200 font-medium'
+                            }`}
+                          >
+                            {racer.shortName}
+                          </span>
+                          {/* Live tactical / personality badge */}
+                          {racer.tacticalState === 'overtaking' ? (
+                            <span className="text-[7.5px] px-1 py-0.5 rounded bg-amber-500/25 border border-amber-400/50 text-amber-300 font-bold animate-pulse shrink-0">
+                              ⚡ PASS
+                            </span>
+                          ) : racer.tacticalState === 'defending' ? (
+                            <span className="text-[7.5px] px-1 py-0.5 rounded bg-blue-500/25 border border-blue-400/50 text-blue-300 font-bold shrink-0">
+                              🛡️ DEF
+                            </span>
+                          ) : racer.tacticalState === 'feint_entry' ? (
+                            <span className="text-[7.5px] px-1 py-0.5 rounded bg-fuchsia-500/25 border border-fuchsia-400/50 text-fuchsia-300 font-bold shrink-0">
+                              🌀 FEINT
+                            </span>
+                          ) : racer.tacticalState === 'recovering' ? (
+                            <span className="text-[7.5px] px-1 py-0.5 rounded bg-emerald-500/25 border border-emerald-400/50 text-emerald-300 font-bold shrink-0">
+                              🔄 REJOIN
+                            </span>
+                          ) : racer.styleLabel ? (
+                            <span className="hidden sm:inline-block text-[7px] px-1 py-0.5 rounded bg-white/5 border border-white/10 text-slate-400 font-medium truncate max-w-[80px]">
+                              {racer.styleLabel.split(' ')[0]}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0 text-[9px] text-slate-400">
+                          <span className="font-mono-tabular font-bold text-slate-300">{racer.speedKmh} km/h</span>
+                          <span className="text-[8px] px-1 rounded bg-white/10 text-slate-400 font-bold">
+                            L{racer.lap}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -435,14 +571,42 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
           <div className="hud-panel-cyan rounded-2xl px-5 py-2.5 flex items-center gap-5 sm:gap-7">
             <div className="text-left">
               <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
-                {gameMode === 'qualifying'
+                {gameMode === 'race'
+                  ? `RACE POS & LAP`
+                  : gameMode === 'qualifying'
                   ? `QUALIFYING LAP`
                   : gameMode === 'tsuiso'
                   ? 'TSUISO PROXIMITY'
                   : 'ENDLESS SESSION'}
               </div>
               <div className="font-mono-tabular font-extrabold text-lg sm:text-xl text-white">
-                {gameMode === 'qualifying' ? (
+                {gameMode === 'race' ? (
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`px-2 py-0.5 rounded-lg text-xs font-black tracking-wider ${
+                        telemetry.racePosition === 1
+                          ? 'bg-amber-400 text-black shadow-[0_0_12px_rgba(251,191,36,0.6)]'
+                          : telemetry.racePosition === 2
+                          ? 'bg-slate-200 text-black shadow-[0_0_10px_rgba(226,232,240,0.5)]'
+                          : telemetry.racePosition === 3
+                          ? 'bg-amber-700 text-white'
+                          : 'bg-white/20 text-cyan-300'
+                      }`}
+                    >
+                      {telemetry.racePosition === 1
+                        ? '🥇 P1'
+                        : telemetry.racePosition === 2
+                        ? '🥈 P2'
+                        : telemetry.racePosition === 3
+                        ? '🥉 P3'
+                        : `P${telemetry.racePosition || 1}`}
+                      <span className="text-[9px] opacity-75 ml-0.5">/6</span>
+                    </span>
+                    <span className="text-sm text-slate-300 font-bold">
+                      LAP {telemetry.currentLap}/{telemetry.maxLaps}
+                    </span>
+                  </div>
+                ) : gameMode === 'qualifying' ? (
                   <>
                     {telemetry.currentLap}
                     <span className="text-slate-400 text-sm">/{telemetry.maxLaps}</span>

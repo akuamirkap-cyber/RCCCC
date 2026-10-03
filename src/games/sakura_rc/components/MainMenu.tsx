@@ -253,6 +253,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <Segment
                   label="MODE"
                   options={[
+                    { v: 'race', label: 'RACE 6P 🏁' },
                     { v: 'tsuiso', label: 'TSUISO' },
                     { v: 'qualifying', label: 'QUALIFY' },
                     { v: 'freedrift', label: 'FREE' },
@@ -436,15 +437,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               </div>
             </div>
 
-            {/* Tips */}
-            <div className="mt-3 text-[11px] leading-relaxed text-slate-200/90 bg-black/35 backdrop-blur-sm rounded-xl px-3 py-2 ring-1 ring-white/10">
-              <span className="font-bold text-white">A/D</span> setir •{' '}
-              <span className="font-bold text-white">W</span> gas •{' '}
-              <span className="font-bold text-white">SPACE</span> clutch-kick •{' '}
-              <span className="font-bold text-white">SHIFT</span> turbo •{' '}
-              <span className="font-bold text-white">ENTER</span> start. Bonus{' '}
-              <span className="font-bold text-[#CCFF00]">TANDEM</span>: tempel bumper
-              AI &lt;3.5m + drift &gt;14° = +260 pts/detik &amp; multiplier naik!
+            {/* Tips & 5-Bot Race Info */}
+            <div className="mt-3 text-[11px] leading-relaxed text-slate-200/90 bg-black/35 backdrop-blur-sm rounded-xl px-3 py-2 ring-1 ring-white/10 space-y-1">
+              <div>
+                <span className="font-bold text-[#CCFF00]">🏁 BALAPAN 5 BOT MUSUH:</span>{' '}
+                <span className="text-white">Kenji (S15)</span>, <span className="text-white">Takashi (FD3S)</span>, <span className="text-white">Ryosuke (Supra)</span>, <span className="text-white">Takumi (AE86)</span>, &amp; <span className="text-white">Nakazato (R32)</span>!
+              </div>
+              <div className="text-[10px] text-slate-300">
+                <span className="font-bold text-white">A/D</span> setir • <span className="font-bold text-white">W</span> gas • <span className="font-bold text-white">SPACE</span> handbrake • <span className="font-bold text-white">SHIFT</span> turbo. Tempel bumper bot &lt;3.5m untuk tandem rub &amp; combo boost!
+              </div>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-export type GameMode = 'qualifying' | 'tsuiso' | 'freedrift';
+export type GameMode = 'race' | 'tsuiso' | 'qualifying' | 'freedrift';
 
 export type SpeedLevel = 'normal' | 'sedang' | '2x';
 
@@ -127,6 +127,8 @@ export interface BotRacerTelemetry {
   headingRad: number;
   speedKmh: number;
   driftAngleDeg: number;
+  styleLabel?: string;
+  tacticalState?: string;
 }
 
 export interface LiveTelemetry {

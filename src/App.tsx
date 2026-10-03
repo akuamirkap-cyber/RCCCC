@@ -426,9 +426,9 @@ export default function App() {
                     </span>
                     <span className="text-[10px] font-mono text-neutral-400">RCDRIFT BEST.zip</span>
                   </div>
-                  <h4 className="text-lg font-black text-white">SAKURA RC PRO</h4>
+                  <h4 className="text-lg font-black text-white">SAKURA RC PRO (BALAPAN 5 BOT)</h4>
                   <p className="text-xs text-neutral-300">
-                    Simulasi mobil RC Drift R34 BNR34 di Aula Circuit karpet, Gyro Steering Gain, RB26 Soundbox, dan Pit Bench...
+                    Balapan drift 6 mobil dengan 5 bot musuh (Kenji S15, Takashi FD, Ryosuke Supra, Takumi AE86, Nakazato R32), radar minimap, live standings leaderboard, &amp; RB26 soundbox.
                   </p>
 
                   {/* Live Dimensions of BMW for Mode 2 */}

@@ -31,12 +31,41 @@ export const SessionSummaryModal: React.FC<SessionSummaryModalProps> = ({
       <div className="w-full max-w-lg hud-panel-cyan rounded-3xl p-6 sm:p-8 text-center relative overflow-hidden">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00F0FF]/15 border border-[#00F0FF]/40 text-[#00F0FF] text-xs font-mono-tabular uppercase tracking-widest mb-3">
           <Trophy className="w-3.5 h-3.5" />
-          <span>OFFICIAL 1:10 RWD QUALIFYING SCORECARD</span>
+          <span>
+            {result.racePosition
+              ? `6-CAR DRIFT RACE • POS ${result.racePosition} OF ${result.totalRacers || 6}`
+              : 'OFFICIAL 1:10 RWD DRIFT SCORECARD'}
+          </span>
         </div>
 
         <h2 className="font-display font-extrabold text-2xl sm:text-3xl uppercase tracking-wider text-white">
           {result.circuitName}
         </h2>
+
+        {/* Podium Finish Banner */}
+        {result.racePosition !== undefined && (
+          <div
+            className={`mt-2.5 px-4 py-1.5 rounded-xl font-display font-black text-sm uppercase tracking-wider inline-flex items-center gap-2 ${
+              result.racePosition === 1
+                ? 'bg-amber-400 text-black shadow-[0_0_20px_rgba(251,191,36,0.5)]'
+                : result.racePosition === 2
+                ? 'bg-slate-200 text-black shadow-[0_0_15px_rgba(226,232,240,0.4)]'
+                : result.racePosition === 3
+                ? 'bg-amber-700 text-white shadow-[0_0_15px_rgba(180,83,9,0.4)]'
+                : 'bg-white/10 text-slate-300 border border-white/15'
+            }`}
+          >
+            <span>
+              {result.racePosition === 1
+                ? '🏆 1ST PLACE WINNER!'
+                : result.racePosition === 2
+                ? '🥈 2ND PLACE PODIUM!'
+                : result.racePosition === 3
+                ? '🥉 3RD PLACE PODIUM!'
+                : `FINISH POSITION P${result.racePosition} / 6`}
+            </span>
+          </div>
+        )}
 
         {/* Giant Grade & Total Score */}
         <div className="my-6 flex items-center justify-center gap-6">

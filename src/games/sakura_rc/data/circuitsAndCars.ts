@@ -539,6 +539,13 @@ export const RC_CIRCUITS: CircuitDef[] = [
   },
 ];
 
+export type BotDrivingStyle =
+  | 'aggressive_dive'
+  | 'smooth_momentum'
+  | 'tactical_cutter'
+  | 'apex_gutter'
+  | 'heavy_power';
+
 export interface EnemyBotSpec {
   id: string;
   name: string;
@@ -554,6 +561,16 @@ export interface EnemyBotSpec {
   startGridT: number;
   startGridOffset: number;
   avatarColor: string;
+  // Distinct personality & driving styles:
+  style: BotDrivingStyle;
+  styleLabel: string;
+  aggression: number; // 0.0 - 1.0 (dive-bomb, pass frequency, door rubbing)
+  driftAngleFactor: number; // 0.85 - 1.35 (shallow slide vs deep angle)
+  counterSteerRate: number; // snappiness of counter-steer transitions
+  brakingBias: 'late' | 'balanced' | 'early_apex' | 'trail';
+  overtakeTendency: number; // probability to break formation and overtake
+  feintDriftChance: number; // Scandinavian flick pre-turn entry
+  lineWanderRate: number; // procedural human line variation
 }
 
 export const ENEMY_BOTS_DATA: EnemyBotSpec[] = [
@@ -567,11 +584,20 @@ export const ENEMY_BOTS_DATA: EnemyBotSpec[] = [
     anodizeColor: '#A855F7',
     neonColor: '#CCFF00',
     wheelColor: '#F8FAFC',
-    baseSpeed: 24.8,
+    baseSpeed: 25.0,
     lateralPreference: 0.35,
     startGridT: 0.008,
     startGridOffset: 2.2, // Row 1 Left
     avatarColor: '#FF2A85',
+    style: 'aggressive_dive',
+    styleLabel: 'LATE-BRAKER DIVE-BOMB',
+    aggression: 0.88,
+    driftAngleFactor: 1.25,
+    counterSteerRate: 18.0,
+    brakingBias: 'late',
+    overtakeTendency: 0.86,
+    feintDriftChance: 0.65,
+    lineWanderRate: 0.42,
   },
   {
     id: 'bot_takashi',
@@ -583,11 +609,20 @@ export const ENEMY_BOTS_DATA: EnemyBotSpec[] = [
     anodizeColor: '#F59E0B',
     neonColor: '#00F0FF',
     wheelColor: '#1E293B',
-    baseSpeed: 25.4,
+    baseSpeed: 25.5,
     lateralPreference: -0.35,
     startGridT: -0.006,
     startGridOffset: -2.2, // Row 2 Right
     avatarColor: '#FF6B00',
+    style: 'smooth_momentum',
+    styleLabel: 'HIGH-MOMENTUM SWEEPER',
+    aggression: 0.62,
+    driftAngleFactor: 1.05,
+    counterSteerRate: 14.0,
+    brakingBias: 'trail',
+    overtakeTendency: 0.72,
+    feintDriftChance: 0.35,
+    lineWanderRate: 0.28,
   },
   {
     id: 'bot_ryosuke',
@@ -599,11 +634,20 @@ export const ENEMY_BOTS_DATA: EnemyBotSpec[] = [
     anodizeColor: '#FBBF24',
     neonColor: '#F59E0B',
     wheelColor: '#FFFFFF',
-    baseSpeed: 25.0,
+    baseSpeed: 25.2,
     lateralPreference: 0.25,
     startGridT: -0.012,
     startGridOffset: 2.2, // Row 2 Left
     avatarColor: '#DC2626',
+    style: 'tactical_cutter',
+    styleLabel: 'ANALYTICAL APEX CUTTER',
+    aggression: 0.76,
+    driftAngleFactor: 1.12,
+    counterSteerRate: 16.0,
+    brakingBias: 'balanced',
+    overtakeTendency: 0.92,
+    feintDriftChance: 0.48,
+    lineWanderRate: 0.22,
   },
   {
     id: 'bot_takumi',
@@ -615,11 +659,20 @@ export const ENEMY_BOTS_DATA: EnemyBotSpec[] = [
     anodizeColor: '#38BDF8',
     neonColor: '#38BDF8',
     wheelColor: '#0F172A',
-    baseSpeed: 25.2,
-    lateralPreference: -0.4,
+    baseSpeed: 25.3,
+    lateralPreference: -0.42,
     startGridT: -0.024,
     startGridOffset: -2.2, // Row 3 Right
     avatarColor: '#38BDF8',
+    style: 'apex_gutter',
+    styleLabel: 'TIGHT GUTTER RUNNER',
+    aggression: 0.84,
+    driftAngleFactor: 1.20,
+    counterSteerRate: 20.0,
+    brakingBias: 'early_apex',
+    overtakeTendency: 0.88,
+    feintDriftChance: 0.82,
+    lineWanderRate: 0.35,
   },
   {
     id: 'bot_nakazato',
@@ -631,11 +684,20 @@ export const ENEMY_BOTS_DATA: EnemyBotSpec[] = [
     anodizeColor: '#EC4899',
     neonColor: '#A855F7',
     wheelColor: '#CBD5E1',
-    baseSpeed: 24.6,
-    lateralPreference: 0.2,
+    baseSpeed: 24.8,
+    lateralPreference: 0.20,
     startGridT: -0.030,
     startGridOffset: 2.2, // Row 3 Left
     avatarColor: '#7C3AED',
+    style: 'heavy_power',
+    styleLabel: 'HEAVY POWER SLIDER',
+    aggression: 0.94,
+    driftAngleFactor: 1.32,
+    counterSteerRate: 15.0,
+    brakingBias: 'late',
+    overtakeTendency: 0.80,
+    feintDriftChance: 0.22,
+    lineWanderRate: 0.40,
   },
 ];
 
