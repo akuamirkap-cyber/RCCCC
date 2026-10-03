@@ -16,6 +16,7 @@ import {
 } from './game/tuning';
 import { loadPrefs, savePrefs, type CameraMode, type CarStyle, type SmokeSettings, type VisualPrefs } from './game/prefs';
 import { Hud, type MinimapData, type Popup } from './components/Hud';
+import './components/hud.css';
 import { PauseOverlay, ResultScreen, StartScreen, type BestRecords } from './components/Screens';
 import { TuningPanel } from './components/TuningPanel';
 import { VisualPanel } from './components/VisualPanel';
@@ -476,7 +477,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
       )}
 
       {/* Floating Top Buttons: PILIH GAME & ADJUST BODY BMW */}
-      <div className="fixed top-3 left-3 z-50 flex items-center gap-2">
+      <div className="eb-hud fixed top-3 left-3 z-50 flex items-center gap-1.5 sm:left-5 sm:top-4">
         {onSwitchGame && (
           <button
             onClick={() => {
@@ -485,21 +486,20 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
               }
               onSwitchGame();
             }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-neutral-900/85 hover:bg-neutral-900 text-white text-xs font-bold shadow-lg border border-white/20 backdrop-blur-md transition-all active:scale-95 cursor-pointer"
+            className="eb-chip cursor-pointer"
             title="Kembali ke menu pemilihan game"
           >
-            <span>🎮</span>
-            <span>PILIH GAME</span>
+            <span className="text-sm leading-none">‹</span>
+            <span>Pilih Game</span>
           </button>
         )}
 
         <button
           onClick={() => setShowBMWAdjust(true)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-orange-950/85 hover:bg-orange-900 text-orange-300 text-xs font-bold shadow-lg border border-orange-500/50 backdrop-blur-md transition-all active:scale-95 cursor-pointer"
+          className="eb-chip eb-chip--accent cursor-pointer"
           title="Atur panjang, lebar, tinggi dan letak ketinggian (offset Y) body BMW GLB"
         >
-          <span>📐</span>
-          <span>BODY BMW</span>
+          <span>Body BMW</span>
         </button>
       </div>
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { HudState, PopupKind, ZoneHud } from '../game/Game';
 import { cn } from '../utils/cn';
+import './hud.css';
 
 export interface Popup {
   id: number;
@@ -82,34 +83,29 @@ function useLinger<T>(value: T | null, ms = 400): { value: T; leaving: boolean }
 
 const popupStyles: Record<PopupKind, string> = {
   good: 'text-white',
-  great: 'grad-text',
-  epic: 'grad-text-fire',
-  bad: 'text-red-300',
-  info: 'grad-text-ice',
-  boost: 'grad-text-fire',
-  zone: 'grad-text-violet',
+  great: 'eb-grad-gold',
+  epic: 'eb-grad-accent',
+  bad: 'text-[#ff8da0]',
+  info: 'eb-grad-cyan',
+  boost: 'eb-grad-accent',
+  zone: 'eb-grad-violet',
 };
 
 const RANK_NAMES = ['DRIFT', 'NICE DRIFT', 'GREAT DRIFT', 'PERFECT DRIFT'];
-const RANK_TEXT = ['text-white', 'grad-text-ice', 'grad-text', 'grad-text-fire'];
-const MULT_BG = [
-  'from-white/80 to-white/60 text-slate-800',
-  'from-white/80 to-white/60 text-slate-800',
-  'from-sky-300 to-cyan-400 text-white',
-  'from-yellow-300 to-amber-400 text-slate-900',
-  'from-orange-400 to-rose-500 text-white',
-  'from-fuchsia-400 to-violet-500 text-white',
-];
+const RANK_TEXT = ['text-white', 'eb-grad-cyan', 'eb-grad-gold', 'eb-grad-accent'];
 function rankOf(t: number) {
   return t > 2.6 ? 3 : t > 1.5 ? 2 : t > 0.8 ? 1 : 0;
+}
+function multClass(m: number) {
+  return m >= 5 ? 'eb-mult--5' : m >= 4 ? 'eb-mult--4' : m >= 3 ? 'eb-mult--3' : m >= 2 ? 'eb-mult--2' : '';
 }
 
 function MiniMap({ data, hud }: { data: MinimapData; hud: HudState }) {
   const pad = 22;
   return (
     <svg viewBox={`${data.minX - pad} ${data.minZ - pad} ${data.w + pad * 2} ${data.h + pad * 2}`} className="h-20 w-20 sm:h-28 sm:w-28">
-      <path d={data.path} fill="none" stroke="rgba(20,30,60,0.35)" strokeWidth={24} strokeLinejoin="round" />
-      <path d={data.path} fill="none" stroke="rgba(255,255,255,0.95)" strokeWidth={15} strokeLinejoin="round" />
+      <path d={data.path} fill="none" stroke="rgba(0,0,0,0.5)" strokeWidth={26} strokeLinejoin="round" />
+      <path d={data.path} fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth={14} strokeLinejoin="round" />
       {data.zones.map((z, i) => (
         <path key={i} d={z.path} fill="none" stroke={z.color} strokeWidth={15} strokeLinecap="round" strokeLinejoin="round" />
       ))}
@@ -137,12 +133,16 @@ function Score({ score }: { score: number }) {
   }, [score]);
   return (
     <div className="relative">
-      <div key={bump} className={cn('flex items-baseline gap-1.5', bump > 0 && 'anim-punch')}>
-        <span className="hud-text text-[10px] font-bold tracking-[0.25em] text-white/80">SCORE</span>
-        <span className="hud-text-lg grad-text text-2xl font-bold leading-none tabular-nums sm:text-3xl">{shown.toLocaleString()}</span>
+      <div className="eb-label">Score</div>
+      <div key={bump} className={cn('eb-num eb-grad-gold text-3xl sm:text-4xl', bump > 0 && 'anim-punch')}>
+        {shown.toLocaleString()}
       </div>
       {gains.map((g, i) => (
-        <div key={g.id} className="anim-float-up hud-text pointer-events-none absolute left-full ml-2 whitespace-nowrap text-sm font-bold text-yellow-200" style={{ top: -2 - i * 8 }}>
+        <div
+          key={g.id}
+          className="anim-float-up eb-num pointer-events-none absolute left-full ml-2 whitespace-nowrap text-base text-[#ffd166]"
+          style={{ top: 8 - i * 8 }}
+        >
           +{g.amount.toLocaleString()}
         </div>
       ))}
@@ -166,31 +166,23 @@ function DriftMeter({ view, leaving }: { view: DriftView; leaving: boolean }) {
   const shown = useRollingNumber(total, 180);
   return (
     <div className={cn('flex flex-col items-center', leaving ? 'anim-pop-out' : 'anim-pop-in')}>
-      <div key={rank} className={cn('anim-pop-in hud-text-lg text-lg font-bold italic tracking-[0.2em] sm:text-2xl', RANK_TEXT[rank])}>
+      <div key={rank} className={cn('anim-pop-in eb-rank eb-outline', RANK_TEXT[rank])}>
         {RANK_NAMES[rank]}
       </div>
-      <div className="mt-0.5 flex items-center gap-2">
-        <span className="hud-text-lg text-4xl font-bold leading-none tabular-nums text-white sm:text-5xl">{shown.toLocaleString()}</span>
-        <span
-          key={view.mult}
-          className={cn(
-            'anim-pop-in rounded-full bg-gradient-to-b px-2.5 py-0.5 text-lg font-bold shadow-[0_4px_14px_rgba(0,0,0,0.25)] sm:text-2xl',
-            MULT_BG[Math.min(5, view.mult)],
-            view.mult >= 3 && 'anim-breathe',
-          )}
-        >
+      <div className="mt-1 flex items-center gap-2.5">
+        <span className="eb-num eb-outline text-5xl sm:text-6xl">{shown.toLocaleString()}</span>
+        <span key={view.mult} className={cn('eb-mult anim-pop-in', multClass(view.mult), view.mult >= 3 && 'anim-breathe')}>
           ×{view.mult}
         </span>
       </div>
-      <div className="track mt-1.5 h-1.5 w-32 sm:w-44">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-orange-300 via-yellow-300 to-white transition-[width] duration-100"
-          style={{ width: `${Math.round(view.boost * 100)}%` }}
-        />
+      <div className="eb-bar eb-bar--seg mt-2 w-36 sm:w-48">
+        <div className="eb-bar__fill" style={{ width: `${Math.round(view.boost * 100)}%` }} />
       </div>
-      <div className="hud-text mt-0.5 text-[10px] font-semibold tracking-widest text-white/80">
-        {view.meterFull ? 'METER FULL — FIRE IT!' : view.boost >= 1 ? 'MAX CHARGE' : 'BOOST CHARGE'}
-        {view.slipDeg > 0 && <span className="ml-2 text-violet-200">SLIP {view.slipDeg}°</span>}
+      <div className="eb-label mt-1 flex items-center gap-2 text-white/80">
+        <span className={cn(view.meterFull && 'eb-anim-blink text-[#ffd166]')}>
+          {view.meterFull ? 'Nitro full — fire it' : view.boost >= 1 ? 'Max charge' : 'Nitro charge'}
+        </span>
+        {view.slipDeg > 0 && <span className="text-[#9eefff]">Slip {view.slipDeg}°</span>}
       </div>
     </div>
   );
@@ -202,26 +194,21 @@ function ZoneStrip({ zone, leaving }: { zone: ZoneHud; leaving: boolean }) {
   const shown = useRollingNumber(zone.score, 180);
   return (
     <div className={cn('flex flex-col items-center', leaving ? 'anim-pop-out' : 'anim-pop-in')}>
-      <div className="pill flex items-center gap-2 px-3 py-1">
-        <span className={cn('rounded-full bg-gradient-to-b px-2 py-0.5 text-xs font-bold', gold ? 'from-yellow-300 to-amber-400 text-slate-900' : 'from-violet-400 to-fuchsia-500 text-white')}>
-          ×{zone.mult}
-        </span>
-        <span className="hud-text text-xs font-bold tracking-wider text-white sm:text-sm">{zone.name}</span>
-        <span className="hud-text text-sm font-bold tabular-nums text-yellow-200 sm:text-base">{shown.toLocaleString()}</span>
+      <div className="eb-panel flex items-center gap-2.5 px-3 py-1.5">
+        <span className={cn('eb-mult !text-base !min-w-[2rem]', gold ? 'eb-mult--3' : 'eb-mult--5')}>×{zone.mult}</span>
+        <span className="text-sm font-extrabold uppercase tracking-[0.18em] text-white sm:text-base">{zone.name}</span>
+        <span className="eb-num text-lg text-[#ffd166] sm:text-xl">{shown.toLocaleString()}</span>
         <span className="flex text-sm leading-none">
-          {[1, 2, 3].map((s) => (
-            <span key={`${s}-${zone.stars >= s}`} className={cn(zone.stars >= s ? 'anim-star-pop text-yellow-300' : 'text-white/40')}>
+          {[1, 2, 3].map((st) => (
+            <span key={`${st}-${zone.stars >= st}`} className={cn(zone.stars >= st ? 'anim-star-pop text-[#ffd166]' : 'text-white/25')}>
               ★
             </span>
           ))}
         </span>
-        {zone.full && <span className="rounded-full bg-emerald-400 px-1.5 text-[10px] font-bold text-slate-900">FULL</span>}
+        {zone.full && <span className="eb-tag eb-tag--green">Full</span>}
       </div>
-      <div className="track mt-1 h-1 w-40 sm:w-56">
-        <div
-          className={cn('h-full rounded-full transition-[width] duration-150', gold ? 'bg-gradient-to-r from-yellow-300 to-orange-400' : 'bg-gradient-to-r from-violet-300 to-fuchsia-400')}
-          style={{ width: `${Math.round(zone.progress * 100)}%` }}
-        />
+      <div className="eb-bar mt-1.5 h-1 w-44 sm:w-60">
+        <div className={cn('eb-bar__fill', !gold && 'eb-bar__fill--violet')} style={{ width: `${Math.round(zone.progress * 100)}%` }} />
       </div>
     </div>
   );
@@ -272,7 +259,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
   const zone = useLinger(zoneValue, 400);
 
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden font-display text-white">
+    <div className="eb-hud pointer-events-none absolute inset-0 overflow-hidden text-white">
       {/* Touch steering zones */}
       {active && (
         <>
@@ -317,28 +304,70 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
         <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(60,30,0,0.4) 100%)' }} />
       )}
 
+      {/* Subtle top/bottom legibility gradients */}
       {active && (
         <>
-          {/* Top left: position, lap, score */}
-          <div className="absolute left-3 top-3 flex flex-col gap-1.5 sm:left-5 sm:top-5">
-            <div className="flex items-end gap-1">
-              <span className="hud-text-lg text-5xl font-bold leading-none text-white sm:text-6xl">{hud.position}</span>
-              <span className="hud-text mb-1 text-base font-bold text-white/90">{ordinal(hud.position)}</span>
-              <span className="hud-text mb-1 ml-0.5 text-sm font-semibold text-white/60">/ {hud.totalCars}</span>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-28" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.28), rgba(0,0,0,0))' }} />
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32" style={{ background: 'linear-gradient(0deg, rgba(0,0,0,0.3), rgba(0,0,0,0))' }} />
+        </>
+      )}
+
+      {active && (
+        <>
+          {/* Top left: position / lap / score (below the PILIH GAME / BODY BMW chips) */}
+          <div className="absolute left-3 top-14 sm:left-5 sm:top-16">
+            <div className="eb-panel eb-panel--slant flex items-stretch gap-4 px-4 py-2.5 pr-7">
+              <div className="flex flex-col justify-center">
+                <div className="eb-label">Pos</div>
+                <div className="flex items-baseline gap-0.5">
+                  <span className="eb-num text-5xl sm:text-6xl">{hud.position}</span>
+                  <span className="eb-num text-lg text-white/85">{ordinal(hud.position)}</span>
+                  <span className="ml-1 text-sm font-bold text-white/45">/{hud.totalCars}</span>
+                </div>
+              </div>
+              <div className="w-px self-stretch bg-white/10" />
+              <div className="flex flex-col justify-center gap-1.5">
+                <div>
+                  <div className="eb-label">Lap</div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="eb-num text-2xl sm:text-3xl">{Math.min(hud.lap, hud.totalLaps)}</span>
+                    <span className="text-sm font-bold text-white/45">/{hud.totalLaps}</span>
+                  </div>
+                  <div className="mt-1 flex gap-1">
+                    {Array.from({ length: hud.totalLaps }).map((_, i) => (
+                      <span
+                        key={i}
+                        className={cn('h-1 w-5 rounded-full', i < hud.lap - 1 ? 'bg-[#ffb703]' : i === hud.lap - 1 ? 'bg-white' : 'bg-white/20')}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <Score score={hud.driftScore} />
+              </div>
             </div>
-            <div className="pill w-max px-3 py-0.5 text-xs font-bold tracking-wider sm:text-sm">
-              LAP <span className="text-yellow-200">{hud.lap}</span>
-              <span className="text-white/70"> / {hud.totalLaps}</span>
-            </div>
-            <Score score={hud.driftScore} />
           </div>
 
           {/* Top center: timer + zone strip */}
-          <div className="absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-1.5 sm:top-5">
-            <div className="hud-text text-xl font-bold tabular-nums leading-none sm:text-2xl">{formatTime(hud.raceTime)}</div>
-            <div className="hud-text text-[10px] font-semibold tracking-widest text-white/75 sm:text-xs">
-              LAP {formatTime(hud.lapTime)}
-              {hud.bestLap !== null && <span className="ml-2 text-fuchsia-200">BEST {formatTime(hud.bestLap)}</span>}
+          <div className="absolute left-1/2 top-3 flex -translate-x-1/2 flex-col items-center gap-2 sm:top-4">
+            <div className="eb-panel flex items-center gap-4 px-5 py-1.5">
+              <div className="flex flex-col items-center">
+                <span className="eb-label">Time</span>
+                <span className="eb-num text-2xl sm:text-3xl">{formatTime(hud.raceTime)}</span>
+              </div>
+              <div className="h-7 w-px bg-white/10" />
+              <div className="flex flex-col items-start">
+                <span className="eb-label">Lap</span>
+                <span className="text-base font-bold tabular-nums text-white/90 sm:text-lg">{formatTime(hud.lapTime)}</span>
+              </div>
+              {hud.bestLap !== null && (
+                <>
+                  <div className="h-7 w-px bg-white/10" />
+                  <div className="flex flex-col items-start">
+                    <span className="eb-label text-[#ffd166]/80">Best</span>
+                    <span className="text-base font-bold tabular-nums text-[#ffd166] sm:text-lg">{formatTime(hud.bestLap)}</span>
+                  </div>
+                </>
+              )}
             </div>
             {zone && <ZoneStrip zone={zone.value} leaving={zone.leaving} />}
           </div>
@@ -347,60 +376,49 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           <div className={cn('absolute left-1/2 -translate-x-1/2', hud.camera === 'rally' ? 'top-[20%] sm:top-[17%]' : 'top-[27%] sm:top-[24%]')}>
             {drift && <DriftMeter view={drift.value} leaving={drift.leaving} />}
             {hud.wrongWay && racing && (
-              <div className="anim-flash hud-text-lg text-center text-3xl font-bold tracking-wider text-red-300 sm:text-4xl">WRONG WAY</div>
+              <div className="anim-flash flex justify-center">
+                <span className="eb-tag eb-tag--red !text-base sm:!text-lg">Wrong way</span>
+              </div>
             )}
             {hud.offTrack && !hud.isDrifting && !hud.wrongWay && racing && (
-              <div className="hud-text-lg text-center text-lg font-bold tracking-widest text-orange-200 sm:text-xl">OFF TRACK</div>
+              <div className="eb-anim-rise flex justify-center">
+                <span className="eb-tag eb-tag--amber !text-sm sm:!text-base">Off track</span>
+              </div>
             )}
           </div>
 
           {/* Top right: minimap + buttons */}
-          <div className="absolute right-3 top-3 flex flex-col items-end gap-2 sm:right-5 sm:top-5">
+          <div className="absolute right-3 top-3 flex flex-col items-end gap-2 sm:right-5 sm:top-4">
             {minimap && (
-              <div className="card p-1.5">
+              <div className="eb-panel eb-map">
                 <MiniMap data={minimap} hud={hud} />
               </div>
             )}
             {hud.phase !== 'finished' && (
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 {onCycleEngine && (
                   <button
                     type="button"
                     onClick={onCycleEngine}
-                    className="pill pointer-events-auto flex h-9 px-2.5 items-center justify-center gap-1.5 text-xs font-bold transition active:scale-95 cursor-pointer"
+                    className="eb-chip pointer-events-auto cursor-pointer"
                     aria-label="Change engine"
                     title="Ganti Engine Gerakan (Sakura RC / Slip / Classic)"
                   >
-                    <span>{hud.engine === 'sakura_rc' ? '🌸' : hud.engine === 'slip' ? '🌀' : '🕹️'}</span>
-                    <span className="text-[11px] uppercase font-bold tracking-wider">
-                      {hud.engine === 'sakura_rc' ? 'Sakura RC' : hud.engine === 'slip' ? 'Slip' : 'Classic'}
-                    </span>
+                    <span className={cn('h-1.5 w-1.5 rounded-full', hud.engine === 'sakura_rc' ? 'bg-pink-400' : hud.engine === 'slip' ? 'bg-[#37e4ff]' : 'bg-white')} />
+                    <span>{hud.engine === 'sakura_rc' ? 'Sakura RC' : hud.engine === 'slip' ? 'Slip' : 'Classic'}</span>
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={onCycleCamera}
-                  className="pill pointer-events-auto flex h-9 w-9 items-center justify-center text-sm transition active:scale-95 cursor-pointer"
-                  aria-label="Change camera"
-                  title="Change camera (C)"
-                >
+                <button type="button" onClick={onCycleCamera} className="eb-chip eb-chip--icon pointer-events-auto cursor-pointer" aria-label="Change camera" title="Change camera (C)">
                   {CAMERA_ICON[hud.camera]}
                 </button>
-                <button
-                  type="button"
-                  onClick={onToggleMute}
-                  className="pill pointer-events-auto flex h-9 w-9 items-center justify-center text-sm transition active:scale-95"
-                  aria-label={muted ? 'Unmute' : 'Mute'}
-                >
+                <button type="button" onClick={onToggleMute} className="eb-chip eb-chip--icon pointer-events-auto cursor-pointer" aria-label={muted ? 'Unmute' : 'Mute'}>
                   {muted ? '🔇' : '🔊'}
                 </button>
-                <button
-                  type="button"
-                  onClick={onPause}
-                  className="pill pointer-events-auto flex h-9 w-9 items-center justify-center text-sm font-bold transition active:scale-95"
-                  aria-label="Pause"
-                >
-                  ❚❚
+                <button type="button" onClick={onPause} className="eb-chip eb-chip--icon pointer-events-auto cursor-pointer" aria-label="Pause">
+                  <span className="flex gap-[3px]">
+                    <span className="block h-3 w-[3px] rounded-sm bg-white" />
+                    <span className="block h-3 w-[3px] rounded-sm bg-white" />
+                  </span>
                 </button>
               </div>
             )}
@@ -408,24 +426,25 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
 
           {/* Bottom left: speed */}
           <div className="absolute bottom-4 left-3 sm:bottom-6 sm:left-5">
-            <div className="flex items-end gap-1">
-              <span className="hud-text-lg text-5xl font-bold leading-none tabular-nums sm:text-6xl">{hud.speed}</span>
-              <span className="hud-text mb-1.5 text-xs font-bold text-white/80 sm:text-sm">km/h</span>
-            </div>
-            <div className="track mt-1.5 h-2 w-28 sm:w-40">
-              <div
-                className={cn(
-                  'h-full rounded-full transition-[width] duration-100',
-                  hud.boosting ? 'bg-gradient-to-r from-orange-300 to-yellow-200' : 'bg-gradient-to-r from-cyan-300 to-white',
-                )}
-                style={{ width: `${speedPct}%` }}
-              />
+            <div className="eb-panel eb-panel--slant px-4 py-2.5 pr-8">
+              <div className="flex items-end gap-2">
+                <span className={cn('eb-num text-6xl sm:text-7xl', hud.boosting && 'eb-grad-accent')}>{hud.speed}</span>
+                <div className="mb-1.5 flex flex-col leading-none">
+                  <span className="eb-label">km/h</span>
+                  {hud.engine !== 'classic' && hud.isDrifting && (
+                    <span className="mt-1 text-xs font-extrabold tabular-nums text-[#9eefff]">{hud.slipDeg}° SLIP</span>
+                  )}
+                </div>
+              </div>
+              <div className="eb-bar eb-bar--seg mt-2 w-36 sm:w-48">
+                <div className={cn('eb-bar__fill', !hud.boosting && 'eb-bar__fill--cyan')} style={{ width: `${speedPct}%` }} />
+              </div>
             </div>
           </div>
 
           {/* Bottom right: manual boost meter — tap / SHIFT to fire when ready */}
           <div
-            className="pointer-events-auto absolute bottom-4 right-3 flex cursor-pointer select-none flex-col items-end transition active:scale-95 sm:bottom-6 sm:right-5"
+            className="pointer-events-auto absolute bottom-4 right-3 cursor-pointer select-none transition active:scale-95 sm:bottom-6 sm:right-5"
             style={{ touchAction: 'none' }}
             role="button"
             aria-label={hud.boosting ? 'Boosting' : hud.boostReady ? 'Fire boost' : 'Boost meter'}
@@ -439,48 +458,33 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
             onLostPointerCapture={() => onBoost(false)}
             onContextMenu={(e) => e.preventDefault()}
           >
-            <div
-              className={cn(
-                'hud-text text-xs font-bold tracking-widest sm:text-sm',
-                hud.boosting ? 'text-orange-200' : hud.boostReady ? 'anim-breathe text-yellow-200' : 'text-white/85',
-              )}
-            >
-              {hud.boosting ? '🔥 BOOSTING' : hud.boostReady ? (isTouch ? '⚡ BOOST READY — TAP!' : '⚡ BOOST READY — SHIFT!') : 'BOOST'}
-            </div>
-            <div
-              className={cn(
-                'track mt-1.5 h-2.5 w-28 sm:w-40',
-                !hud.boosting && hud.boostReady && 'ring-2 ring-yellow-200/90',
-                !hud.boosting && !hud.boostReady && hud.boost <= 0 && 'opacity-60',
-              )}
-            >
-              <div
-                className={cn(
-                  'h-full rounded-full transition-[width] duration-100',
-                  hud.boosting
-                    ? 'anim-shimmer bg-gradient-to-r from-yellow-200 via-orange-400 to-yellow-200'
-                    : hud.boostReady
-                      ? 'bg-gradient-to-r from-yellow-200 to-orange-400'
-                      : 'bg-gradient-to-r from-fuchsia-300 to-orange-300',
-                )}
-                style={{ width: `${Math.round(hud.boost * 100)}%` }}
-              />
-            </div>
-            {!hud.boosting && (
-              <div className="hud-text mt-1 text-[10px] font-semibold tracking-widest text-white/70">
-                {hud.boostReady ? (isTouch ? 'TAP METER TO FIRE' : 'PRESS SHIFT TO FIRE') : isTouch ? 'DRIFT TO CHARGE' : 'DRIFT TO CHARGE, SHIFT TO FIRE'}
+            <div className={cn('eb-panel eb-panel--slant-l flex flex-col items-end px-4 py-2.5 pl-8', !hud.boosting && hud.boostReady && 'eb-anim-glow')}>
+              <div className="flex items-center gap-2">
+                {!hud.boosting && hud.boostReady && <span className="eb-tag eb-tag--amber eb-anim-blink">{isTouch ? 'Tap' : 'Shift'}</span>}
+                <span className={cn('eb-num text-2xl sm:text-3xl', hud.boosting ? 'eb-grad-accent' : hud.boostReady ? 'text-[#ffd166]' : 'text-white')}>
+                  {hud.boosting ? 'BOOST' : 'NITRO'}
+                </span>
+                <span className="eb-num text-lg text-white/55">{Math.round(hud.boost * 100)}%</span>
               </div>
-            )}
+              <div className={cn('eb-bar eb-bar--seg mt-2 h-2 w-36 sm:w-48', !hud.boosting && !hud.boostReady && hud.boost <= 0 && 'opacity-60')}>
+                <div className={cn('eb-bar__fill', hud.boosting ? 'eb-bar__fill--stripes' : 'eb-bar__fill--nitro')} style={{ width: `${Math.round(hud.boost * 100)}%` }} />
+              </div>
+              {!hud.boosting && (
+                <div className="eb-label mt-1.5">
+                  {hud.boostReady ? (isTouch ? 'Tap to fire' : 'Press shift to fire') : isTouch ? 'Drift to charge' : 'Drift to charge · shift to fire'}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Zone ahead */}
           {racing && hud.zoneAhead && !hud.isDrifting && !hud.zone && (
-            <div className="absolute bottom-[7.5rem] left-1/2 -translate-x-1/2 sm:bottom-[8.5rem]">
-              <div className="pill flex items-center gap-2 px-3 py-1 text-xs font-bold tracking-wider sm:text-sm">
-                <span className="anim-chevrons text-violet-200">»»</span>
-                <span className="text-white">DRIFT ZONE</span>
-                <span className={cn('rounded-full px-1.5 py-0.5 text-[11px]', hud.zoneAhead.mult >= 3 ? 'bg-yellow-300 text-slate-900' : 'bg-violet-400 text-white')}>×{hud.zoneAhead.mult}</span>
-                <span className="text-white/75">{hud.zoneAhead.dist}m</span>
+            <div className="absolute bottom-[8rem] left-1/2 -translate-x-1/2 sm:bottom-[9rem]">
+              <div className="eb-panel flex items-center gap-2.5 px-3.5 py-1.5 text-sm font-extrabold uppercase tracking-[0.16em]">
+                <span className="anim-chevrons text-[#b47cff]">»»</span>
+                <span className="text-white">Drift zone</span>
+                <span className={cn('eb-mult !text-sm !min-w-[1.8rem]', hud.zoneAhead.mult >= 3 ? 'eb-mult--3' : 'eb-mult--5')}>×{hud.zoneAhead.mult}</span>
+                <span className="text-white/55">{hud.zoneAhead.dist}m</span>
               </div>
             </div>
           )}
@@ -489,10 +493,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           {racing && (
             <button
               type="button"
-              className={cn(
-                'pointer-events-auto absolute bottom-4 left-1/2 flex h-20 w-20 -translate-x-1/2 select-none items-center justify-center rounded-full border-4 border-white/80 bg-gradient-to-b from-orange-400 to-brand text-sm font-bold tracking-widest text-white shadow-[0_8px_30px_rgba(255,90,31,0.55)] active:scale-95 sm:bottom-6 sm:h-24 sm:w-24 sm:text-base',
-                !isTouch && 'hidden sm:flex',
-              )}
+              className={cn('eb-drift-btn pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 select-none sm:bottom-6', !isTouch && 'hidden sm:flex')}
               style={{ touchAction: 'none' }}
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId);
@@ -505,7 +506,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
             >
               <span className="flex flex-col items-center leading-tight">
                 DRIFT
-                {!isTouch && <span className="text-[10px] font-semibold text-white/80">SPACE</span>}
+                {!isTouch && <span className="text-[10px] font-bold tracking-[0.3em] text-white/80">SPACE</span>}
               </span>
             </button>
           )}
@@ -513,8 +514,8 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
           {/* Touch hint on the sides */}
           {isTouch && racing && hud.raceTime < 4 && (
             <>
-              <div className="anim-flash hud-text absolute bottom-1/3 left-6 text-5xl text-white/70">◀</div>
-              <div className="anim-flash hud-text absolute bottom-1/3 right-6 text-5xl text-white/70">▶</div>
+              <div className="anim-flash absolute bottom-1/3 left-6 text-5xl text-white/70 drop-shadow-lg">◀</div>
+              <div className="anim-flash absolute bottom-1/3 right-6 text-5xl text-white/70 drop-shadow-lg">▶</div>
             </>
           )}
         </>
@@ -525,8 +526,8 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
         {popups.map((p, i) => (
           <div
             key={p.id}
-            className={cn('anim-popup hud-text-lg absolute left-0 whitespace-nowrap text-2xl font-bold italic tracking-wide sm:text-4xl', popupStyles[p.kind])}
-            style={{ top: i * 44 }}
+            className={cn('anim-popup eb-num eb-outline absolute left-0 whitespace-nowrap text-3xl uppercase tracking-wide sm:text-5xl', popupStyles[p.kind])}
+            style={{ top: i * 48 }}
           >
             {p.text}
           </div>
@@ -536,10 +537,7 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
       {/* Countdown */}
       {hud.countdown >= 0 && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div
-            key={hud.countdown}
-            className={cn('anim-count hud-text-lg text-[7rem] font-bold leading-none sm:text-[11rem]', hud.countdown === 0 ? 'grad-text-ice' : 'grad-text')}
-          >
+          <div key={hud.countdown} className={cn('anim-count eb-num eb-outline text-[8rem] sm:text-[13rem]', hud.countdown === 0 ? 'eb-grad-cyan' : 'eb-grad-accent')}>
             {hud.countdown === 0 ? 'GO!' : hud.countdown}
           </div>
         </div>
