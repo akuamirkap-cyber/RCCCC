@@ -236,6 +236,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // --- 1. SCENE, CAMERA, RENDERER ---
     const MENU_MODE = isMenu;
     const isHarunaMap = circuit.mapStyle === 'haruna';
+    // Pace dasar Haruna (jalan gunung skala asli 6.1 km, 75% lurus) relatif terhadap aula
+    const HARUNA_PACE = 1.6;
     // Jangan bangun terrain besar saat menu; map akan dibangun ulang ketika START ditekan.
     const useHarunaWorld = isHarunaMap && !MENU_MODE;
     const harunaRuntimeTrack = isHarunaMap ? buildHarunaTrack() : null;
@@ -2543,7 +2545,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       // the car is allowed to move: a W/ArrowUp/button press is still required.
       const throttleTarget = manualThrottle ? 1 : 0;
       if (isHarunaMap) {
-        const throttleRampRate = 5.5 + throttleResponseNorm * 7.5;
+        const throttleRampRate = 9.0 + throttleResponseNorm * 11.0; // 100% = ~20/s (hampir instan seperti aula)
         state.throttleOutput = THREE.MathUtils.lerp(
           state.throttleOutput,
           throttleTarget,
@@ -2653,28 +2655,39 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         return a;
       };
 
-      // --- CORNER SPEED LOCK: mode sedang/2x hanya mempercepat lurusan ---
-      // Faktor tikungan = max(kelengkungan lintasan di depan, input setir, sudut drift).
-      // Saat menikung, batas kecepatan turun mulus ke nilai mode NORMAL.
-      let effectiveSpeedFactor = speedFactor;
-      if (speedFactor > 1.0 && (curTuning.cornerSpeedLock ?? true)) {
+      // --- KELENGKUNGAN & KEMIRINGAN LINTASAN DI DEPAN (dipakai corner lock + touge pace Haruna) ---
+      const needTrackScan = isHarunaMap || (speedFactor > 1.0 && (curTuning.cornerSpeedLock ?? true));
+      let maxCurvAhead = 0;
+      let slopeAhead = 0; // + = turunan, - = tanjakan (hanya Haruna)
+      if (needTrackScan) {
         const trackLen = trackCurve.getLength();
-        let maxCurv = 0;
         let prevAng = trackAngle;
         let prevT = closest.t;
         for (const aheadM of [7, 16, 28]) {
-          const tA = (closest.t + aheadM / trackLen) % 1;
+          const tA = routeClosed ? (closest.t + aheadM / trackLen) % 1 : Math.min(0.9999, closest.t + aheadM / trackLen);
           const tanA = trackCurve.getTangentAt(tA);
           const angA = Math.atan2(tanA.x, tanA.z);
           let dAng = angA - prevAng;
           while (dAng > Math.PI) dAng -= Math.PI * 2;
           while (dAng < -Math.PI) dAng += Math.PI * 2;
           const segM = Math.max(1, ((tA - prevT + 1) % 1) * trackLen);
-          maxCurv = Math.max(maxCurv, Math.abs(dAng) / segM);
+          maxCurvAhead = Math.max(maxCurvAhead, Math.abs(dAng) / segM);
           prevAng = angA;
           prevT = tA;
         }
-        const curvFactor = THREE.MathUtils.clamp((maxCurv - 0.012) * 26, 0, 1); // radius < ~20 m = tikungan penuh
+        if (isHarunaMap) {
+          const tS = Math.min(0.9999, closest.t + 14 / trackLen);
+          const hA = trackCurve.getPointAt(tS).y;
+          slopeAhead = THREE.MathUtils.clamp((trackPt.y - hA) / 14, -0.16, 0.16);
+        }
+      }
+
+      // --- CORNER SPEED LOCK: mode sedang/2x hanya mempercepat lurusan ---
+      // Faktor tikungan = max(kelengkungan lintasan di depan, input setir, sudut drift).
+      // Saat menikung, batas kecepatan turun mulus ke nilai mode NORMAL.
+      let effectiveSpeedFactor = speedFactor;
+      if (speedFactor > 1.0 && (curTuning.cornerSpeedLock ?? true)) {
+        const curvFactor = THREE.MathUtils.clamp((maxCurvAhead - 0.012) * 26, 0, 1); // radius < ~20 m = tikungan penuh
         const steerFactor = Math.min(1, Math.abs(steerInput) * 0.9);
         const driftFactor =
           state.vel.length() > 2.5
@@ -2689,8 +2702,24 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         state.cornerLockBlend = 0;
       }
 
-      const maxSpeed =
+      // --- TOUGE PACE HARUNA: jalan gunung skala asli (6.1 km, 75% lurus) -> pace dasar 1.6x,
+      //     boost sedang/2x diredam 60% agar 2x ≈ 57 m/s (setara top speed Haruna asli) ---
+      if (isHarunaMap) {
+        effectiveSpeedFactor = HARUNA_PACE * (1 + (effectiveSpeedFactor - 1) * 0.6);
+      }
+
+      let maxSpeed =
         22.5 * effectiveSpeedFactor * compoundGrip * rearCamberBite * (isTurboEngaged ? 1.18 : 1.0);
+      // Haruna: batas kecepatan tikungan fisik (a_lat maks) supaya hairpin r=12 m tetap nyaman,
+      // + turunan boleh melebihi batas sedikit (momentum gravitasi)
+      if (isHarunaMap) {
+        if (maxCurvAhead > 1e-4) {
+          const aLatMax = 30 + (1 - handlingAssistNorm) * 14;
+          const vCorner = Math.max(15, Math.sqrt(aLatMax / maxCurvAhead) * 1.08);
+          maxSpeed = Math.min(maxSpeed, vCorner);
+        }
+        maxSpeed *= 1 + Math.max(0, slopeAhead) * 1.5;
+      }
       const accelForce =
         26.0 *
         effectiveSpeedFactor *
@@ -2702,15 +2731,18 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       let currentSpeed = state.vel.length();
 
+      // Gravitasi turunan Haruna: menggelinding sendiri saat lepas gas, tanjakan sedikit menahan
+      const gravityAccel = isHarunaMap ? 9.81 * slopeAhead * 0.75 : 0;
       if (throttleActive) {
         currentSpeed =
           currentSpeed > maxSpeed
             ? Math.max(maxSpeed, currentSpeed - 24.0 * dt) // batas turun (mis. masuk tikungan) -> melambat mulus
-            : Math.min(maxSpeed, currentSpeed + accelForce * throttleDrive * dt);
+            : Math.min(maxSpeed, currentSpeed + (accelForce * throttleDrive + gravityAccel) * dt);
       } else if (brakePressed) {
         currentSpeed = Math.max(0, currentSpeed - 32.0 * dt);
       } else {
-        currentSpeed = Math.max(0, currentSpeed - 9.5 * dt);
+        currentSpeed = Math.max(0, currentSpeed + (gravityAccel - 9.5) * dt);
+        if (isHarunaMap && currentSpeed > maxSpeed) currentSpeed = Math.max(maxSpeed, currentSpeed - 14.0 * dt);
       }
 
       const gyroGainNorm = curTuning.gyroGain / 100;
@@ -2730,9 +2762,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const clutchKickBoost =
         keys['Space'] && Math.abs(steerInput) > 0.05 ? steerInput * 2.4 : 0;
 
+      // Handling assist Haruna: redaman tambahan dikecilkan (2.6 -> 1.0) agar setir tidak terasa berat
       const gyroDamping =
         -state.angularVel *
-        (4.2 + gyroGainNorm * 4.5 + handlingAssistNorm * 2.6);
+        (4.2 + gyroGainNorm * 4.5 + handlingAssistNorm * 1.0);
 
       state.angularVel +=
         (steerTurnRate * (9.5 + handlingAssistNorm * 0.9) +
@@ -2752,7 +2785,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           2.1 +
             (1 - gyroGainNorm) * 0.6 +
             driftGripAdjustment +
-            handlingAssistNorm * 0.9
+            handlingAssistNorm * 0.35
         ) *
         compoundGrip *
         (throttleActive ? 0.82 : 1.35);
@@ -3375,8 +3408,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           aiInput.active = state.raceStarted;
           // Bot memakai formula kecepatan pemain, minimal di level preset "sedang"
           // (1.35x) walau pemain memilih normal — lebih cepat lagi kalau pemain 2x.
+          const botBasePace = Math.max(speedFactor, BOT_MIN_PACE);
           aiInput.paceScale =
-            Math.max(speedFactor, BOT_MIN_PACE) *
+            (isHarunaMap ? HARUNA_PACE * (1 + (botBasePace - 1) * 0.6) : botBasePace) *
             (curTuning.botPace === 'chill' ? 0.85 : 1.0) *
             bState.draftBoost;
           aiInput.gapToPlayerM = gapT * botTrack.length;
