@@ -217,7 +217,7 @@ export class Smoke {
     p.maxLife = (1.1 + Math.random() * 0.9) * tn.duration;
     p.life = p.maxLife;
     p.size = (1.1 + strength * 1.1 + Math.random() * 0.5) * tn.size;
-    p.alpha = (0.55 + Math.min(1, strength) * 0.35) * tn.opacity;
+    p.alpha = (0.55 + Math.min(1, strength) * 0.35) * tn.opacity * 0.8; // 20% thinner than the original
     p.spin = (Math.random() - 0.5) * 2.4;
     p.from.lerpColors(this.white.from, this.burnt.from, tn.tint);
     p.to.lerpColors(this.white.to, this.burnt.to, tn.tint);

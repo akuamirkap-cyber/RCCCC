@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildProCircuit } from './proCircuit';
+import type { LightingRig } from './lighting';
 import { buildProStand, buildStartGantry, buildProForest, makeRoadText } from './proVenue';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
@@ -7,6 +8,7 @@ import { zoneLookup, type DriftZone } from './zones';
 
 export interface WorldRefs {
   sun: THREE.DirectionalLight;
+  lighting: LightingRig;
   /** Ambient animation: crowd, clouds, balloons, windmill. */
   update: (dt: number) => void;
 }
@@ -891,7 +893,7 @@ function buildGate(track: Track, idx: number, tex: THREE.Texture, color: string,
 /* ------------------------------------------------------------------ */
 
 /** Bakes a tiny gradient env map (sky + hot sun + green ground) so paint/glass/water get pretty reflections. */
-function applyEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
+function applyEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer): THREE.Texture {
   const env = new THREE.Scene();
   const skyGeo = new THREE.SphereGeometry(60, 16, 12);
   const skyMat = new THREE.ShaderMaterial({
@@ -933,6 +935,7 @@ function applyEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   skyMat.dispose();
   sunGeo.dispose();
   sunMat.dispose();
+  return rt.texture;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1010,10 +1013,12 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   sky.position.set(cx, 0, cz);
   sky.frustumCulled = false;
   scene.add(sky);
-  scene.fog = new THREE.Fog(FOG_COLOR, 200, 1050);
+  const stylizedFog = new THREE.Fog(FOG_COLOR, 200, 1050);
+  scene.fog = stylizedFog;
 
   /* ---------- Lights: warm key + cool fill + sky bounce ---------- */
-  scene.add(new THREE.HemisphereLight(0xbcd9ff, 0x5f9248, 0.9));
+  const hemi = new THREE.HemisphereLight(0xbcd9ff, 0x5f9248, 0.9);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffdfb0, 2.4);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -1036,7 +1041,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   scene.add(fill.target);
 
   /* ---------- Image-based lighting: tiny custom env map for glossy reflections ---------- */
-  applyEnvironment(scene, renderer);
+  const stylizedEnv = applyEnvironment(scene, renderer);
 
   /* ---------- Terrain ---------- */
   const terrain = buildTerrain(track, aniso);
@@ -1841,6 +1846,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
 
   return {
     sun,
+    lighting: { sun, hemi, fill, sky, stylizedEnv, stylizedFog, sunOffset: SUN_OFFSET.clone(), center: new THREE.Vector3(cx, 0, cz) },
     update: (dt) => {
       for (const f of animated) f(dt);
     },

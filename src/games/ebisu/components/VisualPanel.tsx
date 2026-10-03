@@ -3,12 +3,14 @@ import {
   CAMERA_MODES,
   CAR_STYLES,
   DEFAULT_PREFS,
+  LIGHTING_MODES,
   SMOKE_FIELDS,
   SMOKE_PRESETS,
   clampSmoke,
   matchSmokePreset,
   type CameraMode,
   type CarStyle,
+  type LightingMode,
   type SmokeSettings,
   type VisualPrefs,
 } from '../game/prefs';
@@ -19,6 +21,7 @@ interface Props {
   prefs: VisualPrefs;
   onCamera: (c: CameraMode) => void;
   onCarStyle: (s: CarStyle) => void;
+  onLighting: (m: LightingMode) => void;
   onSmoke: (s: SmokeSettings) => void;
   onClose: () => void;
 }
@@ -42,7 +45,7 @@ function OptionCard({ active, emoji, label, desc, onClick }: { active: boolean; 
   );
 }
 
-export function VisualPanel({ prefs, onCamera, onCarStyle, onSmoke, onClose }: Props) {
+export function VisualPanel({ prefs, onCamera, onCarStyle, onLighting, onSmoke, onClose }: Props) {
   const [showBMWModal, setShowBMWModal] = useState(false);
   const smoke = prefs.smoke;
   const preset = matchSmokePreset(smoke);
@@ -91,6 +94,14 @@ export function VisualPanel({ prefs, onCamera, onCarStyle, onSmoke, onClose }: P
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {CAR_STYLES.map((s) => (
               <OptionCard key={s.id} active={prefs.carStyle === s.id} emoji={s.emoji} label={s.label} desc={s.desc} onClick={() => onCarStyle(s.id)} />
+            ))}
+          </div>
+
+          {/* Lighting */}
+          <div className="mt-5 text-sm font-bold tracking-wider text-slate-800">☀️ LIGHTING</div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {LIGHTING_MODES.map((m) => (
+              <OptionCard key={m.id} active={prefs.lighting === m.id} emoji={m.emoji} label={m.label} desc={m.desc} onClick={() => onLighting(m.id)} />
             ))}
           </div>
 

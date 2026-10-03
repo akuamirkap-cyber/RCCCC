@@ -1,6 +1,7 @@
 /** Visual / feel preferences: camera, smoke, car style. Saved separately from the car tuning. */
 export type CameraMode = 'rally' | 'chase' | 'cockpit' | 'far';
 export type CarStyle = 'standard' | 'toon';
+export type LightingMode = 'hdri' | 'stylized';
 
 export interface SmokeSettings {
   amount: number; // 0..2 — emission density multiplier
@@ -14,8 +15,14 @@ export interface SmokeSettings {
 export interface VisualPrefs {
   camera: CameraMode;
   carStyle: CarStyle;
+  lighting: LightingMode;
   smoke: SmokeSettings;
 }
+
+export const LIGHTING_MODES: { id: LightingMode; label: string; emoji: string; desc: string }[] = [
+  { id: 'hdri', label: 'HDRI Realistic', emoji: '🌅', desc: 'Image-based lighting from a real sunrise HDRI, long shadows, haze & lens flare' },
+  { id: 'stylized', label: 'Stylized', emoji: '🎨', desc: 'Painted golden-hour sky with punchy teal & orange lighting' },
+];
 
 export const CAMERA_MODES: { id: CameraMode; label: string; emoji: string; desc: string }[] = [
   { id: 'rally', label: 'Art of Rally', emoji: '🎨', desc: 'High isometric follow cam, fixed heading — see the whole slide' },
@@ -56,6 +63,7 @@ export const SMOKE_PRESETS: { id: string; label: string; emoji: string; smoke: S
 export const DEFAULT_PREFS: VisualPrefs = {
   camera: 'chase',
   carStyle: 'toon',
+  lighting: 'hdri',
   smoke: { ...SMOKE_PRESETS[1].smoke },
 };
 
@@ -86,6 +94,7 @@ export function loadPrefs(): VisualPrefs {
       return {
         camera: CAMERA_MODES.some((c) => c.id === p.camera) ? (p.camera as CameraMode) : DEFAULT_PREFS.camera,
         carStyle: CAR_STYLES.some((c) => c.id === p.carStyle) ? (p.carStyle as CarStyle) : DEFAULT_PREFS.carStyle,
+        lighting: LIGHTING_MODES.some((c) => c.id === p.lighting) ? (p.lighting as LightingMode) : DEFAULT_PREFS.lighting,
         smoke: clampSmoke(p.smoke),
       };
     }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST } from './track';
-import { buildWorld, SUN_OFFSET, type WorldRefs } from './world';
+import { buildWorld, type WorldRefs } from './world';
+import { LightingController } from './lighting';
 import { createCar, disposeCar, setBrakeLights, type CarModel } from './car';
 import { SkidMarks, Smoke, type WheelAnchor } from './effects';
 import { GameAudio } from './audio';
@@ -21,7 +22,7 @@ import {
   type SakuraTuning,
 } from './tuning';
 import { computeDriftZones, nextZoneDistances, zoneLookup, zoneStars, type DriftZone } from './zones';
-import { DEFAULT_PREFS, type CameraMode, type CarStyle, type SmokeSettings, type VisualPrefs } from './prefs';
+import { DEFAULT_PREFS, type CameraMode, type CarStyle, type LightingMode, type SmokeSettings, type VisualPrefs } from './prefs';
 import {
   RAD2DEG,
   botInput,
@@ -239,6 +240,7 @@ export class Game {
   private camera: THREE.PerspectiveCamera;
   private sun: THREE.DirectionalLight;
   private world: WorldRefs;
+  private lighting: LightingController;
   private playerModel: CarModel;
   private player!: PlayerState;
   private ais: AICar[] = [];
@@ -305,6 +307,8 @@ export class Game {
       this.sun.shadow.mapSize.set(1024, 1024);
       this.renderer.shadowMap.type = THREE.PCFShadowMap;
     }
+    this.lighting = new LightingController(this.scene, this.renderer, this.world.lighting);
+    this.lighting.setMode(this.prefs.lighting);
     this.scene.add(this.skid.mesh);
     this.scene.add(this.smoke.group);
 
@@ -471,6 +475,12 @@ export class Game {
   setSmoke(s: SmokeSettings) {
     this.prefs.smoke = { ...s };
     this.smoke.setTuning(s);
+  }
+
+  setLighting(mode: LightingMode) {
+    if (this.prefs.lighting === mode) return;
+    this.prefs.lighting = mode;
+    this.lighting.setMode(mode);
   }
 
   /** Rebuilds every car with the new proportions (safe mid-race: positions are re-applied each frame). */
@@ -708,6 +718,7 @@ export class Game {
   }
 
   dispose() {
+    this.lighting.dispose();
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.resizeObs?.disconnect();
@@ -769,7 +780,8 @@ export class Game {
     this.updateAudio();
 
     const p = this.player;
-    this.sun.position.set(p.x + SUN_OFFSET.x, SUN_OFFSET.y, p.z + SUN_OFFSET.z);
+    const so = this.lighting.sunOffset;
+    this.sun.position.set(p.x + so.x, so.y, p.z + so.z);
     this.sun.target.position.set(p.x, 0, p.z);
     this.sun.target.updateMatrixWorld();
 
