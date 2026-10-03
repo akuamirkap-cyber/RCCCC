@@ -300,17 +300,10 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
 
   /* ---------- precomputed per-sample corner weights ---------- */
   const cornerW = new Float32Array(n); // 0 straight .. 1 full corner (kerbs)
-  const outsideSide = new Int8Array(n); // which lateral side is the OUTSIDE of the corner
-  const gravelW = new Float32Array(n);
-  const tarmacW = new Float32Array(n);
   const lineOff = new Float32Array(n); // rubbered racing line lateral offset
   for (let i = 0; i < n; i++) {
     const cw = windowAbsMax(track, i, 6, 6);
     cornerW[i] = smoothstep(0.0055, 0.0095, cw);
-    const wc = windowCurv(track, i, 8, 8);
-    outsideSide[i] = wc >= 0 ? -1 : 1; // same convention as the tyre walls: outside = -sign(curv)
-    gravelW[i] = smoothstep(0.011, 0.02, windowAbsMax(track, i, 10, 4));
-    tarmacW[i] = smoothstep(0.004, 0.011, windowAbsMax(track, i, 2, 30)) * (1 - gravelW[i] * 0.35);
     // racing line: inside at the apex, drifting back out on exit (window biased behind)
     const lc = windowCurv(track, i, 26, 14);
     lineOff[i] = clamp(lc / 0.016, -1, 1) * (HALF_WIDTH - 2.6); // inside = +sign(curv)
@@ -352,7 +345,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
   /* ---------- rubbered racing line (multiply overlay) ---------- */
   const rubberGeo = buildColumnsStrip(track, 3, (i) => {
     const c = Math.abs(windowCurv(track, i, 6, 6));
-    const dark = 0.1 + 0.3 * smoothstep(0.003, 0.02, c);
+    const dark = 0.05 + 0.14 * smoothstep(0.003, 0.02, c);
     const w = 1.8 + 1.0 * smoothstep(0.004, 0.02, c);
     const center = clamp(lineOff[i], -HALF_WIDTH + w + 0.4, HALF_WIDTH - w - 0.4);
     const white = new THREE.Color(1, 1, 1);
@@ -389,7 +382,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
   if (streakSpots.length) {
     const streaks = new THREE.InstancedMesh(
       streakGeo,
-      new THREE.MeshBasicMaterial({ color: '#121216', transparent: true, opacity: 0.32, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      new THREE.MeshBasicMaterial({ color: '#121216', transparent: true, opacity: 0.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
       streakSpots.length,
     );
     streakSpots.forEach((st, i) => {
@@ -496,35 +489,41 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
     add(m);
   }
 
-  /* ---------- run-off: grass / tarmac strip / gravel traps ---------- */
-  const grassA = new THREE.Color('#5ea64c');
-  const grassB = new THREE.Color('#4f9440');
-  const tarmac = new THREE.Color('#5a5c62');
-  const gravel = new THREE.Color('#cdbd9a');
-  const gravelB = new THREE.Color('#bda985');
-  const runMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide });
-  const tmpA = new THREE.Color();
-  const tmpB = new THREE.Color();
+  /* ---------- run-off: clean grass + crisp tarmac apron / gravel trap on the outside of each zone ---------- */
+  const grassMat = new THREE.MeshStandardMaterial({ color: '#5da84f', roughness: 1, side: THREE.DoubleSide });
   for (const side of [1, -1] as const) {
-    const g = buildColumnsStrip(track, 4, (i) => {
-      const isOutside = outsideSide[i] === side;
-      const tw = isOutside ? tarmacW[i] : tarmacW[i] * 0.15;
-      const gw = isOutside ? gravelW[i] : 0;
-      const noise = (Math.sin(i * 12.9898) * 43758.5453) % 1;
-      const grass = tmpA.copy(grassA).lerp(grassB, Math.abs(noise));
-      const near = grass.clone().lerp(tarmac, tw);
-      const far = grass.clone().lerp(tmpB.copy(gravel).lerp(gravelB, Math.abs(noise)), gw);
-      const edge = (HALF_WIDTH + CURB_WIDTH) * side;
-      return [
-        { off: edge, y: 0.0, color: near },
-        { off: edge + 2.6 * side, y: 0.0, color: near },
-        { off: edge + 3.4 * side, y: 0.0, color: far },
-        { off: WALL_DIST * side, y: 0.0, color: far },
-      ];
-    });
-    const m = new THREE.Mesh(g, runMat);
+    const g = buildColumnsStrip(track, 2, () => [
+      { off: (HALF_WIDTH + CURB_WIDTH) * side, y: 0.0 },
+      { off: WALL_DIST * side, y: 0.0 },
+    ]);
+    const m = new THREE.Mesh(g, grassMat);
     m.receiveShadow = true;
     add(m);
+  }
+  const apronMat = new THREE.MeshStandardMaterial({ color: '#63666d', roughness: 0.9, side: THREE.DoubleSide });
+  const gravelMat = new THREE.MeshStandardMaterial({ color: '#d8ccb0', roughness: 1, side: THREE.DoubleSide });
+  const borderMat = new THREE.MeshStandardMaterial({ color: '#b9bbc0', roughness: 0.8, side: THREE.DoubleSide });
+  const flatCols = (a: number, b: number, y: number) => () => [
+    { off: a, y },
+    { off: b, y },
+  ];
+  for (const z of zones) {
+    const side = -z.dir; // outside of the corner
+    const edge = (HALF_WIDTH + CURB_WIDTH) * side;
+    // tarmac apron: from well before the braking point to the exit
+    const apronStart = (z.start - 18 + n) % n;
+    const apronLen = Math.min(n - 1, z.len + 26);
+    const apron = new THREE.Mesh(buildColumnsStrip(track, 2, flatCols(edge, edge + 2.4 * side, 0.004), 1, { start: apronStart, len: apronLen }), apronMat);
+    apron.receiveShadow = true;
+    add(apron);
+    // gravel trap with a light concrete border, only through the corner itself
+    const trapStart = (z.start + 2) % n;
+    const trapLen = Math.max(6, z.len + 6);
+    const border = new THREE.Mesh(buildColumnsStrip(track, 2, flatCols(edge + 2.4 * side, edge + 2.7 * side, 0.004), 1, { start: trapStart, len: trapLen }), borderMat);
+    add(border);
+    const trap = new THREE.Mesh(buildColumnsStrip(track, 2, flatCols(edge + 2.7 * side, (WALL_DIST - 0.6) * side, 0.004), 1, { start: trapStart, len: trapLen }), gravelMat);
+    trap.receiveShadow = true;
+    add(trap);
   }
 
   /* ---------- start / finish: grid boxes + pole marker ---------- */
@@ -557,7 +556,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
     ln.rotation.y = sm.angle;
     add(ln);
     const bt = makeSmallTextTexture(`S${k + 1}`, '#1d4ed8', '#ffffff');
-    const off = -(WALL_DIST + 0.9);
+    const off = -(WALL_DIST - 1.2);
     const bx = sm.x + sm.rx * off;
     const bz = sm.z + sm.rz * off;
     const pole = new THREE.Mesh(poleGeo, poleMat);
@@ -580,7 +579,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
       // skip if that spot is itself inside a corner (board would be off the straight)
       if (cornerW[i] > 0.5 && k === 0) return;
       const sm = s[i];
-      const off = (WALL_DIST + 0.9) * side;
+      const off = (WALL_DIST - 1.2) * side;
       const bx = sm.x + sm.rx * off;
       const bz = sm.z + sm.rz * off;
       const pole = new THREE.Mesh(brakePoleGeo, poleMat);
@@ -594,35 +593,6 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
       add(b);
     });
   }
-
-  /* ---------- marshal posts with flags at the apexes ---------- */
-  const hutMat = new THREE.MeshStandardMaterial({ color: '#f4f4f2', roughness: 0.8 });
-  const roofMat = new THREE.MeshStandardMaterial({ color: '#ff6a00', roughness: 0.7 });
-  const flagMat = new THREE.MeshStandardMaterial({ color: '#ffd60a', roughness: 0.9, side: THREE.DoubleSide });
-  zones.forEach((z) => {
-    const side = -z.dir;
-    const i = (z.apex + 10) % n;
-    const sm = s[i];
-    const off = (WALL_DIST + 4.2) * side;
-    const hx = sm.x + sm.rx * off;
-    const hz = sm.z + sm.rz * off;
-    const g = new THREE.Group();
-    g.position.set(hx, Y0, hz);
-    g.rotation.y = sm.angle;
-    const hut = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.5, 1.9), hutMat);
-    hut.position.y = 0.75 + 0.35;
-    hut.castShadow = true;
-    const base = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.35, 2.4), new THREE.MeshStandardMaterial({ color: '#7c7f86', roughness: 0.9 }));
-    base.position.y = 0.175;
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.14, 2.2), roofMat);
-    roof.position.y = 1.5 + 0.35 + 0.07;
-    const flagPole = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.2, 6), poleMat);
-    flagPole.position.set(0.8, 1.5 + 0.35 + 1.1, -0.8);
-    const flag = new THREE.Mesh(new THREE.PlaneGeometry(0.8, 0.5), flagMat);
-    flag.position.set(0.8 + 0.4, 1.5 + 0.35 + 1.95, -0.8);
-    g.add(base, hut, roof, flagPole, flag);
-    add(g);
-  });
 
   return out;
 }
