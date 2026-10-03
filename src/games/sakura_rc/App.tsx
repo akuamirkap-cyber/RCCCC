@@ -331,6 +331,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         }}
         onBackToMenu={handleBackToMenu}
         onOpenBMWAdjust={() => setShowBMWAdjust(true)}
+        onOpenDocs={() => setIsDocsOpen(true)}
+        onSwitchGame={onSwitchGame}
       />
       )}
 
@@ -369,8 +371,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         }}
       />
 
-      {/* Tombol dokumen desain — selalu tersedia, di menu & di game */}
-      {!isDocsOpen && (
+      {/* Tombol dokumen desain — hanya di menu; saat balapan ada di popover MENU (⋯) HUD */}
+      {!isDocsOpen && !hasStarted && (
         <button
           onClick={() => setIsDocsOpen(true)}
           title="Buka dokumen desain map & menu (bisa di-copy)"
@@ -384,7 +386,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
       {/* Modal dokumentasi dengan tombol Copy */}
       <DesignDocsModal isOpen={isDocsOpen} onClose={() => setIsDocsOpen(false)} />
 
-      {/* Floating Top Controls: PILIH GAME & ADJUST BODY BMW */}
+      {/* Floating Top Controls: PILIH GAME & ADJUST BODY BMW — hanya di menu (saat balapan masuk popover MENU HUD) */}
+      {!hasStarted && (
       <div className="fixed top-3 left-3 z-[60] flex items-center gap-2">
         {onSwitchGame && (
           <button
@@ -406,6 +409,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
           <span>BODY BMW</span>
         </button>
       </div>
+      )}
 
       {/* BMW GLB Dimensions & Ride Height Adjustment Modal */}
       <BMWAdjustmentModal

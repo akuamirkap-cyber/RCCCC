@@ -725,10 +725,13 @@ export function buildAulaHall(
     aulaGroup.add(colMesh);
   }
 
-  // --- 7. 70 armatur high-bay LED HD: housing + panel emissive HDR + halo glow + 6 SpotLight nyata ---
+  // --- 7. 70 armatur high-bay LED HD digantung 7 m di bawah plafon (terlihat dari chase cam):
+  //        housing + panel emissive HDR + halo glow + kerucut cahaya volumetrik + 8 SpotLight nyata ---
   {
     const cols = 10;
     const rows = 7;
+    const HANG = 7.0; // panjang gantungan dari plafon
+    const lampY = H - HANG;
     const lampPos: [number, number][] = [];
     for (let r = 0; r < rows; r++) {
       for (let cIdx = 0; cIdx < cols; cIdx++) {
@@ -747,7 +750,7 @@ export function buildAulaHall(
       new THREE.MeshStandardMaterial({
         color: '#FFFFFF',
         emissive: '#FFF4E2',
-        emissiveIntensity: 5.5,
+        emissiveIntensity: 6.5,
         roughness: 0.35,
         metalness: 0.0,
       }),
@@ -755,63 +758,185 @@ export function buildAulaHall(
     );
     // Halo glow additive (plane horizontal di bawah panel)
     const glow = new THREE.InstancedMesh(
-      new THREE.PlaneGeometry(13, 7),
+      new THREE.PlaneGeometry(14, 8),
       new THREE.MeshBasicMaterial({
         map: createGlowTexture(),
         transparent: true,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         side: THREE.DoubleSide,
-        opacity: 0.55,
+        opacity: 0.6,
       }),
       lampPos.length
     );
-    // Kabel gantung
+    // Kerucut cahaya volumetrik: cone terbuka dengan vertex color terang di atas -> hitam di bawah
+    const coneH = 15;
+    const coneGeo = new THREE.CylinderGeometry(2.3, 7.5, coneH, 24, 1, true);
+    {
+      const pos = coneGeo.attributes.position;
+      const colArr = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        const t = (pos.getY(i) + coneH / 2) / coneH; // 1 = atas (dekat lampu)
+        const v = Math.pow(t, 1.6);
+        colArr[i * 3] = v;
+        colArr[i * 3 + 1] = v * 0.97;
+        colArr[i * 3 + 2] = v * 0.9;
+      }
+      coneGeo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
+    }
+    const cone = new THREE.InstancedMesh(
+      coneGeo,
+      new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.075,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        fog: false,
+      }),
+      lampPos.length
+    );
+    // Kabel gantung panjang
     const cable = new THREE.InstancedMesh(
-      new THREE.CylinderGeometry(0.03, 0.03, 1.6, 6),
+      new THREE.CylinderGeometry(0.035, 0.035, HANG - 0.3, 6),
       new THREE.MeshStandardMaterial({ color: '#4B5563', roughness: 0.6, metalness: 0.5 }),
       lampPos.length * 2
     );
     lampPos.forEach(([x, z], i) => {
       dummy.rotation.set(0, 0, 0);
       dummy.scale.setScalar(1);
-      dummy.position.set(x, H - 1.9, z);
+      dummy.position.set(x, lampY + 0.3, z);
       dummy.updateMatrix();
       housing.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(x, H - 2.2, z);
+      dummy.position.set(x, lampY, z);
       dummy.updateMatrix();
       panel.setMatrixAt(i, dummy.matrix);
-      dummy.position.set(x, H - 2.45, z);
+      dummy.position.set(x, lampY - 0.25, z);
       dummy.rotation.set(-Math.PI / 2, 0, 0);
       dummy.updateMatrix();
       glow.setMatrixAt(i, dummy.matrix);
       dummy.rotation.set(0, 0, 0);
-      dummy.position.set(x - 2.2, H - 0.85, z);
+      dummy.position.set(x, lampY - 0.3 - coneH / 2, z);
+      dummy.updateMatrix();
+      cone.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(x - 2.2, lampY + 0.55 + (HANG - 0.3) / 2, z);
       dummy.updateMatrix();
       cable.setMatrixAt(i * 2, dummy.matrix);
-      dummy.position.set(x + 2.2, H - 0.85, z);
+      dummy.position.set(x + 2.2, lampY + 0.55 + (HANG - 0.3) / 2, z);
       dummy.updateMatrix();
       cable.setMatrixAt(i * 2 + 1, dummy.matrix);
     });
     housing.instanceMatrix.needsUpdate = true;
     panel.instanceMatrix.needsUpdate = true;
     glow.instanceMatrix.needsUpdate = true;
+    cone.instanceMatrix.needsUpdate = true;
     cable.instanceMatrix.needsUpdate = true;
     glow.renderOrder = 5;
-    aulaGroup.add(housing, panel, glow, cable);
+    cone.renderOrder = 4;
+    aulaGroup.add(housing, panel, glow, cone, cable);
 
-    // 6 SpotLight nyata (grid 3x2, tanpa shadow) -> kolam cahaya lembut di lantai & highlight bodi
+    // 8 SpotLight nyata (grid 4x2, tanpa shadow) dari ketinggian lampu -> kolam cahaya jelas di lantai
     for (let r = 0; r < 2; r++) {
-      for (let cIdx = 0; cIdx < 3; cIdx++) {
-        const lx = cx - 62 + cIdx * 62;
-        const lz = cz - 32 + r * 64;
-        const spot = new THREE.SpotLight('#FFF3E0', 520, 0, 1.05, 0.75, 1.7);
-        spot.position.set(lx, H - 2.3, lz);
+      for (let cIdx = 0; cIdx < 4; cIdx++) {
+        const lx = cx - 75 + cIdx * 50;
+        const lz = cz - 31.5 + r * 63;
+        const spot = new THREE.SpotLight('#FFF3E0', 330, 0, 1.0, 0.7, 1.7);
+        spot.position.set(lx, lampY - 0.2, lz);
         spot.target.position.set(lx, 0, lz);
         spot.castShadow = false;
         aulaGroup.add(spot, spot.target);
       }
     }
+
+    // 2 pita skylight polikarbonat di plafon (emissive hangat, sejajar HDR)
+    const skyMat = new THREE.MeshStandardMaterial({
+      color: '#FFFFFF',
+      emissive: '#FFF1DC',
+      emissiveIntensity: 1.6,
+      roughness: 0.9,
+    });
+    for (const sz of [cz - D / 6, cz + D / 6]) {
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(W - 20, 3.2), skyMat);
+      strip.rotation.x = Math.PI / 2;
+      strip.position.set(cx, H - 0.05, sz);
+      aulaGroup.add(strip);
+      // bingkai rangka skylight
+      const frame = new THREE.InstancedMesh(
+        new THREE.BoxGeometry(0.16, 0.2, 3.4),
+        new THREE.MeshStandardMaterial({ color: '#1F242E', roughness: 0.6, metalness: 0.6 }),
+        Math.floor((W - 20) / 4)
+      );
+      for (let i = 0; i < frame.count; i++) {
+        dummy.rotation.set(0, 0, 0);
+        dummy.position.set(cx - (W - 20) / 2 + i * 4 + 2, H - 0.12, sz);
+        dummy.updateMatrix();
+        frame.setMatrixAt(i, dummy.matrix);
+      }
+      frame.instanceMatrix.needsUpdate = true;
+      aulaGroup.add(frame);
+    }
+
+    // Wall-pack LED flood di tiap kolom (tinggi 9 m) menghadap ke dalam: badan + lensa emissive + glow
+    const packSpots: { x: number; z: number; ry: number }[] = [];
+    for (let x = -96; x <= 96; x += 32) {
+      packSpots.push({ x: cx + x, z: cz - D / 2 + 2.3, ry: 0 });
+      packSpots.push({ x: cx + x, z: cz + D / 2 - 2.3, ry: Math.PI });
+    }
+    for (let z = -64; z <= 64; z += 32) {
+      packSpots.push({ x: cx - W / 2 + 2.3, z: cz + z, ry: Math.PI / 2 });
+      packSpots.push({ x: cx + W / 2 - 2.3, z: cz + z, ry: -Math.PI / 2 });
+    }
+    const packBody = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1.4, 0.7, 0.5),
+      new THREE.MeshStandardMaterial({ color: '#262B35', roughness: 0.5, metalness: 0.7 }),
+      packSpots.length
+    );
+    const packLens = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(1.2, 0.5),
+      new THREE.MeshStandardMaterial({
+        color: '#FFFFFF',
+        emissive: '#FFF6E8',
+        emissiveIntensity: 5,
+        roughness: 0.3,
+      }),
+      packSpots.length
+    );
+    const packGlow = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(6, 6),
+      new THREE.MeshBasicMaterial({
+        map: createGlowTexture(),
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        opacity: 0.5,
+        fog: false,
+      }),
+      packSpots.length
+    );
+    packSpots.forEach((pk, i) => {
+      const nx = Math.sin(pk.ry);
+      const nz = Math.cos(pk.ry);
+      dummy.position.set(pk.x, 9, pk.z);
+      dummy.rotation.set(0, pk.ry, 0);
+      dummy.scale.setScalar(1);
+      dummy.updateMatrix();
+      packBody.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(pk.x + nx * 0.27, 8.9, pk.z + nz * 0.27);
+      dummy.rotation.set(-0.35, pk.ry, 0, 'YXZ');
+      dummy.updateMatrix();
+      packLens.setMatrixAt(i, dummy.matrix);
+      dummy.position.set(pk.x + nx * 0.6, 8.8, pk.z + nz * 0.6);
+      dummy.rotation.set(0, pk.ry, 0);
+      dummy.updateMatrix();
+      packGlow.setMatrixAt(i, dummy.matrix);
+    });
+    packBody.instanceMatrix.needsUpdate = true;
+    packLens.instanceMatrix.needsUpdate = true;
+    packGlow.instanceMatrix.needsUpdate = true;
+    packGlow.renderOrder = 5;
+    aulaGroup.add(packBody, packLens, packGlow);
   }
 
   // --- 10. Tribun 6 undakan (sisi utara) ---

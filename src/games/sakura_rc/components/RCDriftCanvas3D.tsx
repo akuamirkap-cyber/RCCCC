@@ -2158,6 +2158,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       // 4-Corner Pro RC Suspension Spring-Damper State
       suspPitchDeg: 0,
       suspPitchVel: 0,
+      pitchPrevSpeed: 0,
+      pitchAccelSmooth: 0,
       suspRollDeg: 0,
       suspRollVel: 0,
       suspHeave: 0,
@@ -2644,18 +2646,21 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const springStiffness = 52.0 + oilNorm * 38.0;
       const damperDamping = 6.2 + oilNorm * 7.5;
 
-      // Target Pitch: Positive = Rear Squat under throttle/turbo; Negative = Front Nose Dive under braking
-      const squatAmplitude =
-        (1.4 + (susp.rearProSquat / 100) * 2.6) *
-        susp.rollSensitivity *
-        (isTurboEngaged ? 1.32 : 1.0);
-      const diveAmplitude = -2.8 * susp.rollSensitivity;
+      // Target Pitch: Positive = Rear Squat, Negative = Nose Dive.
+      // Squat mengikuti AKSELERASI longitudinal nyata (bukan sekadar gas ditahan) — jadi mobil tidak
+      // "ndangak" terus saat cruising full throttle; hanya sedikit saat tarikan awal / turbo kick.
+      const longAccel = dt > 0 ? (currentSpeed - state.pitchPrevSpeed) / dt : 0;
+      state.pitchPrevSpeed = currentSpeed;
+      state.pitchAccelSmooth += (longAccel - state.pitchAccelSmooth) * Math.min(1, dt * 9);
+      const squatGain = (0.45 + (susp.rearProSquat / 100) * 0.55) * susp.rollSensitivity;
+      const squatFromAccel = THREE.MathUtils.clamp(state.pitchAccelSmooth * 0.14, 0, 1.6) * squatGain;
+      const squatHold = throttleActive ? 0.22 * (isTurboEngaged ? 1.5 : 1.0) : 0;
+      const diveAmplitude = -2.2 * susp.rollSensitivity;
 
-      const targetPitchDeg = throttleActive
-        ? squatAmplitude * Math.min(1, currentSpeed / 10 + 0.35)
-        : brakePressed
+      const targetPitchDeg = brakePressed
         ? diveAmplitude * Math.min(1, currentSpeed / 8)
-        : 0;
+        : Math.min(2.0, squatFromAccel + squatHold) +
+          THREE.MathUtils.clamp(state.pitchAccelSmooth * 0.1, -1.2, 0);
 
       // Target Roll: Centrifugal lateral G-force during drift tilts chassis toward outside of corner
       const targetRollDeg = THREE.MathUtils.clamp(
