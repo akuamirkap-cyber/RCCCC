@@ -15,7 +15,6 @@ import type { DriftZone } from './zones';
    - marshal posts with flags at the corner apexes
    ============================================================ */
 
-const UP = new THREE.Vector3(0, 1, 0);
 
 function mulberry32(seed: number) {
   return () => {
@@ -37,7 +36,7 @@ const smoothstep = (a: number, b: number, x: number) => {
 /* ------------------------------------------------------------------ */
 
 /** Dark neutral racing asphalt (1024²) + matching normal map generated from the same grain. */
-export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.CanvasTexture } {
   const S = 1024;
   const c = document.createElement('canvas');
   c.width = c.height = S;
@@ -71,15 +70,15 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
   for (let i = 0; i < S * S; i++) {
     const v = h[i];
     if (v === 0) continue;
-    const k = (v - 0.5) * 70;
+    const k = (v - 0.5) * 44;
     d[i * 4] = clamp(d[i * 4] + k, 0, 255);
     d[i * 4 + 1] = clamp(d[i * 4 + 1] + k, 0, 255);
     d[i * 4 + 2] = clamp(d[i * 4 + 2] + k + 2, 0, 255);
   }
   ctx.putImageData(img, 0, 0);
   // bright quartz chips
-  for (let i = 0; i < 2600; i++) {
-    ctx.fillStyle = `rgba(205,205,210,${0.12 + rnd() * 0.3})`;
+  for (let i = 0; i < 900; i++) {
+    ctx.fillStyle = `rgba(190,190,195,${0.08 + rnd() * 0.18})`;
     ctx.fillRect(rnd() * S, rnd() * S, 1, 1);
   }
   // hairline cracks + sealed crack lines (darker)
@@ -125,25 +124,7 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
   const normalMap = new THREE.CanvasTexture(nc);
   normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
 
-  // roughness: slightly glossier in the polished (dark) patches
-  const rc = document.createElement('canvas');
-  rc.width = rc.height = 256;
-  const rctx = rc.getContext('2d')!;
-  rctx.fillStyle = '#c4c4c4';
-  rctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 30; i++) {
-    const x = rnd() * 256;
-    const y = rnd() * 256;
-    const r = 30 + rnd() * 70;
-    const g = rctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(150,150,150,0.5)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    rctx.fillStyle = g;
-    rctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-  const roughnessMap = new THREE.CanvasTexture(rc);
-  roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
-  return { map, normalMap, roughnessMap };
+  return { map, normalMap };
 }
 
 function makeBoardTexture(text: string, stripes: number, bg = '#ffd60a', fg = '#101114'): THREE.CanvasTexture {
@@ -258,18 +239,6 @@ function buildColumnsStrip(track: Track, cols: number, fn: ColumnFn, uvScale = 1
   return g;
 }
 
-/** Signed curvature averaged over a sample window [i-back, i+ahead]. */
-function windowCurv(track: Track, i: number, back: number, ahead: number): number {
-  const n = track.count;
-  let sum = 0;
-  let w = 0;
-  for (let k = -back; k <= ahead; k++) {
-    const wt = 1 - Math.abs(k) / (Math.max(back, ahead) + 1);
-    sum += track.samples[(i + k + n) % n].curv * wt;
-    w += wt;
-  }
-  return sum / w;
-}
 function windowAbsMax(track: Track, i: number, back: number, ahead: number): number {
   const n = track.count;
   let m = 0;
@@ -292,26 +261,13 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
     out.push(obj);
     return obj;
   };
-  const rand = mulberry32(777);
-  const m4 = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const p = new THREE.Vector3();
   const Y0 = o.groundY;
 
   /* ---------- precomputed per-sample corner weights ---------- */
   const cornerW = new Float32Array(n); // 0 straight .. 1 full corner (kerbs)
-  const lineOff = new Float32Array(n); // rubbered racing line lateral offset
   for (let i = 0; i < n; i++) {
     const cw = windowAbsMax(track, i, 6, 6);
     cornerW[i] = smoothstep(0.0055, 0.0095, cw);
-    // racing line: inside at the apex, drifting back out on exit (window biased behind)
-    const lc = windowCurv(track, i, 26, 14);
-    lineOff[i] = clamp(lc / 0.016, -1, 1) * (HALF_WIDTH - 2.6); // inside = +sign(curv)
-  }
-  // smooth the racing line offset a little more (no kinks)
-  for (let pass = 0; pass < 3; pass++) {
-    const copy = Float32Array.from(lineOff);
-    for (let i = 0; i < n; i++) lineOff[i] = (copy[(i - 1 + n) % n] + copy[i] * 2 + copy[(i + 1) % n]) / 4;
   }
 
   /* ---------- asphalt ---------- */
@@ -325,74 +281,20 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
   // UV: u spans the width once, v repeats every 7 m → tile the texture 2x across the width
   tex.map.repeat.set(2, 1);
   tex.normalMap.repeat.set(2, 1);
-  tex.roughnessMap.repeat.set(2, 1);
   const roadMat = new THREE.MeshStandardMaterial({
     map: tex.map,
     normalMap: tex.normalMap,
-    normalScale: new THREE.Vector2(0.55, 0.55),
-    roughnessMap: tex.roughnessMap,
-    roughness: 0.82,
-    metalness: 0.04,
-    color: '#cfd0d4',
-    envMapIntensity: 0.6,
+    normalScale: new THREE.Vector2(0.3, 0.3),
+    roughness: 0.96,
+    metalness: 0.0,
+    color: '#c9cacd',
+    envMapIntensity: 0.12,
     side: THREE.DoubleSide,
   });
   const road = new THREE.Mesh(roadGeo, roadMat);
   road.receiveShadow = true;
   road.name = 'ProAsphalt';
   add(road);
-
-  /* ---------- rubbered racing line (multiply overlay) ---------- */
-  const rubberGeo = buildColumnsStrip(track, 3, (i) => {
-    const c = Math.abs(windowCurv(track, i, 6, 6));
-    const dark = 0.05 + 0.14 * smoothstep(0.003, 0.02, c);
-    const w = 1.8 + 1.0 * smoothstep(0.004, 0.02, c);
-    const center = clamp(lineOff[i], -HALF_WIDTH + w + 0.4, HALF_WIDTH - w - 0.4);
-    const white = new THREE.Color(1, 1, 1);
-    const grey = new THREE.Color(1 - dark, 1 - dark, 1 - dark);
-    return [
-      { off: center - w, y: 0.021, color: white },
-      { off: center, y: 0.021, color: grey },
-      { off: center + w, y: 0.021, color: white },
-    ];
-  });
-  const rubber = new THREE.Mesh(
-    rubberGeo,
-    new THREE.MeshBasicMaterial({ vertexColors: true, blending: THREE.MultiplyBlending, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
-  );
-  rubber.renderOrder = 1;
-  add(rubber);
-
-  // corner-exit tyre marks: short dark streaks fanning to the outside after each apex
-  const streakGeo = new THREE.PlaneGeometry(0.32, 1);
-  streakGeo.rotateX(-Math.PI / 2);
-  const streakSpots: { x: number; z: number; a: number; len: number; alpha: number }[] = [];
-  for (const z of zones) {
-    const side = -z.dir; // outside
-    for (let k = 2; k < 26; k += 2) {
-      const i = (z.apex + k) % n;
-      const sm = s[i];
-      for (let j = 0; j < 2; j++) {
-        const off = lineOff[i] + side * (0.6 + j * 0.9 + k * 0.08) * (rand() * 0.4 + 0.8);
-        if (Math.abs(off) > HALF_WIDTH - 0.6) continue;
-        streakSpots.push({ x: sm.x + sm.rx * off, z: sm.z + sm.rz * off, a: sm.angle + side * 0.06, len: 2 + rand() * 2, alpha: 0.35 - k * 0.011 });
-      }
-    }
-  }
-  if (streakSpots.length) {
-    const streaks = new THREE.InstancedMesh(
-      streakGeo,
-      new THREE.MeshBasicMaterial({ color: '#121216', transparent: true, opacity: 0.2, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-      streakSpots.length,
-    );
-    streakSpots.forEach((st, i) => {
-      q.setFromAxisAngle(UP, st.a);
-      m4.compose(p.set(st.x, 0.02, st.z), q, new THREE.Vector3(1, 1, st.len));
-      streaks.setMatrixAt(i, m4);
-    });
-    streaks.renderOrder = 2;
-    add(streaks);
-  }
 
   /* ---------- white edge lines (geometry) ---------- */
   const lineMat = new THREE.MeshStandardMaterial({ color: '#f3f1ea', roughness: 0.6, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
