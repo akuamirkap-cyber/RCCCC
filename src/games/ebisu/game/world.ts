@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildProCircuit } from './proCircuit';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
 import { zoneLookup, type DriftZone } from './zones';
@@ -84,75 +85,6 @@ const circDist = (a: number, b: number, n: number) => {
 /* ------------------------------------------------------------------ */
 /*  Textures                                                           */
 /* ------------------------------------------------------------------ */
-
-/** Warm mid-grey asphalt with aggregate speckle, subtle patches, faint cracks and crisp edge lines. */
-function makeRoadTexture(): THREE.CanvasTexture {
-  const W = 512;
-  const H = 512;
-  const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
-  const ctx = c.getContext('2d')!;
-  const rnd = mulberry32(4242);
-  ctx.fillStyle = '#484b52';
-  ctx.fillRect(0, 0, W, H);
-  // large soft patches (repaved areas / wear)
-  for (let i = 0; i < 26; i++) {
-    const x = rnd() * W;
-    const y = rnd() * H;
-    const r = 40 + rnd() * 90;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    const light = rnd() < 0.5;
-    g.addColorStop(0, light ? 'rgba(120,120,126,0.22)' : 'rgba(58,58,64,0.28)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-  // fine aggregate speckle
-  for (let i = 0; i < 26000; i++) {
-    const v = 70 + rnd() * 70;
-    ctx.fillStyle = `rgba(${v},${v},${v + 4},${0.25 + rnd() * 0.4})`;
-    ctx.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 1.5, 1 + rnd() * 1.5);
-  }
-  // occasional bright stones
-  for (let i = 0; i < 700; i++) {
-    ctx.fillStyle = `rgba(190,190,196,${0.15 + rnd() * 0.3})`;
-    ctx.fillRect(rnd() * W, rnd() * H, 1, 1);
-  }
-  // darker worn tire lines at ~1/4 and ~3/4 of the width
-  for (const cxLine of [W * 0.27, W * 0.73]) {
-    const g = ctx.createLinearGradient(cxLine - 60, 0, cxLine + 60, 0);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(0.5, 'rgba(0,0,0,0.13)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(cxLine - 60, 0, 120, H);
-  }
-  // faint cracks
-  ctx.strokeStyle = 'rgba(30,30,34,0.45)';
-  ctx.lineWidth = 1.2;
-  for (let i = 0; i < 9; i++) {
-    let x = rnd() * W;
-    let y = rnd() * H;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    for (let k = 0; k < 8; k++) {
-      x += (rnd() - 0.5) * 30;
-      y += (rnd() - 0.5) * 30;
-      ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  }
-  // thick white edge lines, no center line (drift-course style)
-  ctx.fillStyle = '#f2f0e9';
-  ctx.fillRect(0, 0, 15, H);
-  ctx.fillRect(W - 15, 0, 15, H);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = THREE.ClampToEdgeWrapping;
-  t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
 
 function makeCheckerTexture(cols: number, rows: number, a = '#111111', b = '#f4f4f4'): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -411,34 +343,6 @@ function makeNoboriTexture(text: string, bg: string, fg: string): THREE.CanvasTe
 /*  Track-following geometry                                           */
 /* ------------------------------------------------------------------ */
 
-/** Flat strip between two lateral offsets along the whole track. */
-function buildStrip(track: Track, from: number, to: number, y: number, uvScale: number): THREE.BufferGeometry {
-  const n = track.count;
-  const s = track.samples;
-  const pos: number[] = [];
-  const uv: number[] = [];
-  const nor: number[] = [];
-  const idx: number[] = [];
-  for (let i = 0; i <= n; i++) {
-    const k = i % n;
-    const sm = s[k];
-    const v = (i === n ? track.length : sm.dist) / uvScale;
-    pos.push(sm.x + sm.rx * from, y, sm.z + sm.rz * from, sm.x + sm.rx * to, y, sm.z + sm.rz * to);
-    uv.push(0, v, 1, v);
-    nor.push(0, 1, 0, 0, 1, 0);
-  }
-  for (let i = 0; i < n; i++) {
-    const a = i * 2;
-    idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  g.setIndex(idx);
-  return g;
-}
-
 /** Flat strip for a sample range, optionally with alternating color bands. */
 function buildRangeStrip(
   track: Track,
@@ -503,39 +407,6 @@ function buildWallStrip(track: Track, start: number, len: number, offset: number
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   g.setIndex(idx);
-  return g;
-}
-
-/** Curb strip with alternating red/white segments via vertex colors. */
-function buildCurb(track: Track, side: 1 | -1): THREE.BufferGeometry {
-  const n = track.count;
-  const s = track.samples;
-  const pos: number[] = [];
-  const col: number[] = [];
-  const nor: number[] = [];
-  const red = new THREE.Color('#e63946');
-  const white = new THREE.Color('#f5f5f5');
-  const y = 0.02;
-  const inner = HALF_WIDTH * side;
-  const outer = (HALF_WIDTH + CURB_WIDTH) * side;
-  for (let i = 0; i < n; i++) {
-    const a = s[i];
-    const b = s[(i + 1) % n];
-    const c = Math.floor(a.dist / 3) % 2 === 0 ? red : white;
-    const ai = [a.x + a.rx * inner, y, a.z + a.rz * inner];
-    const ao = [a.x + a.rx * outer, y, a.z + a.rz * outer];
-    const bi = [b.x + b.rx * inner, y, b.z + b.rz * inner];
-    const bo = [b.x + b.rx * outer, y, b.z + b.rz * outer];
-    pos.push(...ai, ...bi, ...ao, ...ao, ...bi, ...bo);
-    for (let k = 0; k < 6; k++) {
-      col.push(c.r, c.g, c.b);
-      nor.push(0, 1, 0);
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   return g;
 }
 
@@ -1203,29 +1074,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   const terrain = buildTerrain(track, aniso);
   scene.add(terrain.mesh);
 
-  /* ---------- Runoff, road, curbs ---------- */
-  const runoffMat = new THREE.MeshStandardMaterial({ color: '#5da84f', roughness: 1, side: THREE.DoubleSide });
-  for (const side of [1, -1] as const) {
-    const from = (HALF_WIDTH + CURB_WIDTH) * side;
-    const to = WALL_DIST * side;
-    const m = new THREE.Mesh(buildStrip(track, Math.min(from, to), Math.max(from, to), 0.0, 10), runoffMat);
-    m.receiveShadow = true;
-    scene.add(m);
-  }
-  const roadTex = makeRoadTexture();
-  roadTex.anisotropy = aniso;
-  const road = new THREE.Mesh(
-    buildStrip(track, -HALF_WIDTH, HALF_WIDTH, 0.01, 9),
-    new THREE.MeshStandardMaterial({ map: roadTex, color: '#d9d9dc', roughness: 0.78, metalness: 0.05, side: THREE.DoubleSide, envMapIntensity: 0.5 }),
-  );
-  road.receiveShadow = true;
-  scene.add(road);
-  const curbMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide });
-  for (const side of [1, -1] as const) {
-    const m = new THREE.Mesh(buildCurb(track, side), curbMat);
-    m.receiveShadow = true;
-    scene.add(m);
-  }
+  /* ---------- Pro circuit surface: asphalt, kerbs, run-off, grid, boards ---------- */
+  buildProCircuit(scene, track, zones, { aniso, groundY: GROUND_Y });
 
   /* ---------- Drift zones: painted road, gates, cones ---------- */
   const coneSpots: { x: number; z: number; color: THREE.Color }[] = [];
