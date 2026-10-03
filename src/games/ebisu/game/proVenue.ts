@@ -352,7 +352,8 @@ export function buildStartGantry(halfSpan: number, aniso: number): THREE.Group {
   // main sign: START / FINISH panel hanging under the bridge (both faces)
   const signTex = textTexture('START  ·  FINISH', { w: 2048, h: 256, bg: '#111318', fg: '#ffffff', size: 150, checker: true });
   signTex.anisotropy = aniso;
-  const signMat = new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.75 });
+  // LED board look: the texture also drives emission so it reads crisp in any lighting
+  const signMat = new THREE.MeshStandardMaterial({ map: signTex, emissive: '#ffffff', emissiveMap: signTex, emissiveIntensity: 0.55, roughness: 0.6 });
   const sign = new THREE.Mesh(new THREE.BoxGeometry(span - 2.4, 1.9, 0.16), [steelMat, steelMat, steelMat, steelMat, signMat, signMat]);
   sign.position.set(0, H - 1.0, 0);
   sign.castShadow = true;
@@ -401,12 +402,24 @@ export function buildStartGantry(halfSpan: number, aniso: number): THREE.Group {
     spk.position.set(sx * (span / 2 - 1.2), H + 1.85, 0);
     g.add(spk);
   }
-  // beacon lights on the tower tops
+  // beacon lights + tall chequered flags on the tower tops
+  const flagTex = textTexture('', { w: 128, h: 128, checker: true, bg: '#111318' });
   for (const sx of [-1, 1]) {
     const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), new THREE.MeshStandardMaterial({ color: '#ffb703', emissive: '#ffb703', emissiveIntensity: 1.0 }));
     beacon.position.set(sx * halfSpan, H + 1.6, 0);
     g.add(beacon);
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 4.2, 8), whiteSteelMat);
+    mast.position.set(sx * (halfSpan + 0.9), H + 2.6, 0);
+    g.add(mast);
+    const flag = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.0), new THREE.MeshStandardMaterial({ map: flagTex, side: THREE.DoubleSide, roughness: 0.9 }));
+    flag.position.set(sx * (halfSpan + 0.9) + 0.8, H + 4.2, 0);
+    g.add(flag);
   }
+  // pit-wall style timing screen under the bridge, driver's left
+  const screenTex = textTexture('LAP  1 / 3     P1  YOU', { w: 1024, h: 160, bg: '#0b0d12', fg: '#ffb703', size: 92 });
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.9, 0.14), [steelMat, steelMat, steelMat, steelMat, new THREE.MeshStandardMaterial({ map: screenTex, emissive: '#ffffff', emissiveMap: screenTex, emissiveIntensity: 0.7, roughness: 0.5 }), steelMat]);
+  screen.position.set(-(halfSpan - 3.4), H - 3.2, 0.5);
+  g.add(screen);
   return g;
 }
 
@@ -414,6 +427,15 @@ export function buildStartGantry(halfSpan: number, aniso: number): THREE.Group {
 export function makeRoadText(text: string, fg = '#f4f4f0'): THREE.Mesh {
   const tex = textTexture(text, { w: 1024, h: 256, fg, size: 200, transparent: true });
   const m = new THREE.Mesh(new THREE.PlaneGeometry(8, 2), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
+  m.rotation.x = -Math.PI / 2;
+  m.renderOrder = 2;
+  return m;
+}
+
+/** Small painted grid number (P1..P8) for the grid boxes. */
+export function makeGridNumber(nr: number): THREE.Mesh {
+  const tex = textTexture(String(nr), { w: 128, h: 128, fg: '#f4f4f0', size: 96, transparent: true });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.9), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }));
   m.rotation.x = -Math.PI / 2;
   m.renderOrder = 2;
   return m;

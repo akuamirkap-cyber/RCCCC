@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { buildProCircuit } from './proCircuit';
 import type { LightingRig } from './lighting';
 import { buildProStand, buildStartGantry, buildProForest, makeRoadText } from './proVenue';
+import { buildGuardrails, buildCornerBlocks, makeTrafficCone } from './proBarriers';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
 import { zoneLookup, type DriftZone } from './zones';
 
@@ -854,56 +854,6 @@ class Crowd {
   }
 }
 
-/** Standard 70 cm traffic cone merged into one vertex-coloured geometry (base, body, two bands). */
-function makeTrafficConeGeometry(): THREE.BufferGeometry {
-  const paint = (src: THREE.BufferGeometry, hex: string) => {
-    // RoundedBoxGeometry is non-indexed while CylinderGeometry is indexed → normalise to non-indexed before merging
-    const g = src.index ? src.toNonIndexed() : src;
-    if (g !== src) src.dispose();
-    const c = new THREE.Color(hex);
-    const n = g.attributes.position.count;
-    const col = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      col[i * 3] = c.r;
-      col[i * 3 + 1] = c.g;
-      col[i * 3 + 2] = c.b;
-    }
-    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    return g;
-  };
-  const parts: THREE.BufferGeometry[] = [];
-  const base = new RoundedBoxGeometry(0.42, 0.045, 0.42, 2, 0.015);
-  base.translate(0, 0.0225, 0);
-  parts.push(paint(base, '#141416'));
-  const ORANGE = '#ff6a13';
-  const WHITE = '#f4f4f0';
-  // body sections (bottom → top): orange, white band, orange, white band, orange tip
-  const sections: [number, number, string][] = [
-    [0.045, 0.2, ORANGE],
-    [0.2, 0.3, WHITE],
-    [0.3, 0.42, ORANGE],
-    [0.42, 0.5, WHITE],
-    [0.5, 0.72, ORANGE],
-  ];
-  const rAt = (y: number) => 0.17 - (y - 0.045) * ((0.17 - 0.03) / (0.72 - 0.045));
-  for (const [y0, y1, color] of sections) {
-    const g = new THREE.CylinderGeometry(rAt(y1) + (color === WHITE ? 0.006 : 0), rAt(y0) + (color === WHITE ? 0.006 : 0), y1 - y0, 14, 1, color !== ORANGE || y1 < 0.72);
-    g.translate(0, (y0 + y1) / 2, 0);
-    parts.push(paint(g, color));
-  }
-  // squared top lip
-  const top = new THREE.CylinderGeometry(0.035, 0.035, 0.02, 10);
-  top.translate(0, 0.73, 0);
-  parts.push(paint(top, ORANGE));
-  const merged = mergeGeometries(parts, false);
-  parts.forEach((g) => g.dispose());
-  if (!merged) {
-    // should never happen, but never let a cone take the whole world down
-    return new THREE.ConeGeometry(0.17, 0.7, 12).translate(0, 0.35, 0);
-  }
-  return merged;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Structures                                                         */
 /* ------------------------------------------------------------------ */
@@ -1134,8 +1084,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }
   }
   if (coneSpots.length) {
-    // accurate traffic cone: black square rubber base, orange tapered body, two white reflective bands
-    const cones = new THREE.InstancedMesh(makeTrafficConeGeometry(), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55 }), coneSpots.length);
+    const cone = makeTrafficCone();
+    const cones = new THREE.InstancedMesh(cone.geometry, cone.materials, coneSpots.length);
     coneSpots.forEach((c, i) => {
       quat.setFromAxisAngle(UP, rand() * Math.PI * 2);
       m4.compose(tmpPos.set(c.x, GROUND_Y, c.z), quat, ONE);
@@ -1152,8 +1102,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   startGroup.rotation.y = s0.angle;
   scene.add(startGroup);
   const line = new THREE.Mesh(
-    new THREE.PlaneGeometry(TRACK_WIDTH, 2.4),
-    new THREE.MeshStandardMaterial({ map: makeCheckerTexture(12, 2), roughness: 0.8 }),
+    new THREE.PlaneGeometry(TRACK_WIDTH, 3.0),
+    new THREE.MeshStandardMaterial({ map: makeCheckerTexture(14, 3), roughness: 0.7 }),
   );
   line.rotation.x = -Math.PI / 2;
   line.position.y = 0.03;
@@ -1292,54 +1242,9 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   tires.castShadow = true;
   scene.add(tires);
 
-  /* ---------- Corner barriers (skipping the apexes covered by tire stacks) ---------- */
-  const barrierSpots: { x: number; z: number; angle: number; red: boolean }[] = [];
-  let bCount = 0;
-  for (let i = 0; i < n; i += 5) {
-    const s = samples[i];
-    if (Math.abs(s.curv) < 0.011) continue;
-    if (zones.some((z) => circDist(i, z.apex, n) <= 7)) continue;
-    const side = -Math.sign(s.curv);
-    const off = (WALL_DIST + 1.0) * side;
-    barrierSpots.push({ x: s.x + s.rx * off, z: s.z + s.rz * off, angle: s.angle, red: bCount % 2 === 0 });
-    bCount++;
-  }
-  if (barrierSpots.length) {
-    const barriers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.9, 2.2), new THREE.MeshStandardMaterial({ roughness: 0.6 }), barrierSpots.length);
-    const cRed = new THREE.Color('#e63946');
-    const cWhite = new THREE.Color('#f7f7f7');
-    barrierSpots.forEach((b, i) => {
-      quat.setFromAxisAngle(UP, b.angle);
-      m4.compose(tmpPos.set(b.x, 0.45, b.z), quat, ONE);
-      barriers.setMatrixAt(i, m4);
-      barriers.setColorAt(i, b.red ? cRed : cWhite);
-    });
-    barriers.castShadow = true;
-    barriers.receiveShadow = true;
-    scene.add(barriers);
-  }
-
-  /* ---------- Guardrails: continuous silver W-beam + white posts, full loop ---------- */
-  const railMat = new THREE.MeshStandardMaterial({ color: '#c8ccd2', metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide, envMapIntensity: 0.9 });
-  for (const side of [1, -1] as const) {
-    const rail = new THREE.Mesh(buildWallStrip(track, 0, n, (WALL_DIST + 0.4) * side, GROUND_Y + 0.35, GROUND_Y + 0.75, 1), railMat);
-    rail.receiveShadow = true;
-    scene.add(rail);
-  }
-  const postSpots: { x: number; z: number }[] = [];
-  for (let i = 0; i < n; i += 4) {
-    const s = samples[i];
-    for (const side of [1, -1] as const) {
-      postSpots.push({ x: s.x + s.rx * (WALL_DIST + 0.4) * side, z: s.z + s.rz * (WALL_DIST + 0.4) * side });
-    }
-  }
-  const railPosts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.85, 0.14), new THREE.MeshStandardMaterial({ color: '#e8eaee', roughness: 0.7 }), postSpots.length);
-  postSpots.forEach((p, i) => {
-    m4.compose(tmpPos.set(p.x, GROUND_Y + 0.42, p.z), quat.identity(), ONE);
-    railPosts.setMatrixAt(i, m4);
-  });
-  railPosts.castShadow = true;
-  scene.add(railPosts);
+  /* ---------- Pro barriers: TecPro corner blocks + W-beam Armco with reflectors ---------- */
+  buildCornerBlocks(scene, track, zones, { groundY: GROUND_Y, aniso, rand });
+  buildGuardrails(scene, track, { groundY: GROUND_Y, aniso, rand });
 
   /* ---------- Corner crowds, fences, umbrellas, mini grandstands ---------- */
   const fenceTex = makeFenceTexture();

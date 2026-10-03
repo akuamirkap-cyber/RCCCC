@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
 import type { DriftZone } from './zones';
+import { makeGridNumber } from './proVenue';
 
 /* ============================================================
    PRO CIRCUIT SURFACE — iRacing-style track dressing
@@ -390,6 +391,14 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
     gm.rotation.y = sm.angle;
     gm.renderOrder = 2;
     add(gm);
+    const num = makeGridNumber(k + 1);
+    const nOff = off + Math.sign(off) * 1.7;
+    const back2 = back + 1.0;
+    const i2 = (n - Math.round(back2 / track.spacing) + n) % n;
+    const s2 = s[i2];
+    num.position.set(s2.x + s2.rx * nOff, 0.023, s2.z + s2.rz * nOff);
+    num.rotation.z = -sm.angle;
+    add(num);
   }
 
   /* ---------- sector lines S1 / S2 ---------- */

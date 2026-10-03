@@ -231,12 +231,13 @@ export function resetVehicleOnTrack(s: VehicleState, track: Track, lane: number,
 /*  impulses with torque + friction, soft positional correction         */
 /* ------------------------------------------------------------------ */
 
-const RESTITUTION = 0.18; // soft, car-like bump (no pinball)
-const FRICTION = 0.45; // scrape along the other car's body
+const RESTITUTION = 0.0; // metal on metal: cars crumple and stay in contact, they never bounce apart
+const FRICTION = 0.7; // heavy scrape along the other car's body
 const INERTIA = 1.8; // unit mass, ~4.2 m x 1.95 m box: (L² + W²) / 12
 const BODY_OFFSETS = [-1.25, 0, 1.25]; // circle centres along the car axis
-const SLOP = 0.01; // allowed overlap before pushing apart
-const CORRECT = 0.65; // fraction of the penetration removed per step (keeps it smooth, still never tunnels)
+const SLOP = 0.015; // allowed overlap before pushing apart
+const CORRECT = 0.42; // fraction of the penetration removed per step (slow, smooth separation — no "pop")
+const CONTACT_DAMP = 0.985; // energy bleed while two cars are touching (crumple / rubbing)
 
 /** Radius of each body circle for a given overall "collide radius" (keeps the old tuning knob meaningful). */
 const bodyRadius = (radius: number) => Math.max(0.6, radius * 0.85);
@@ -332,12 +333,18 @@ export function collideVehicles(a: VehicleState, b: VehicleState, radius: number
         a.angVel -= (raCt * jt) / INERTIA;
         b.angVel += (rbCt * jt) / INERTIA;
 
+        // crumple: both cars lose a little energy while in contact
+        a.vx *= CONTACT_DAMP;
+        a.vz *= CONTACT_DAMP;
+        b.vx *= CONTACT_DAMP;
+        b.vz *= CONTACT_DAMP;
+
         if (-vn > maxClosing) maxClosing = -vn;
       }
     }
   }
   // keep spins sane after a big tangle
-  const maxSpin = 4.5;
+  const maxSpin = 3.2;
   if (a.angVel > maxSpin) a.angVel = maxSpin;
   else if (a.angVel < -maxSpin) a.angVel = -maxSpin;
   if (b.angVel > maxSpin) b.angVel = maxSpin;

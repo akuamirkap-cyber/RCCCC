@@ -1495,10 +1495,11 @@ export class Game {
         p.z += nz * push;
         const vn = p.vx * nx + p.vz * nz;
         if (vn < 0) {
-          p.vx -= nx * vn * 1.3;
-          p.vz -= nz * vn * 1.3;
-          p.vx *= 0.85;
-          p.vz *= 0.85;
+          // inelastic: kill the closing speed, no rebound
+          p.vx -= nx * vn;
+          p.vz -= nz * vn;
+          p.vx *= 0.9;
+          p.vz *= 0.9;
           this.onHit(Math.abs(vn) * 0.6, false);
         }
         ai.laneTarget = THREE.MathUtils.clamp(ai.lane + (Math.random() - 0.5) * 2, -3.6, 3.6);
