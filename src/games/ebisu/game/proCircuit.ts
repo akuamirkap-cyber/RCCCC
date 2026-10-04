@@ -5,9 +5,8 @@ import { makeGridNumber } from './proVenue';
 
 /* ============================================================
    PRO CIRCUIT SURFACE — iRacing-style track dressing
-   - 1024² asphalt with aggregate normal map (sun glint on the grain)
+   - 1024² procedural aggregate asphalt (colour + normal + roughness; cool neutral grey)
    - crisp white edge lines as geometry (not baked in the texture)
-   - rubbered-in racing line + corner-exit tyre marks (multiply overlay)
    - raised FIA red/white kerbs only through the corners (2 m segments)
    - green/white exit kerbs on corner exits
    - run-off: tarmac strip + gravel traps on the outside of corners, grass elsewhere
@@ -36,56 +35,115 @@ const smoothstep = (a: number, b: number, x: number) => {
 /*  Textures                                                           */
 /* ------------------------------------------------------------------ */
 
-/** Dark neutral racing asphalt (1024²) + matching normal map generated from the same grain. */
-export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.CanvasTexture } {
+/**
+ * Realistic racing asphalt (1024², tiles every 3.5 m): dark cool-grey bitumen binder with
+ * embedded aggregate stones of varied grey, a fine sand fraction, very gentle large-scale
+ * tone variation (never blotchy) and a matching normal + roughness map so stones catch
+ * the sun while the binder stays matte. Colour is deliberately slightly blue-grey so it
+ * reads neutral next to the saturated green grass (a pure grey looks brown by contrast).
+ */
+export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
   const S = 1024;
+  const rnd = mulberry32(90210);
+  const h = new Float32Array(S * S); // height (0 = binder, up to 1 = stone crown)
+  const col = new Float32Array(S * S * 3);
+  const rough = new Float32Array(S * S).fill(0.97);
+
+  // --- tileable value noise for the large-scale tone (very low amplitude) ---
+  const G = 16;
+  const grid = new Float32Array(G * G);
+  for (let i = 0; i < G * G; i++) grid[i] = rnd();
+  const noise = (x: number, y: number) => {
+    const fx = (x / S) * G;
+    const fy = (y / S) * G;
+    const x0 = Math.floor(fx) % G;
+    const y0 = Math.floor(fy) % G;
+    const x1 = (x0 + 1) % G;
+    const y1 = (y0 + 1) % G;
+    const tx = smoothstep(0, 1, fx - Math.floor(fx));
+    const ty = smoothstep(0, 1, fy - Math.floor(fy));
+    const a = grid[y0 * G + x0] * (1 - tx) + grid[y0 * G + x1] * tx;
+    const b = grid[y1 * G + x0] * (1 - tx) + grid[y1 * G + x1] * tx;
+    return a * (1 - ty) + b * ty;
+  };
+
+  // --- binder base: cool dark grey, ±3 % slow variation, per-texel sand speckle ---
+  const BASE = [0.235, 0.245, 0.265]; // sRGB-ish 60/62/68 → blue-grey bitumen
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = y * S + x;
+      const n = (noise(x, y) - 0.5) * 0.06 + (rnd() - 0.5) * 0.05;
+      col[i * 3] = BASE[0] + n;
+      col[i * 3 + 1] = BASE[1] + n;
+      col[i * 3 + 2] = BASE[2] + n;
+      h[i] = rnd() * 0.12;
+    }
+  }
+
+  // --- aggregate stones: irregular discs with a bright crown and darker rim ---
+  const putStone = (cx: number, cy: number, r: number, shade: number, cool: number) => {
+    const R = Math.ceil(r + 1);
+    const ex = 0.75 + rnd() * 0.5; // ellipse ratio
+    const ang = rnd() * Math.PI;
+    const ca = Math.cos(ang);
+    const sa = Math.sin(ang);
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        const u = (dx * ca + dy * sa) / r;
+        const v = (-dx * sa + dy * ca) / (r * ex);
+        const d = Math.hypot(u, v);
+        if (d > 1) continue;
+        const x = (cx + dx + S) % S;
+        const y = (cy + dy + S) % S;
+        const i = y * S + x;
+        const crown = 1 - d * d; // dome profile
+        const hh = 0.25 + crown * 0.75;
+        if (hh <= h[i]) continue;
+        h[i] = hh;
+        const lit = shade * (0.78 + crown * 0.3); // crown brighter than the rim
+        col[i * 3] = lit - cool * 0.01;
+        col[i * 3 + 1] = lit;
+        col[i * 3 + 2] = lit + cool * 0.02;
+        rough[i] = 0.72 + (1 - crown) * 0.2; // polished stone crowns reflect the sky a little
+      }
+    }
+  };
+  // size distribution: lots of fine chips, fewer coarse stones (texture spans 3.5 m → 1 px ≈ 3.4 mm)
+  for (let i = 0; i < 26000; i++) putStone(rnd() * S, rnd() * S, 1.2 + rnd() * 1.2, 0.30 + rnd() * 0.16, rnd());
+  for (let i = 0; i < 9000; i++) putStone(rnd() * S, rnd() * S, 2.2 + rnd() * 1.6, 0.32 + rnd() * 0.2, rnd());
+  for (let i = 0; i < 1400; i++) putStone(rnd() * S, rnd() * S, 3.4 + rnd() * 1.8, 0.36 + rnd() * 0.22, rnd());
+  // a few pale quartz / feldspar chips
+  for (let i = 0; i < 350; i++) putStone(rnd() * S, rnd() * S, 1.4 + rnd() * 1.4, 0.58 + rnd() * 0.18, rnd());
+
+  // --- colour map ---
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const ctx = c.getContext('2d')!;
-  const rnd = mulberry32(90210);
-  ctx.fillStyle = '#3a3c42';
-  ctx.fillRect(0, 0, S, S);
-  // height field for the grain (also used for the normal map)
-  const h = new Float32Array(S * S);
-  for (let i = 0; i < 160000; i++) {
-    const x = Math.floor(rnd() * S);
-    const y = Math.floor(rnd() * S);
-    const v = rnd();
-    const size = rnd() < 0.15 ? 2 : 1;
-    for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) h[((y + dy) % S) * S + ((x + dx) % S)] = v;
-  }
-  const img = ctx.getImageData(0, 0, S, S);
+  const img = ctx.createImageData(S, S);
   const d = img.data;
   for (let i = 0; i < S * S; i++) {
-    const v = h[i];
-    if (v === 0) continue;
-    const k = (v - 0.5) * 30;
-    d[i * 4] = clamp(d[i * 4] + k, 0, 255);
-    d[i * 4 + 1] = clamp(d[i * 4 + 1] + k, 0, 255);
-    d[i * 4 + 2] = clamp(d[i * 4 + 2] + k + 2, 0, 255);
+    d[i * 4] = clamp(col[i * 3] * 255, 0, 255);
+    d[i * 4 + 1] = clamp(col[i * 3 + 1] * 255, 0, 255);
+    d[i * 4 + 2] = clamp(col[i * 3 + 2] * 255, 0, 255);
+    d[i * 4 + 3] = 255;
   }
   ctx.putImageData(img, 0, 0);
-  // bright quartz chips
-  for (let i = 0; i < 900; i++) {
-    ctx.fillStyle = `rgba(190,190,195,${0.08 + rnd() * 0.18})`;
-    ctx.fillRect(rnd() * S, rnd() * S, 1, 1);
-  }
   const map = new THREE.CanvasTexture(c);
   map.wrapS = map.wrapT = THREE.RepeatWrapping;
   map.colorSpace = THREE.SRGBColorSpace;
 
-  // normal map from the grain height field (Sobel)
+  // --- normal map from the height field (Sobel) ---
   const nc = document.createElement('canvas');
   nc.width = nc.height = S;
   const nctx = nc.getContext('2d')!;
   const nimg = nctx.createImageData(S, S);
   const nd = nimg.data;
-  const H = (x: number, y: number) => h[((y + S) % S) * S + ((x + S) % S)];
-  const strength = 1.4;
+  const Hs = (x: number, y: number) => h[((y + S) % S) * S + ((x + S) % S)];
+  const strength = 2.2;
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
-      const dx = (H(x + 1, y) - H(x - 1, y)) * strength;
-      const dy = (H(x, y + 1) - H(x, y - 1)) * strength;
+      const dx = (Hs(x + 1, y) - Hs(x - 1, y)) * strength;
+      const dy = (Hs(x, y + 1) - Hs(x, y - 1)) * strength;
       const len = Math.hypot(dx, dy, 1);
       const i = (y * S + x) * 4;
       nd[i] = ((-dx / len) * 0.5 + 0.5) * 255;
@@ -98,7 +156,24 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
   const normalMap = new THREE.CanvasTexture(nc);
   normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
 
-  return { map, normalMap };
+  // --- roughness map (green channel) ---
+  const rc = document.createElement('canvas');
+  rc.width = rc.height = S;
+  const rctx = rc.getContext('2d')!;
+  const rimg = rctx.createImageData(S, S);
+  const rd = rimg.data;
+  for (let i = 0; i < S * S; i++) {
+    const v = clamp(rough[i] * 255, 0, 255);
+    rd[i * 4] = v;
+    rd[i * 4 + 1] = v;
+    rd[i * 4 + 2] = v;
+    rd[i * 4 + 3] = 255;
+  }
+  rctx.putImageData(rimg, 0, 0);
+  const roughnessMap = new THREE.CanvasTexture(rc);
+  roughnessMap.wrapS = roughnessMap.wrapT = THREE.RepeatWrapping;
+
+  return { map, normalMap, roughnessMap };
 }
 
 function makeBoardTexture(text: string, stripes: number, bg = '#ffd60a', fg = '#101114'): THREE.CanvasTexture {
@@ -248,21 +323,22 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
   const tex = makeProAsphalt();
   tex.map.anisotropy = o.aniso;
   tex.normalMap.anisotropy = o.aniso;
+  tex.roughnessMap.anisotropy = o.aniso;
   const roadGeo = buildColumnsStrip(track, 2, () => [
     { off: -HALF_WIDTH - 0.05, y: 0.01 },
     { off: HALF_WIDTH + 0.05, y: 0.01 },
   ], 7);
-  // UV: u spans the width once, v repeats every 7 m → tile the texture 2x across the width
-  tex.map.repeat.set(2, 1);
-  tex.normalMap.repeat.set(2, 1);
+  // UV: u spans the width (14 m) once, v repeats every 7 m → tile 4×2 so one tile = 3.5 m (stones ≈ 5–15 mm)
+  for (const m of [tex.map, tex.normalMap, tex.roughnessMap]) m.repeat.set(4, 2);
   const roadMat = new THREE.MeshStandardMaterial({
     map: tex.map,
     normalMap: tex.normalMap,
-    normalScale: new THREE.Vector2(0.18, 0.18),
-    roughness: 0.96,
+    normalScale: new THREE.Vector2(0.35, 0.35),
+    roughnessMap: tex.roughnessMap,
+    roughness: 1.0,
     metalness: 0.0,
-    color: '#c9cacd',
-    envMapIntensity: 0.12,
+    color: '#ffffff', // the texture carries the (cool-neutral) colour untouched
+    envMapIntensity: 0.4, // a touch of blue sky in the stone crowns — the real reason asphalt reads grey-blue outdoors
     side: THREE.DoubleSide,
   });
   const road = new THREE.Mesh(roadGeo, roadMat);

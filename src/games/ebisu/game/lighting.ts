@@ -43,9 +43,9 @@ const STYLIZED = {
 
 const REAL = {
   hemiSky: 0xe3efff,
-  hemiGround: 0x7d8f62,
+  hemiGround: 0x6f7f66, // muted grass bounce (desaturated so it never tints shadows olive/brown)
   hemiI: 0.55,
-  sunColor: 0xfffaf2, // bright neutral midday sun
+  sunColor: 0xffffff, // pure white midday sun — no warm cast on neutral surfaces
   sunI: 3.3,
   fillI: 0.18,
   exposure: 1.2,
@@ -279,7 +279,7 @@ export class LightingController {
     const m = Math.max(acc.r, acc.g, acc.b, 1e-3);
     // normalise toward a bright haze tint, keep the hue
     acc.multiplyScalar(0.92 / m);
-    acc.lerp(new THREE.Color(REAL.fogColor), 0.35);
+    acc.lerp(new THREE.Color(REAL.fogColor), 0.7); // mostly the neutral daylight haze — HDRI horizons are often tan
     this.hdrFog = acc;
   }
 
