@@ -576,10 +576,10 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
               onSwitchGame();
             }}
             className="eb-chip eb-chip--ghost cursor-pointer"
-            title="Kembali ke menu pemilihan game"
+            title="Buka mode lain: Haruna (a.zip / b.zip), Pro Drift 3D, Sakura RC Pro"
           >
-            <span className="text-sm leading-none">‹</span>
-            <span>Pilih Game</span>
+            <span>🎮</span>
+            <span>Mode Lain</span>
           </button>
         )}
 

@@ -17,7 +17,8 @@ import {
 type GameSelection = 'menu' | 'haruna_new' | 'haruna_old' | 'pro_drift' | 'ebisu' | 'sakura';
 
 export default function App() {
-  const [selectedGame, setSelectedGame] = useState<GameSelection>('menu');
+  // The app boots straight into Ebisu Drift's own menu; the landing picker is reached via its "Mode Lain" button.
+  const [selectedGame, setSelectedGame] = useState<GameSelection>('ebisu');
   const [showPhysicsGuide, setShowPhysicsGuide] = useState(false);
   const [showOtherGames, setShowOtherGames] = useState(true);
   // Landing shows ONLY Ebisu Drift; every other mode is hidden behind the "Mode Lain" button.
@@ -85,7 +86,14 @@ export default function App() {
   }
 
   if (selectedGame === 'ebisu') {
-    return <EbisuApp onSwitchGame={() => setSelectedGame('menu')} />;
+    return (
+      <EbisuApp
+        onSwitchGame={() => {
+          setShowOtherModes(true); // arriving from Ebisu = the user wants the other modes → show them expanded
+          setSelectedGame('menu');
+        }}
+      />
+    );
   }
 
   if (selectedGame === 'sakura') {
