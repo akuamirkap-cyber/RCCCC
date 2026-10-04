@@ -229,7 +229,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const poster = dioramaCarRigRef.current;
     if (poster) {
       poster.bodyPaintMaterials.forEach((mat) => {
-        mat.color.set(bodyColor);
+        mat.color.set('#ffffff'); // native livery
       });
       poster.anodizedMaterials.forEach((mat) => {
         mat.color.set(chassisAnodizeColor);
@@ -1691,10 +1691,11 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // --- 6. BUILD 1:10 RWD RC DRIFT CHASSIS + WOBBLE-FREE WHEELS + SKYLINE GT-R ---
     const createRCCarRig = (
       _bodyId: CarCustomization['bodyId'],
-      _paintHex: string, // body keeps its native GLB livery; kept for call-site compatibility
+      paintHex: string,
       anodizeHex: string,
       neonHex: string,
-      shellMode: CarCustomization['bodyShellMode']
+      shellMode: CarCustomization['bodyShellMode'],
+      nativePaint = false // player car: keep the BMW GLB's own livery (no tint); bots stay tinted so they are telling apart
     ): RCCarRig => {
       const root = new THREE.Group();
       const chassisGroup = new THREE.Group();
@@ -1954,7 +1955,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         rotY: 0,
         offsetY: 0.09,
         offsetZ: 0.0,
-        // native GLB livery — the paint colour picker tints only the chassis/neon, never the body texture
+        ...(nativePaint ? {} : { color: paintHex }),
         opacity: shellMode === 'translucent' ? 0.45 : 1.0,
         transparent: shellMode === 'translucent',
         roughness: shellMode === 'translucent' ? 0.12 : 0.25,
@@ -2055,7 +2056,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       customRef.current.bodyColor,
       customRef.current.chassisAnodizeColor,
       customRef.current.neonColor,
-      customRef.current.bodyShellMode
+      customRef.current.bodyShellMode,
+      true
     );
     scene.add(playerRig.root);
     playerRigRef.current = playerRig;
@@ -2083,7 +2085,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         customRef.current.bodyColor,
         customRef.current.chassisAnodizeColor,
         customRef.current.neonColor,
-        'painted'
+        'painted',
+        true
       );
       posterRig.root.position.set(DIORAMA_CAR.x, 0, DIORAMA_CAR.z);
       // Pose ala poster: menghadap kamera + roda depan dibelokkan + body roll tipis
