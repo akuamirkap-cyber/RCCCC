@@ -231,15 +231,15 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
           <span>DRIFT</span>
           <span className="dk-title__accent dk-shimmer"> KING</span>
         </div>
-        <div className="dk-title__sub">EBISU DRIFT · BMW GLB WIDE-BODY</div>
+        <div className="dk-title__sub">RC DRIFT RACE</div>
       </div>
 
       {/* tile column */}
       <div className="dk-tiles">
-        <button type="button" onClick={onStart} className="dk-tile dk-tile--blue dk-tile--hero dk-anim-in" style={{ animationDelay: '0.05s' }} aria-label="Start race">
+        <button type="button" onClick={onPlaySakuraEbisu ?? onStart} className="dk-tile dk-tile--blue dk-tile--hero dk-anim-in" style={{ animationDelay: '0.05s' }} aria-label="Start race">
           <CheckerFlag />
           <div className="dk-tile__sheen" />
-          <div className="dk-tile__label">RACE MODES</div>
+          <div className="dk-tile__label">RC DRIFT RACE · SAKURA RC</div>
           <div className="dk-tile__big">
             {isTouch ? 'TAP TO RACE' : 'START RACE'}
             <span className="dk-chevrons" aria-hidden>
@@ -249,8 +249,9 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
             </span>
           </div>
           <div className="dk-tile__meta">
-            {setup.race.laps} LAPS · {diff.toUpperCase()} · {engineInfo?.label.toUpperCase()}
-            {preset ? ` · ${preset.name.toUpperCase()}` : ''}
+            {onPlaySakuraEbisu
+              ? 'SIRKUIT EBISU 100% · RC 1:10 · 3 LAPS · LANGSUNG MAIN'
+              : `${setup.race.laps} LAPS · ${diff.toUpperCase()} · ${engineInfo?.label.toUpperCase()}${preset ? ` · ${preset.name.toUpperCase()}` : ''}`}
           </div>
         </button>
 
@@ -308,11 +309,14 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
         ) : null}
 
         {onPlaySakuraEbisu ? (
-          <button type="button" onClick={onPlaySakuraEbisu} className="dk-tile dk-tile--sakura dk-tile--wide dk-anim-in" style={{ animationDelay: '0.36s' }}>
+          <button type="button" onClick={onStart} className="dk-tile dk-tile--sakura dk-tile--wide dk-anim-in" style={{ animationDelay: '0.36s' }} aria-label="Ebisu Drift mode">
             <div className="dk-tile__sheen" />
-            <span className="dk-tile__name">EBISU DRIFT BY SAKURA RC</span>
-            <span className="dk-tile__meta">SIRKUIT &amp; VENUE EBISU · FISIKA RC 1:10 · LANGSUNG MAIN</span>
-            <span className="dk-tile__glyph dk-float">🌸</span>
+            <span className="dk-tile__name">EBISU DRIFT MODE</span>
+            <span className="dk-tile__meta">
+              BMW GLB WIDE-BODY · {setup.race.laps} LAPS · {diff.toUpperCase()} · {engineInfo?.label.toUpperCase()}
+              {preset ? ` · ${preset.name.toUpperCase()}` : ''}
+            </span>
+            <span className="dk-tile__glyph dk-float">🏁</span>
           </button>
         ) : null}
       </div>

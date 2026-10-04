@@ -195,6 +195,8 @@ export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitch
 
   const [panel, setPanel] = useState<PanelKind>('none');
   const panelRef = useRef<PanelKind>('none');
+  const playSakuraRef = useRef(onPlaySakuraEbisu);
+  playSakuraRef.current = onPlaySakuraEbisu;
   panelRef.current = panel;
   const [paused, setPaused] = useState(false);
   const pausedRef = useRef(false);
@@ -334,7 +336,11 @@ export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitch
           }
           break;
         case 'Enter':
-          if (down && panelRef.current === 'none' && (phaseRef.current === 'menu' || phaseRef.current === 'finished')) g.startRace();
+          if (down && panelRef.current === 'none' && (phaseRef.current === 'menu' || phaseRef.current === 'finished')) {
+            // main-menu Enter = hero tile = Sakura RC on the Ebisu circuit; result screen Enter = restart this race
+            if (phaseRef.current === 'menu' && playSakuraRef.current) playSakuraRef.current();
+            else g.startRace();
+          }
           break;
       }
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(e.code)) e.preventDefault();
