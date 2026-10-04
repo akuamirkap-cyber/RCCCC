@@ -197,7 +197,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const rig = playerRigRef.current;
     if (!rig) return;
 
-    const { bodyShellMode, bodyColor, chassisAnodizeColor, neonColor } = customization;
+    const { bodyShellMode, chassisAnodizeColor, neonColor } = customization; // bodyColor no longer tints the native livery
 
     rig.bodyShellGroup.visible = bodyShellMode !== 'naked_chassis';
     rig.bodyPaintMaterials.forEach((mat) => {
