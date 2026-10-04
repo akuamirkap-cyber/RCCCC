@@ -26,10 +26,10 @@ function gradientTexture(top: string, bottom: string): THREE.CanvasTexture {
 
 export class Garage {
   /** Showroom camera in car-local space (+Z = nose, +X = car's right). Also used for the scenic (on-circuit) backdrop. */
-  static readonly CAM_SIDE = -12.8; // 30 % further back than the first version — the whole car fits with margin
+  static readonly CAM_SIDE = -9.2; // ~30 % closer again; paired with a smaller CAM_SHIFT so the nose still clears the edge
   static readonly CAM_HEIGHT = 1.2;
   static readonly LOOK_HEIGHT = 0.85;
-  static readonly CAM_SHIFT = -1.6; // look target toward the tail → car sits right of centre, nose toward screen-right
+  static readonly CAM_SHIFT = -0.9; // look target slightly toward the tail → car a bit right of centre, nose toward screen-right
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   private car: THREE.Group | null = null;

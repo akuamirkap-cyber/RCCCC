@@ -677,11 +677,12 @@
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%);
   mask-image: linear-gradient(90deg, transparent, #000 35%);
   opacity: 0.9;
-  animation: dk-checker-wave 2.4s linear infinite; /* the flag "waves" — pattern scrolls diagonally */
+  animation: dk-checker-wave 1.6s linear infinite; /* the flag scrolls to the left */
 }
 @keyframes dk-checker-wave {
+  /* pattern scrolls straight to the LEFT (one full tile per cycle → seamless) */
   from { background-position: 0 0, 1rem 1rem; }
-  to { background-position: 2rem -2rem, 3rem -1rem; }
+  to { background-position: -2rem 0, -1rem 1rem; }
 }
 /* light sweep across every tile */
 .dk-tile__sheen {
