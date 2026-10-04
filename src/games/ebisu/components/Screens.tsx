@@ -153,23 +153,32 @@ interface StartProps {
   onToggleBackdrop?: () => void;
 }
 
-/** Checkered flag strip on the START RACE tile — driven by requestAnimationFrame (independent of CSS animation support). */
+/**
+ * Checkered flag strip on the START RACE tile. Normally a compositor-driven CSS transform animation (buttery even
+ * while WebGL is busy); if the browser is not running CSS animations at all, a requestAnimationFrame loop takes over.
+ */
 function CheckerFlag() {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     let raf = 0;
-    const t0 = performance.now();
-    const loop = (now: number) => {
-      const t = (now - t0) / 1000;
-      const px = -((t * 36) % 32); // 36 px/s to the LEFT, wrapping every 32 px (one pattern tile → seamless)
-      const wave = Math.sin(t * 5) * 2.5;
-      el.style.transform = `translateX(${px.toFixed(2)}px) skewY(${wave.toFixed(2)}deg)`;
+    const timer = window.setTimeout(() => {
+      const running = typeof el.getAnimations === 'function' && el.getAnimations().some((a) => a.playState === 'running');
+      if (running) return;
+      el.style.animation = 'none';
+      const t0 = performance.now();
+      const loop = (now: number) => {
+        const px = -(((now - t0) / 1000) * 32) % 32; // 32 px/s to the LEFT, wrapping every 32 px (one pattern tile)
+        el.style.transform = `translate3d(${px.toFixed(2)}px, 0, 0)`;
+        raf = requestAnimationFrame(loop);
+      };
       raf = requestAnimationFrame(loop);
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(raf);
     };
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
   }, []);
   return (
     <div className="dk-tile__checker" aria-hidden>

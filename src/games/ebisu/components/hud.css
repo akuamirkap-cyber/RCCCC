@@ -506,7 +506,7 @@
   clip-path: polygon(0 0, 100% 0, 78% 100%, 0 100%);
   pointer-events: none;
 }
-.dk-menu--scenic .dk-menu__panel { background: linear-gradient(160deg, rgba(20, 40, 70, 0.5), rgba(20, 40, 70, 0.32)); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.dk-menu--scenic .dk-menu__panel { background: linear-gradient(160deg, rgba(20, 40, 70, 0.55), rgba(20, 40, 70, 0.35)); }
 .dk-bar__btn--accent { color: #1f6fd1; }
 .dk-title {
   position: absolute;
@@ -537,7 +537,7 @@
   color: transparent;
   text-shadow: none; /* a shadow on clipped text shows THROUGH the letters as a dark smear */
   filter: drop-shadow(0 3px 0 rgba(120, 40, 0, 0.35)) drop-shadow(0 8px 18px rgba(0, 0, 0, 0.3));
-  animation: dk-shimmer 4.5s ease-in-out infinite;
+  animation: dk-shimmer 7s ease-in-out infinite;
 }
 .dk-title__sub {
   margin-top: 0.4rem;
@@ -589,8 +589,7 @@
   font-style: italic;
   letter-spacing: 0.02em;
   background: linear-gradient(135deg, var(--tile-b) 0%, var(--tile-a) 45%, var(--tile-c) 100%);
-  background-size: 220% 220%;
-  animation: dk-tile-breathe 7s ease-in-out infinite;
+  isolation: isolate;
   /* hypercasual: glossy top, chunky 3D bottom edge, coloured glow */
   box-shadow:
     inset 0 2px 0 rgba(255, 255, 255, 0.45),
@@ -618,15 +617,29 @@
     0 1px 0 var(--tile-edge),
     0 6px 14px var(--tile-glow);
 }
+/* "breathing" colour: a second gradient fades in/out on the compositor (opacity only — no repaints) */
+.dk-tile::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: linear-gradient(315deg, var(--tile-b) 0%, var(--tile-a) 50%, var(--tile-c) 100%);
+  opacity: 0;
+  will-change: opacity;
+  animation: dk-tile-breathe 6s ease-in-out infinite;
+  pointer-events: none;
+}
 @keyframes dk-tile-breathe {
-  0%, 100% { background-position: 0% 0%; }
-  50% { background-position: 100% 100%; }
+  0%, 100% { opacity: 0; }
+  50% { opacity: 0.85; }
 }
 .dk-tile--blue { --tile-a: #5a8be8; --tile-b: #8ec2ff; --tile-c: #4467e0; --tile-edge: #3350b8; --tile-glow: rgba(90, 139, 232, 0.5); }
 .dk-tile--teal { --tile-a: #5fd9c4; --tile-b: #a4f3e4; --tile-c: #38bfae; --tile-edge: #1f9484; --tile-glow: rgba(95, 217, 196, 0.5); }
 .dk-tile--purple { --tile-a: #9a7cf0; --tile-b: #c6b0ff; --tile-c: #7f5ee6; --tile-edge: #5a3fc0; --tile-glow: rgba(154, 124, 240, 0.5); }
 .dk-tile--violet { --tile-a: #8d6ee8; --tile-b: #b89cff; --tile-c: #6f4fd9; --tile-edge: #4f36b3; --tile-glow: rgba(141, 110, 232, 0.5); }
-.dk-tile.dk-anim-in { animation: dk-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both, dk-tile-breathe 7s ease-in-out infinite; }
+.dk-tiles__row .dk-tile::after { animation-delay: -2s; }
+.dk-tile--wide::after { animation-delay: -4s; }
 /* floating bubbles drifting up the panel */
 .dk-bubbles { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .dk-bubbles i {
@@ -637,6 +650,7 @@
   border-radius: 50%;
   background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.08) 60%, transparent 70%);
   border: 1px solid rgba(255, 255, 255, 0.25);
+  will-change: transform, opacity;
   animation: dk-bubble 9s linear infinite;
 }
 .dk-bubbles i:nth-child(odd) { width: 0.9rem; height: 0.9rem; }
@@ -674,19 +688,23 @@
   pointer-events: none;
 }
 .dk-tile__checker-strip {
-  /* oversized checker strip; a requestAnimationFrame loop (CheckerFlag in Screens.tsx) slides it LEFT 36 px/s */
+  /* oversized checker strip sliding LEFT exactly one 32 px square per second → seamless loop.
+     conic-gradient squares have no anti-aliasing hairlines (the old 45° gradient trick drew seams in the white). */
   position: absolute;
-  top: -10%;
-  bottom: -10%;
+  top: 0;
+  bottom: 0;
   left: 0;
   width: calc(100% + 64px);
-  background-color: rgba(255, 255, 255, 0.12);
-  background-image:
-    linear-gradient(45deg, rgba(255, 255, 255, 0.55) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.55) 75%),
-    linear-gradient(45deg, rgba(255, 255, 255, 0.55) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.55) 75%);
+  background-color: rgba(255, 255, 255, 0.1);
+  background-image: repeating-conic-gradient(rgba(255, 255, 255, 0.55) 0 25%, transparent 0 50%);
   background-size: 32px 32px;
-  background-position: 0 0, 16px 16px;
   will-change: transform;
+  backface-visibility: hidden;
+  animation: dk-checker-wave 1s linear infinite;
+}
+@keyframes dk-checker-wave {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-32px, 0, 0); }
 }
 /* light sweep across every tile */
 .dk-tile__sheen {
@@ -694,6 +712,7 @@
   inset: -40% -60%;
   background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.22) 50%, transparent 58%);
   transform: translateX(-70%);
+  will-change: transform;
   animation: dk-sheen 6s ease-in-out infinite;
   pointer-events: none;
 }
@@ -741,8 +760,7 @@
 @keyframes dk-bar { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.55); } }
 /* title shimmer (highlight layer of the accent gradient sweeps across) */
 @keyframes dk-shimmer { 0%, 60% { background-position: 160% 0, 0 0; } 100% { background-position: -160% 0, 0 0; } }
-.dk-bar__stripes { animation: dk-stripes 3s linear infinite; }
-@keyframes dk-stripes { to { background-position: 1.63rem 0; } }
+@keyframes dk-stripes { to { transform: translate3d(1.655rem, 0, 0); } }
 .dk-tile__label { font-size: 0.95rem; letter-spacing: 0.08em; opacity: 0.95; position: relative; }
 .dk-tile__big {
   position: relative;
@@ -788,12 +806,21 @@
   pointer-events: auto;
 }
 .dk-bar__stripes {
+  position: relative;
   width: 7rem;
   flex: none;
-  background: repeating-linear-gradient(115deg, #3a4a60 0 0.7rem, transparent 0.7rem 1.5rem);
+  overflow: hidden;
   -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
   mask-image: linear-gradient(90deg, #000 60%, transparent);
   opacity: 0.85;
+}
+.dk-bar__stripes::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 -3rem;
+  background: repeating-linear-gradient(115deg, #3a4a60 0 0.7rem, transparent 0.7rem 1.5rem);
+  will-change: transform;
+  animation: dk-stripes 2.4s linear infinite;
 }
 .dk-bar__items {
   flex: 1;
