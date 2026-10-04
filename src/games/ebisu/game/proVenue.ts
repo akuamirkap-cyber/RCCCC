@@ -353,7 +353,7 @@ export function buildStartGantry(halfSpan: number, aniso: number): THREE.Group {
   const signTex = textTexture('START  ·  FINISH', { w: 2048, h: 256, bg: '#111318', fg: '#ffffff', size: 150, checker: true });
   signTex.anisotropy = aniso;
   // LED board look: the texture also drives emission so it reads crisp in any lighting
-  const signMat = new THREE.MeshStandardMaterial({ map: signTex, emissive: '#ffffff', emissiveMap: signTex, emissiveIntensity: 0.55, roughness: 0.6 });
+  const signMat = new THREE.MeshStandardMaterial({ map: signTex, emissive: '#ffffff', emissiveMap: signTex, emissiveIntensity: 1.7, roughness: 0.6 });
   const sign = new THREE.Mesh(new THREE.BoxGeometry(span - 2.4, 1.9, 0.16), [steelMat, steelMat, steelMat, steelMat, signMat, signMat]);
   sign.position.set(0, H - 1.0, 0);
   sign.castShadow = true;
@@ -368,7 +368,7 @@ export function buildStartGantry(halfSpan: number, aniso: number): THREE.Group {
   housing.position.set(0, H - 3.6, 0);
   g.add(housing);
   const lampGeo = new THREE.SphereGeometry(0.19, 14, 10);
-  const redMat = new THREE.MeshStandardMaterial({ color: '#ff3b30', emissive: '#ff1f1f', emissiveIntensity: 1.4, roughness: 0.3 });
+  const redMat = new THREE.MeshStandardMaterial({ color: '#ff3b30', emissive: '#ff1f1f', emissiveIntensity: 3.0, roughness: 0.3 });
   const offMat = new THREE.MeshStandardMaterial({ color: '#2a2f38', roughness: 0.3, metalness: 0.2 });
   for (let i = -2; i <= 2; i++) {
     for (const row of [0, 1]) {
@@ -417,7 +417,7 @@ export function buildStartGantry(halfSpan: number, aniso: number): THREE.Group {
   }
   // pit-wall style timing screen under the bridge, driver's left
   const screenTex = textTexture('LAP  1 / 3     P1  YOU', { w: 1024, h: 160, bg: '#0b0d12', fg: '#ffb703', size: 92 });
-  const screen = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.9, 0.14), [steelMat, steelMat, steelMat, steelMat, new THREE.MeshStandardMaterial({ map: screenTex, emissive: '#ffffff', emissiveMap: screenTex, emissiveIntensity: 0.7, roughness: 0.5 }), steelMat]);
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.9, 0.14), [steelMat, steelMat, steelMat, steelMat, new THREE.MeshStandardMaterial({ map: screenTex, emissive: '#ffffff', emissiveMap: screenTex, emissiveIntensity: 2.0, roughness: 0.5 }), steelMat]);
   screen.position.set(-(halfSpan - 3.4), H - 3.2, 0.5);
   g.add(screen);
   return g;

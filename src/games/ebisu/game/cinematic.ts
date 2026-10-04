@@ -21,7 +21,7 @@ import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js'
 const thresholdShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    threshold: { value: 1.15 }, // linear HDR: only the sun disc / glow qualifies, never the ground
+    threshold: { value: 5.0 }, // linear HDR: only the sun disc itself (>10) qualifies — sunlit white walls/cars (~3-4) never do
     sunPos: { value: new THREE.Vector2(0.5, 0.5) },
     sunRadius: { value: 0.42 },
   },
@@ -34,7 +34,7 @@ const thresholdShader = {
     void main() {
       vec3 c = texture2D(tDiffuse, vUv).rgb;
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      float m = smoothstep(threshold, threshold + 0.6, l);
+      float m = smoothstep(threshold, threshold + 4.0, l);
       // only the sky region around the sun contributes
       float d = distance(vUv, sunPos);
       m *= 1.0 - smoothstep(sunRadius * 0.5, sunRadius, d);
@@ -194,7 +194,7 @@ export class CinematicFx {
     this.shafts = new SunShaftsPass(width, height);
     this.composer.addPass(this.shafts);
     // gentle: only true emitters (LEDs, reflectors, sun) bloom; the scene itself stays untouched
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.16, 0.3, 1.0);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.14, 0.28, 2.2);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.setSize(width, height);

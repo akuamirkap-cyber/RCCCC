@@ -137,8 +137,8 @@ export function buildGuardrails(scene: THREE.Scene, track: Track, o: BarrierOpti
   // reflectors on every other post: red on the right-hand barrier, white on the left (driver's view)
   const reflSpots = postSpots.filter((_, i) => i % 4 < 2);
   const reflGeo = new THREE.BoxGeometry(0.03, 0.12, 0.08);
-  const reflRed = new THREE.InstancedMesh(reflGeo, new THREE.MeshStandardMaterial({ color: '#ff2a2a', emissive: '#ff1c1c', emissiveIntensity: 0.9, roughness: 0.3 }), reflSpots.length);
-  const reflWhite = new THREE.InstancedMesh(reflGeo, new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.7, roughness: 0.3 }), reflSpots.length);
+  const reflRed = new THREE.InstancedMesh(reflGeo, new THREE.MeshStandardMaterial({ color: '#ff2a2a', emissive: '#ff1c1c', emissiveIntensity: 2.6, roughness: 0.3 }), reflSpots.length);
+  const reflWhite = new THREE.InstancedMesh(reflGeo, new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 2.2, roughness: 0.3 }), reflSpots.length);
   let nr = 0;
   let nw = 0;
   reflSpots.forEach((ps) => {
