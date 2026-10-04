@@ -21,9 +21,9 @@ import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js'
 const thresholdShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
-    threshold: { value: 0.75 },
+    threshold: { value: 1.15 }, // linear HDR: only the sun disc / glow qualifies, never the ground
     sunPos: { value: new THREE.Vector2(0.5, 0.5) },
-    sunRadius: { value: 0.65 },
+    sunRadius: { value: 0.42 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -34,7 +34,7 @@ const thresholdShader = {
     void main() {
       vec3 c = texture2D(tDiffuse, vUv).rgb;
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      float m = smoothstep(threshold, threshold + 0.35, l);
+      float m = smoothstep(threshold, threshold + 0.6, l);
       // only the sky region around the sun contributes
       float d = distance(vUv, sunPos);
       m *= 1.0 - smoothstep(sunRadius * 0.5, sunRadius, d);
@@ -47,7 +47,7 @@ const radialShader = {
     tDiffuse: { value: null as THREE.Texture | null },
     sunPos: { value: new THREE.Vector2(0.5, 0.5) },
     density: { value: 0.3 },
-    decay: { value: 0.96 },
+    decay: { value: 0.93 },
   },
   vertexShader: thresholdShader.vertexShader,
   fragmentShader: /* glsl */ `
@@ -74,8 +74,8 @@ const compositeShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
     tShafts: { value: null as THREE.Texture | null },
-    intensity: { value: 0.8 },
-    tint: { value: new THREE.Color('#fff2d8') },
+    intensity: { value: 0.35 },
+    tint: { value: new THREE.Color('#fffaf3') }, // near-neutral: no colour cast on asphalt
   },
   vertexShader: thresholdShader.vertexShader,
   fragmentShader: /* glsl */ `
@@ -84,7 +84,10 @@ const compositeShader = {
     void main() {
       vec4 base = texture2D(tDiffuse, vUv);
       vec3 s = texture2D(tShafts, vUv).rgb;
-      gl_FragColor = vec4(base.rgb + s * tint * intensity, base.a);
+      // soft-light style add: rays stay visible against sky, barely touch mid/dark tones
+      float lum = dot(base.rgb, vec3(0.2126, 0.7152, 0.0722));
+      float protect = 1.0 - smoothstep(0.0, 0.6, lum) * 0.5;
+      gl_FragColor = vec4(base.rgb + s * tint * intensity * protect, base.a);
     }`,
 };
 
@@ -140,7 +143,7 @@ export class SunShaftsPass extends Pass {
     // 2. radial blur, three growing passes (24 taps each → long smooth rays)
     this.quad.material = this.radialMat;
     this.radialMat.uniforms.sunPos.value.copy(this.sunScreen);
-    const densities = [0.12, 0.3, 0.6];
+    const densities = [0.1, 0.25, 0.5];
     let src = this.rtA;
     let dst = this.rtB;
     for (const d of densities) {
@@ -156,7 +159,7 @@ export class SunShaftsPass extends Pass {
     // 3. composite
     this.compositeMat.uniforms.tDiffuse.value = readBuffer.texture;
     this.compositeMat.uniforms.tShafts.value = src.texture;
-    this.compositeMat.uniforms.intensity.value = 0.9 * this.strength;
+    this.compositeMat.uniforms.intensity.value = 0.32 * this.strength;
     this.quad.material = this.compositeMat;
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
@@ -190,7 +193,8 @@ export class CinematicFx {
     this.composer.addPass(new RenderPass(scene, camera));
     this.shafts = new SunShaftsPass(width, height);
     this.composer.addPass(this.shafts);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.32, 0.5, 0.88);
+    // gentle: only true emitters (LEDs, reflectors, sun) bloom; the scene itself stays untouched
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.16, 0.3, 1.0);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.setSize(width, height);
