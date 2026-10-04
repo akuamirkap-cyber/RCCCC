@@ -182,11 +182,11 @@ export const DEFAULT_BMW_ADJUSTMENTS: Record<BMWModeKey, BMWAdjustment> = {
     offsetY: 0.09,
   },
   ebisu: {
-    // Ebisu Drift Mode tune (user spec): L 4.83 m / W 2.82 m / H 2.16 m / ride offset +0.05 m
-    width: 2.82,
-    length: 4.83,
+    // Ebisu Drift Mode tune (user spec): L 4.24 m / W 3.20 m / H 2.16 m / ride offset +0.12 m
+    width: 3.2,
+    length: 4.24,
     height: 2.16,
-    offsetY: 0.05,
+    offsetY: 0.12,
   },
 };
 
@@ -196,7 +196,7 @@ const listeners: Record<BMWModeKey, Set<(adj: BMWAdjustment) => void>> = {
   ebisu: new Set(),
 };
 
-const SYNC_VERSION_KEY = 'bmw_synced_user_data_v7'; // v7: new Ebisu tune (4.83 × 2.82 × 2.16, +0.05)
+const SYNC_VERSION_KEY = 'bmw_synced_user_data_v8'; // v8: Ebisu tune 4.24 × 3.20 × 2.16, +0.12
 
 export function loadBMWAdjustment(mode: BMWModeKey): BMWAdjustment {
   try {

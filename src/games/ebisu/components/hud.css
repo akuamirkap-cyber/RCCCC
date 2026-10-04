@@ -542,17 +542,18 @@
   left: clamp(0.75rem, 2.4vw, 2.25rem);
   top: clamp(3.4rem, 9vh, 5.5rem);
   bottom: 4.6rem;
-  width: min(27rem, calc(100vw - 1.5rem));
+  width: min(24rem, calc(100vw - 1.5rem));
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 .dk-tiles__row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.65rem;
+  gap: 0.55rem;
   flex: 1 1 0;
-  min-height: 7rem;
+  min-height: 5.6rem;
+  max-height: 7.5rem;
 }
 .dk-tile {
   position: relative;
@@ -583,17 +584,20 @@
 .dk-tile--purple { background: #9a7cf0; }
 .dk-tile--violet { background: #8d6ee8; }
 .dk-tile--hero {
-  flex: 1.5 1 0;
-  min-height: 9.5rem;
-  padding: 1rem 1.15rem;
+  flex: 1.6 1 0;
+  min-height: 8rem;
+  max-height: 12rem;
+  padding: 0.85rem 1rem;
   justify-content: space-between;
 }
 .dk-tile--wide {
-  flex: 0.9 1 0;
-  min-height: 4.6rem;
+  flex: 0.8 1 0;
+  min-height: 3.9rem;
+  max-height: 5.4rem;
   justify-content: center;
-  padding-right: 5.5rem;
+  padding: 0.6rem 5rem 0.6rem 1rem;
 }
+.dk-tiles::after { content: ''; flex: 1 1 0; } /* soak up leftover height so tiles stay compact */
 .dk-tile__checker {
   position: absolute;
   right: 0;
@@ -604,16 +608,93 @@
   background-image:
     linear-gradient(45deg, rgba(255, 255, 255, 0.35) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.35) 75%),
     linear-gradient(45deg, rgba(255, 255, 255, 0.35) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.35) 75%);
-  background-size: 2.2rem 2.2rem;
-  background-position: 0 0, 1.1rem 1.1rem;
+  background-size: 2rem 2rem;
+  background-position: 0 0, 1rem 1rem;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%);
   mask-image: linear-gradient(90deg, transparent, #000 35%);
   opacity: 0.9;
+  animation: dk-checker-wave 2.4s linear infinite; /* the flag "waves" — pattern scrolls diagonally */
 }
-.dk-tile__label { font-size: 1.05rem; letter-spacing: 0.08em; opacity: 0.95; position: relative; }
+@keyframes dk-checker-wave {
+  from { background-position: 0 0, 1rem 1rem; }
+  to { background-position: 2rem -2rem, 3rem -1rem; }
+}
+/* light sweep across every tile */
+.dk-tile__sheen {
+  position: absolute;
+  inset: -40% -60%;
+  background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.22) 50%, transparent 58%);
+  transform: translateX(-70%);
+  animation: dk-sheen 6s ease-in-out infinite;
+  pointer-events: none;
+}
+.dk-tile:nth-child(2) .dk-tile__sheen { animation-delay: 1.2s; }
+.dk-tile:nth-child(3) .dk-tile__sheen { animation-delay: 2.4s; }
+.dk-tiles__row .dk-tile:nth-child(2) .dk-tile__sheen { animation-delay: 1.8s; }
+.dk-tile:hover .dk-tile__sheen { animation-duration: 1.4s; }
+@keyframes dk-sheen {
+  0%, 55% { transform: translateX(-70%); }
+  85%, 100% { transform: translateX(70%); }
+}
+/* tiles slide in one after another */
+.dk-anim-in { opacity: 0; animation: dk-in 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+@keyframes dk-in {
+  from { opacity: 0; transform: translateX(-28px) skewX(-4deg); }
+  to { opacity: 1; transform: none; }
+}
+/* START RACE chevrons */
+.dk-chevrons { display: inline-flex; gap: 0.15rem; margin-left: 0.6rem; vertical-align: middle; }
+.dk-chevrons i {
+  width: 0.55em;
+  height: 0.55em;
+  border-right: 0.16em solid #fff;
+  border-top: 0.16em solid #fff;
+  transform: rotate(45deg);
+  opacity: 0.25;
+  animation: dk-chev 1.1s ease-in-out infinite;
+}
+.dk-chevrons i:nth-child(2) { animation-delay: 0.15s; }
+.dk-chevrons i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dk-chev {
+  0%, 100% { opacity: 0.25; transform: rotate(45deg) translate(0, 0); }
+  50% { opacity: 1; transform: rotate(45deg) translate(0.08em, -0.08em); }
+}
+/* trophy floats, gear spins, stats bars bounce */
+.dk-float { animation: dk-float 2.6s ease-in-out infinite; }
+@keyframes dk-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+.dk-spin-slow { animation: dk-spin 9s linear infinite; }
+@keyframes dk-spin { to { transform: rotate(360deg); } }
+.dk-bars { display: flex; align-items: flex-end; gap: 0.22rem; height: 1.9rem; }
+.dk-bars i { display: block; width: 0.5rem; background: #fff; border-radius: 1px; animation: dk-bar 1.6s ease-in-out infinite; }
+.dk-bars i:nth-child(1) { height: 50%; }
+.dk-bars i:nth-child(2) { height: 100%; animation-delay: 0.25s; }
+.dk-bars i:nth-child(3) { height: 70%; animation-delay: 0.5s; }
+@keyframes dk-bar { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.55); } }
+/* title shimmer */
+.dk-shimmer { position: relative; }
+.dk-shimmer::after {
+  content: 'KING';
+  position: absolute;
+  inset: 0;
+  padding-left: 0.25em;
+  background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.85) 50%, transparent 65%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: dk-shimmer 4.5s ease-in-out infinite;
+}
+@keyframes dk-shimmer { 0%, 60% { background-position: 150% 0; } 100% { background-position: -150% 0; } }
+.dk-bar__stripes { animation: dk-stripes 3s linear infinite; }
+@keyframes dk-stripes { to { background-position: 1.63rem 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .dk-tile__checker, .dk-tile__sheen, .dk-chevrons i, .dk-float, .dk-spin-slow, .dk-bars i, .dk-shimmer::after, .dk-bar__stripes { animation: none; }
+  .dk-anim-in { opacity: 1; animation: none; }
+}
+.dk-tile__label { font-size: 0.95rem; letter-spacing: 0.08em; opacity: 0.95; position: relative; }
 .dk-tile__big {
   position: relative;
-  font-size: clamp(1.7rem, 3.2vw, 2.5rem);
+  font-size: clamp(1.5rem, 2.8vw, 2.2rem);
   font-weight: 900;
   line-height: 1;
   text-shadow: 0 3px 0 rgba(0, 0, 0, 0.18);
@@ -627,7 +708,7 @@
   letter-spacing: 0.14em;
   color: rgba(255, 255, 255, 0.85);
 }
-.dk-tile__icon { font-size: 2.2rem; line-height: 1; margin-bottom: auto; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25)); }
+.dk-tile__icon { font-size: 1.8rem; line-height: 1; margin-bottom: auto; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25)); display: inline-block; }
 .dk-tile__glyph {
   position: absolute;
   right: 1rem;
@@ -640,7 +721,7 @@
 .dk-stats { display: flex; gap: 1.25rem; margin-top: 0.2rem; }
 .dk-stats > div { display: flex; flex-direction: column; }
 .dk-stats__k { font-size: 0.58rem; font-style: normal; letter-spacing: 0.16em; color: rgba(255, 255, 255, 0.8); }
-.dk-stats__v { font-size: 1.15rem; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.dk-stats__v { font-size: 1.05rem; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .dk-bar {
   position: absolute;
   left: 0;
@@ -793,3 +874,20 @@
 .dk-panel .text-pink-900 { color: rgba(255, 255, 255, 0.85); }
 .dk-panel button.bg-orange-50:not(.border-2) { background: #5a8be8; color: #fff; border-color: transparent; border-radius: 0.2rem; }
 .dk-panel button.from-orange-400:not(.rounded-full) { background: #5a8be8; box-shadow: none; }
+
+/* ---------- compact panels ---------- */
+.dk-panel > .card-solid { max-width: 46rem; }
+.dk-panel .px-6, .dk-panel .sm\:px-6 { padding-inline: 1rem; }
+.dk-panel .py-4 { padding-block: 0.65rem; }
+.dk-panel .py-3 { padding-block: 0.5rem; }
+.dk-panel .mt-5 { margin-top: 0.7rem; }
+.dk-panel .mt-4 { margin-top: 0.55rem; }
+.dk-panel .gap-3 { gap: 0.45rem; }
+.dk-panel .gap-2 { gap: 0.35rem; }
+.dk-panel button.rounded-2xl.border-2 { padding: 0.45rem 0.6rem; gap: 0.5rem; }
+.dk-panel button.rounded-2xl.border-2 .text-2xl { font-size: 1.2rem; }
+.dk-panel button.rounded-2xl.border-2 .text-sm { font-size: 0.78rem; line-height: 1.1; }
+.dk-panel .sm\:text-2xl { font-size: 1.25rem; }
+.dk-panel button.rounded-full.from-orange-400 { padding-block: 0.5rem; }
+.dk-panel .h-10.w-10 { height: 2.1rem; width: 2.1rem; }
+.dk-panel .anim-slide-up { animation: dk-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; }

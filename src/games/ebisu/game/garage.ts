@@ -29,7 +29,7 @@ export class Garage {
   readonly camera: THREE.PerspectiveCamera;
   private car: THREE.Group | null = null;
   private readonly carPos = new THREE.Vector3(0, 0, 0);
-  private readonly carYaw = Math.PI; // nose toward -Z = screen-left for a camera looking +X
+  private readonly carYaw = 0; // nose toward +Z = screen-right for a camera looking +X
 
   constructor() {
     const s = this.scene;
@@ -53,12 +53,12 @@ export class Garage {
     wall.rotation.y = -Math.PI / 2; // faces -X (toward the camera)
     s.add(wall);
 
-    // blue angled panel on the wall (the menu's signature shape)
+    // blue angled panel on the wall (the menu's signature shape) — mirrored so it sits behind the car's nose
     const shape = new THREE.Shape();
-    shape.moveTo(-4, 0);
+    shape.moveTo(-6, 0);
     shape.lineTo(40, 0);
     shape.lineTo(40, 40);
-    shape.lineTo(-13, 40);
+    shape.lineTo(-15, 40);
     shape.closePath();
     const panel = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: '#4f7fe0' }));
     panel.position.set(15.9, 0, 0);
@@ -87,8 +87,8 @@ export class Garage {
 
     // fixed low side camera; the look target is shifted toward the nose so the car sits on the right of the frame
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 300);
-    this.camera.position.set(-8.8, 1.1, -2.3);
-    this.camera.lookAt(0, 0.85, -2.3);
+    this.camera.position.set(-9.8, 1.15, -2.0);
+    this.camera.lookAt(0, 0.85, -2.0);
   }
 
   setAspect(aspect: number) {

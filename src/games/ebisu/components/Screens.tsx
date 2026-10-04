@@ -175,6 +175,7 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
   const cam = CAMERA_MODES.find((c) => c.id === prefs.camera);
   const car = CAR_STYLES.find((c) => c.id === prefs.carStyle);
   const smoke = matchSmokePreset(prefs.smoke)?.label ?? 'Custom';
+  const scoreAnim = useRollingNumber(best.score, 900);
   return (
     <div className="dk-menu scroll-y absolute inset-0 text-white">
       {/* angled slate panel behind the tile column (keeps the 3D car visible on the right) */}
@@ -184,17 +185,25 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
       <div className="dk-title anim-slide-up">
         <div className="dk-title__main">
           <span>DRIFT</span>
-          <span className="dk-title__accent"> KING</span>
+          <span className="dk-title__accent dk-shimmer"> KING</span>
         </div>
         <div className="dk-title__sub">EBISU DRIFT · BMW GLB WIDE-BODY</div>
       </div>
 
       {/* tile column */}
-      <div className="dk-tiles anim-slide-up" style={{ animationDelay: '0.05s' }}>
-        <button type="button" onClick={onStart} className="dk-tile dk-tile--blue dk-tile--hero" aria-label="Start race">
+      <div className="dk-tiles">
+        <button type="button" onClick={onStart} className="dk-tile dk-tile--blue dk-tile--hero dk-anim-in" style={{ animationDelay: '0.05s' }} aria-label="Start race">
           <div className="dk-tile__checker" />
+          <div className="dk-tile__sheen" />
           <div className="dk-tile__label">RACE MODES</div>
-          <div className="dk-tile__big">{isTouch ? 'TAP TO RACE' : 'START RACE'}</div>
+          <div className="dk-tile__big">
+            {isTouch ? 'TAP TO RACE' : 'START RACE'}
+            <span className="dk-chevrons" aria-hidden>
+              <i />
+              <i />
+              <i />
+            </span>
+          </div>
           <div className="dk-tile__meta">
             {setup.race.laps} LAPS · {diff.toUpperCase()} · {engineInfo?.label.toUpperCase()}
             {preset ? ` · ${preset.name.toUpperCase()}` : ''}
@@ -202,13 +211,15 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
         </button>
 
         <div className="dk-tiles__row">
-          <button type="button" onClick={onOpenSetup} className="dk-tile dk-tile--teal">
-            <span className="dk-tile__icon">🏆</span>
+          <button type="button" onClick={onOpenSetup} className="dk-tile dk-tile--teal dk-anim-in" style={{ animationDelay: '0.12s' }}>
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__icon dk-float">🏆</span>
             <span className="dk-tile__name">TOURNAMENT</span>
             <span className="dk-tile__meta">SETUP · ENGINE · TUNING · LAPS</span>
           </button>
-          <button type="button" onClick={onOpenVisual} className="dk-tile dk-tile--purple">
-            <span className="dk-tile__icon">⚙️</span>
+          <button type="button" onClick={onOpenVisual} className="dk-tile dk-tile--purple dk-anim-in" style={{ animationDelay: '0.18s' }}>
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__icon dk-spin-slow">⚙️</span>
             <span className="dk-tile__name">CUSTOMIZATION</span>
             <span className="dk-tile__meta">
               {cam?.label} · {car?.label} · {smoke}
@@ -216,12 +227,13 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
           </button>
         </div>
 
-        <div className="dk-tile dk-tile--violet dk-tile--wide" role="group" aria-label="Statistics">
+        <div className="dk-tile dk-tile--violet dk-tile--wide dk-anim-in" style={{ animationDelay: '0.24s' }} role="group" aria-label="Statistics">
+          <div className="dk-tile__sheen" />
           <div className="dk-tile__name">STATISTICS</div>
           <div className="dk-stats">
             <div>
               <span className="dk-stats__k">BEST SCORE</span>
-              <span className="dk-stats__v text-yellow-200">{best.score.toLocaleString()}</span>
+              <span className="dk-stats__v text-yellow-200">{Math.round(scoreAnim).toLocaleString()}</span>
             </div>
             <div>
               <span className="dk-stats__k">BEST LAP</span>
@@ -235,11 +247,16 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
               </span>
             </div>
           </div>
-          <span className="dk-tile__glyph">📊</span>
+          <span className="dk-tile__glyph dk-bars" aria-hidden>
+            <i />
+            <i />
+            <i />
+          </span>
         </div>
 
         {onOpenBMWAdjust ? (
-          <button type="button" onClick={onOpenBMWAdjust} className="dk-tile dk-tile--violet dk-tile--wide">
+          <button type="button" onClick={onOpenBMWAdjust} className="dk-tile dk-tile--violet dk-tile--wide dk-anim-in" style={{ animationDelay: '0.3s' }}>
+            <div className="dk-tile__sheen" />
             <span className="dk-tile__name">BODY BMW GLB</span>
             <span className="dk-tile__meta">PANJANG · LEBAR · TINGGI · RIDE HEIGHT</span>
             <span className="dk-tile__glyph">📐</span>
