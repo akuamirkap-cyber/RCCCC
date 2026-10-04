@@ -24,7 +24,7 @@ import { buildWorld as buildHarunaWorld } from '../../haruna_new/game/world';
 import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
 import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 import { createBMWCarMesh } from '@/utils/bmwCar';
-import { Track as EbisuTrack } from '../../ebisu/game/track';
+import { Track as EbisuTrack, HALF_WIDTH as EBISU_HALF_WIDTH, CURB_WIDTH as EBISU_CURB_WIDTH, WALL_DIST as EBISU_WALL_DIST } from '../../ebisu/game/track';
 import { buildWorld as buildEbisuWorld, SUN_OFFSET as EBISU_SUN_OFFSET } from '../../ebisu/game/world';
 import { computeDriftZones as computeEbisuZones } from '../../ebisu/game/zones';
 import { LightingController as EbisuLighting } from '../../ebisu/game/lighting';
@@ -249,6 +249,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const isHarunaMap = circuit.mapStyle === 'haruna';
     // Pace dasar Haruna (jalan gunung skala asli 6.1 km, 75% lurus) relatif terhadap aula
     const HARUNA_PACE = 1.6;
+    // Ebisu: full-scale 14 m circuit → same 1.6x base pace as Haruna; cornering speed follows the mode (no corner lock)
+    const EBISU_PACE = 1.6;
     // Jangan bangun terrain besar saat menu; map akan dibangun ulang ketika START ditekan.
     const useHarunaWorld = isHarunaMap && !MENU_MODE;
     const harunaRuntimeTrack = isHarunaMap ? buildHarunaTrack() : null;
@@ -2455,6 +2457,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       airTime: 0,
       lastGroundH: 0,
       landShake: 0,
+      camYaw: 0, // smoothed chase-camera yaw (rad) — never snaps when velocity angle flips
+      camYawInit: false,
       jumpCount: 0,
       visPitchSlope: 0, // sikap root (pitch) yang sedang ditampilkan — ramp / melayang
       visRoll: 0,
@@ -2859,6 +2863,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       //     boost sedang/2x diredam 60% agar 2x ≈ 57 m/s (setara top speed Haruna asli) ---
       if (isHarunaMap) {
         effectiveSpeedFactor = HARUNA_PACE * (1 + (effectiveSpeedFactor - 1) * 0.6);
+      } else if (isEbisuMap) {
+        // 1.6x base pace; sedang/2x scale the WHOLE lap including corners (corner lock not applied)
+        effectiveSpeedFactor = EBISU_PACE * speedFactor;
+        state.cornerLockBlend = 0;
       }
 
       let maxSpeed =
@@ -2984,7 +2992,18 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const toCarVec = new THREE.Vector3().subVectors(state.pos, trackPt);
       const trackNormal = new THREE.Vector3(-trackTan.z, 0, trackTan.x);
       const lateralOffset = toCarVec.dot(trackNormal);
-      const maxOffset = halfWidth - 0.65;
+      // Ebisu: the car may leave the asphalt (kerb → gravel/grass run-off) up to the Ebisu guardrails;
+      // off the asphalt the surface drags the car down. Arena keeps its wall-ride cushion at the mat edge.
+      const maxOffset = isEbisuMap ? EBISU_WALL_DIST - 1.1 : halfWidth - 0.65;
+      if (isEbisuMap) {
+        const beyond = Math.abs(lateralOffset) - (EBISU_HALF_WIDTH + EBISU_CURB_WIDTH);
+        if (beyond > 0) {
+          const drag = Math.min(1, beyond / 3) * 1.1; // 0 at the kerb edge → full grass drag 3 m out
+          const k = Math.max(0, 1 - drag * dt);
+          state.vel.multiplyScalar(k);
+          currentSpeed *= k;
+        }
+      }
 
       if (Math.abs(lateralOffset) > maxOffset) {
         const pushSign = Math.sign(lateralOffset);
@@ -3655,7 +3674,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           // (1.35x) walau pemain memilih normal — lebih cepat lagi kalau pemain 2x.
           const botBasePace = Math.max(speedFactor, BOT_MIN_PACE);
           aiInput.paceScale =
-            (isHarunaMap ? HARUNA_PACE * (1 + (botBasePace - 1) * 0.6) : botBasePace) *
+            (isHarunaMap ? HARUNA_PACE * (1 + (botBasePace - 1) * 0.6) : isEbisuMap ? EBISU_PACE * botBasePace : botBasePace) *
             (curTuning.botPace === 'chill' ? 0.85 : 1.0) *
             bState.draftBoost;
           aiInput.gapToPlayerM = gapT * botTrack.length;
@@ -4167,22 +4186,39 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         const camBaseY = isHarunaMap
           ? state.pos.y
           : state.lastGroundH + (state.pos.y - state.lastGroundH) * 0.3;
-        const chaseOffset = new THREE.Vector3(
-          -Math.sin(state.velocityAngle) * 7.4,
-          camBaseY - state.pos.y + 3.1 + shake,
-          -Math.cos(state.velocityAngle) * 7.4
+        // --- Smooth chase camera ---
+        // Target yaw blends from the car heading (slow / reversing) to the velocity direction (fast, drifting)
+        // so the camera never snaps when the velocity angle flips; the yaw itself is critically damped.
+        const speedNow = state.vel.length();
+        const velBlend = THREE.MathUtils.clamp((speedNow - 1.5) / 6, 0, 1);
+        const fwd = Math.cos(wrapAngle(state.velocityAngle - state.heading)) >= 0 ? state.velocityAngle : state.heading;
+        const targetYaw = wrapAngle(state.heading + wrapAngle(fwd - state.heading) * velBlend);
+        if (!state.camYawInit) {
+          state.camYaw = targetYaw;
+          state.camYawInit = true;
+        }
+        state.camYaw = wrapAngle(state.camYaw + wrapAngle(targetYaw - state.camYaw) * (1 - Math.exp(-dt * 4.2)));
+        // distance / height breathe a little with speed (pulls back at pace, tucks in when slow)
+        const paceN = THREE.MathUtils.clamp(speedNow / 36, 0, 1);
+        const camDist = (isEbisuMap ? 8.2 : 7.4) + paceN * 1.6;
+        const camHeight = (isEbisuMap ? 3.3 : 3.1) + paceN * 0.5;
+        const desired = new THREE.Vector3(
+          state.pos.x - Math.sin(state.camYaw) * camDist,
+          camBaseY + camHeight + shake,
+          state.pos.z - Math.cos(state.camYaw) * camDist
         );
-        camera.position.lerp(state.pos.clone().add(chaseOffset), dt * 8.5);
-        const lookAhead = state.pos
-          .clone()
-          .add(
-            new THREE.Vector3(
-              Math.sin(state.velocityAngle) * 4.0,
-              0.7 + (camBaseY - state.pos.y) * 0.5,
-              Math.cos(state.velocityAngle) * 4.0
-            )
-          );
+        camera.position.lerp(desired, 1 - Math.exp(-dt * 7.5));
+        const lookAhead = new THREE.Vector3(
+          state.pos.x + Math.sin(state.camYaw) * 4.5,
+          camBaseY + 0.75 + (camBaseY - state.pos.y) * 0.5,
+          state.pos.z + Math.cos(state.camYaw) * 4.5
+        );
         camera.lookAt(lookAhead);
+        const targetFov = 46 + paceN * 8;
+        if (Math.abs(camera.fov - targetFov) > 0.05) {
+          camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-dt * 3));
+          camera.updateProjectionMatrix();
+        }
       }
 
       // Pylon LED ramp berkedip bergantian
