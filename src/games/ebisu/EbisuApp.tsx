@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SakuraShowroom } from '../sakura_rc/components/SakuraShowroom';
 import { Game, type HudState, type MenuBackdrop, type Phase, type PopupKind, type RaceResult } from './game/Game';
 import {
   DEFAULT_ENGINE,
@@ -143,11 +142,14 @@ export default function EbisuApp({
   onSwitchGame,
   onPlaySakuraEbisu,
   menuShowroom = 'ebisu',
+  onShowroomChange,
 }: {
   onSwitchGame?: () => void;
   onPlaySakuraEbisu?: () => void;
   /** What renders behind the DRIFT KING menu: Ebisu's own game ('ebisu') or Sakura RC on the Ebisu circuit ('sakura'). */
   menuShowroom?: 'ebisu' | 'sakura';
+  /** Fires when the Sakura backdrop should be visible (menu) or asleep (Ebisu Drift mode running). */
+  onShowroomChange?: (visible: boolean) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
@@ -213,8 +215,11 @@ export default function EbisuApp({
   pausedRef.current = paused;
   const [showBMWAdjust, setShowBMWAdjust] = useState(false);
   const sakuraShowroom = menuShowroom === 'sakura' && phase === 'menu';
+  const showroomChangeRef = useRef(onShowroomChange);
+  showroomChangeRef.current = onShowroomChange;
   useEffect(() => {
     gameRef.current?.setSuspended(sakuraShowroom);
+    showroomChangeRef.current?.(sakuraShowroom);
   }, [sakuraShowroom]);
 
   const bestRef = useRef<BestRecords>(best);
@@ -523,10 +528,9 @@ export default function EbisuApp({
   }, []);
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-sky-300">
-      <canvas ref={canvasRef} className="absolute inset-0 h-full w-full touch-none" />
-      {/* DRIFT KING menu backdrop = the Sakura RC game on the Ebisu circuit (Ebisu's own renderer sleeps meanwhile) */}
-      {sakuraShowroom && <SakuraShowroom />}
+    <div className={cn('relative h-full w-full overflow-hidden', sakuraShowroom ? 'bg-transparent' : 'bg-sky-300')}>
+      {/* while the DRIFT KING menu is up, the Sakura RC game (mounted underneath by App) is the backdrop */}
+      <canvas ref={canvasRef} className={cn('absolute inset-0 h-full w-full touch-none', sakuraShowroom && 'invisible')} />
 
       <Hud
         hud={hud}

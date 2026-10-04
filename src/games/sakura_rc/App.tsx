@@ -25,13 +25,24 @@ export function SakuraDriftApp({
   onSwitchGame,
   initialCircuitId,
   autoStart = false,
+  showroom,
+  suspended = false,
 }: {
   onSwitchGame?: () => void;
   /** Preselect a circuit (e.g. 'ebisu_drift_circuit' when launched from the DRIFT KING menu). */
   initialCircuitId?: string;
   /** Skip the Sakura main menu and drop straight into the session. */
   autoStart?: boolean;
+  /**
+   * DRIFT KING host mode (defined = hosted). true = the DRIFT KING menu is drawn on top and this app only renders the
+   * showroom backdrop (car on the Ebisu grid, static menu camera). Flipping to false starts the race in the SAME
+   * scene, so the camera dollies continuously from the menu pose into the chase camera.
+   */
+  showroom?: boolean;
+  /** Ebisu Drift mode is running on top: pause rendering, keep everything else. */
+  suspended?: boolean;
 }) {
+  const hosted = showroom !== undefined;
   const [circuit, setCircuit] = useState<CircuitDef>(
     () => RC_CIRCUITS.find((c) => c.id === initialCircuitId) ?? RC_CIRCUITS[0],
   );
@@ -54,7 +65,7 @@ export function SakuraDriftApp({
   const [sessionResult, setSessionResult] = useState<SessionResult | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   // launched from DRIFT KING (autoStart): never flash Sakura's own menu — the DRIFT KING menu IS the main menu
-  const [hasStarted, setHasStarted] = useState<boolean>(autoStart);
+  const [hasStarted, setHasStarted] = useState<boolean>(autoStart || (hosted && !showroom));
   const [isDocsOpen, setIsDocsOpen] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
@@ -166,6 +177,26 @@ export function SakuraDriftApp({
     setCountdown(3);
   };
 
+  // DRIFT KING host: menu → START RACE flips `showroom` false → start here without rebuilding the scene;
+  // back to the menu (showroom true again) → rebuild so the car is parked on the grid again.
+  const showroomPrev = useRef(showroom);
+  useEffect(() => {
+    if (!hosted || showroomPrev.current === showroom) return;
+    showroomPrev.current = showroom;
+    if (showroom) {
+      setHasStarted(false);
+      setSessionResult(null);
+      setIsPitBenchOpen(false);
+      setResetTrigger((prev) => prev + 1);
+    } else {
+      rcSound.init();
+      rcSound.playClippingZoneChime(false);
+      setSessionResult(null);
+      setHasStarted(true);
+      setCountdown(3);
+    }
+  }, [hosted, showroom]);
+
   // Launched from another menu (DRIFT KING → "Ebisu Drift by Sakura RC"): start immediately.
   const autoStartedRef = useRef(false);
   useEffect(() => {
@@ -200,7 +231,7 @@ export function SakuraDriftApp({
 
   const handleBackToMenu = () => {
     // Launched from the DRIFT KING menu → "menu" means that menu (Ebisu showroom camera + car), not Sakura's own.
-    if (autoStart && onSwitchGame) {
+    if ((autoStart || hosted) && onSwitchGame) {
       onSwitchGame();
       return;
     }
@@ -229,6 +260,8 @@ export function SakuraDriftApp({
         cameraMode={cameraMode}
         resetTrigger={resetTrigger}
         isMenu={!hasStarted}
+        menuShowroom={hosted}
+        suspended={suspended}
         externalSteer={externalSteer}
         externalThrottle={externalThrottle}
         externalBrake={externalBrake}
@@ -238,7 +271,7 @@ export function SakuraDriftApp({
       />
 
       {/* Sakura main menu — tampil sebelum balapan dimulai */}
-      {!hasStarted && (
+      {!hasStarted && !hosted && (
         <MainMenu
           circuits={RC_CIRCUITS}
           circuit={circuit}
@@ -332,7 +365,7 @@ export function SakuraDriftApp({
         onBackToMenu={handleBackToMenu}
         onOpenBMWAdjust={() => setShowBMWAdjust(true)}
         onOpenDocs={() => setIsDocsOpen(true)}
-        onSwitchGame={autoStart ? undefined : onSwitchGame}
+        onSwitchGame={autoStart || hosted ? undefined : onSwitchGame}
       />
       )}
 
@@ -372,7 +405,7 @@ export function SakuraDriftApp({
       />
 
       {/* Tombol dokumen desain — hanya di menu; saat balapan ada di popover MENU (⋯) HUD */}
-      {!isDocsOpen && !hasStarted && (
+      {!isDocsOpen && !hasStarted && !hosted && (
         <button
           onClick={() => setIsDocsOpen(true)}
           title="Buka dokumen desain map & menu (bisa di-copy)"
@@ -387,7 +420,7 @@ export function SakuraDriftApp({
       <DesignDocsModal isOpen={isDocsOpen} onClose={() => setIsDocsOpen(false)} />
 
       {/* Floating Top Controls: PILIH GAME & ADJUST BODY BMW — hanya di menu (saat balapan masuk popover MENU HUD) */}
-      {!hasStarted && (
+      {!hasStarted && !hosted && (
       <div className="fixed top-3 left-3 z-[60] flex items-center gap-2">
         {onSwitchGame && (
           <button

@@ -69,6 +69,8 @@ interface RCDriftCanvas3DProps {
   isMenu: boolean; // true = phase menu: tampilkan diorama sakura, kamera sinematik
   /** Menu showroom ala Ebisu Drift: dunia Ebisu lengkap, mobil parkir di garis start, kamera statis (DRIFT KING menu). */
   menuShowroom?: boolean;
+  /** Another renderer owns the screen (Ebisu Drift mode running on top): skip simulation + rendering, keep state. */
+  suspended?: boolean;
   externalSteer: number; // -1 to 1 from on-screen transmitter wheel
   externalThrottle: boolean;
   externalBrake: boolean;
@@ -146,6 +148,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
   resetTrigger,
   isMenu,
   menuShowroom = false,
+  suspended = false,
   externalSteer,
   externalThrottle,
   externalBrake,
@@ -188,6 +191,13 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
   const playerRigRef = useRef<RCCarRig | null>(null);
   const dioramaCarRigRef = useRef<RCCarRig | null>(null);
+  // Showroom host: the menu → race flip is read live (no scene rebuild) so the camera can dolly continuously.
+  const isMenuRef = useRef(isMenu);
+  isMenuRef.current = isMenu;
+  const suspendedRef = useRef(suspended);
+  suspendedRef.current = suspended;
+  const showroomHost = menuShowroom && circuit.mapStyle === 'ebisu';
+  const menuKey = showroomHost ? 'showroom' : String(isMenu);
 
   useEffect(() => {
     if (tuning.soundMode) {
@@ -251,8 +261,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // --- 1. SCENE, CAMERA, RENDERER ---
     // DRIFT KING menu backdrop: the real Ebisu venue with the Sakura car parked on the grid, framed exactly like
     // Ebisu Drift's showroom (static camera, nose to screen-right). Not the Sakura diorama.
-    const SHOWROOM = isMenu && menuShowroom && circuit.mapStyle === 'ebisu';
-    const MENU_MODE = isMenu && !SHOWROOM;
+    const SHOWROOM_HOST = showroomHost; // world is race-ready; showroom pose only while isMenuRef says menu
+    const MENU_MODE = isMenu && !SHOWROOM_HOST;
+    let wasShowroom = false;
     const isHarunaMap = circuit.mapStyle === 'haruna';
     // Pace dasar Haruna (jalan gunung skala asli 6.1 km, 75% lurus) relatif terhadap aula
     const HARUNA_PACE = 1.6;
@@ -2608,8 +2619,11 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       lastTime = now;
       frameCounter++;
 
+      if (suspendedRef.current) return; // Ebisu Drift mode is drawing on top — sleep without losing state
+
       // --- DRIFT KING SHOWROOM: static pose, same framing constants as Ebisu Drift's garage/scenic menu ---
-      if (SHOWROOM) {
+      if (SHOWROOM_HOST && isMenuRef.current) {
+        wasShowroom = true;
         playerRig.root.position.copy(state.pos);
         playerRig.root.rotation.set(0, state.heading, 0);
         playerRig.flKnuckle.rotation.y = 0;
@@ -2675,6 +2689,16 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
         renderer.render(scene, camera);
         return;
+      }
+
+      if (wasShowroom) {
+        // START RACE pressed on the DRIFT KING menu: same scene, same frame — only the camera starts moving
+        wasShowroom = false;
+        botRigs.forEach((r) => {
+          r.root.visible = true;
+        });
+        state.camIntro = 0;
+        state.camYawInit = false;
       }
 
       const curTuning = tuningRef.current;
@@ -4407,7 +4431,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       renderer.dispose();
       dioramaCarRigRef.current = null;
     };
-  }, [circuit, resetTrigger, customization.bodyId, isMenu, menuShowroom]);
+  }, [circuit, resetTrigger, customization.bodyId, menuKey]);
 
   return (
     <div

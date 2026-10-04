@@ -21,6 +21,8 @@ export default function App() {
   const [selectedGame, setSelectedGame] = useState<GameSelection>('ebisu');
   // set when Sakura RC is launched from the DRIFT KING menu → Ebisu circuit, straight into the session
   const [sakuraLaunch, setSakuraLaunch] = useState<{ circuitId: string; autoStart: boolean } | null>(null);
+  // true while the DRIFT KING menu is showing (Sakura backdrop live); false while Ebisu Drift mode races on top
+  const [ebisuMenuVisible, setEbisuMenuVisible] = useState(true);
   const [showPhysicsGuide, setShowPhysicsGuide] = useState(false);
   const [showOtherGames, setShowOtherGames] = useState(true);
   // Landing shows ONLY Ebisu Drift; every other mode is hidden behind the "Mode Lain" button.
@@ -87,34 +89,51 @@ export default function App() {
     return <ProDriftApp onSwitchGame={() => setSelectedGame('menu')} />;
   }
 
-  if (selectedGame === 'ebisu') {
+  // DRIFT KING: ONE Sakura RC instance (Ebisu circuit) stays mounted underneath the DRIFT KING menu as its showroom
+  // backdrop and simply keeps running when START RACE is pressed — the camera dollies from the menu pose into the
+  // chase view with no reload. The Ebisu Drift game sits on top only for its menu UI and the EBISU DRIFT MODE option.
+  if (selectedGame === 'ebisu' || (selectedGame === 'sakura' && sakuraLaunch)) {
+    const menuUp = selectedGame === 'ebisu';
     return (
-      <EbisuApp
-        onSwitchGame={() => {
-          setShowOtherModes(true); // arriving from Ebisu = the user wants the other modes → show them expanded
-          setSelectedGame('menu');
-        }}
-        menuShowroom="sakura"
-        onPlaySakuraEbisu={() => {
-          setSakuraLaunch({ circuitId: 'ebisu_drift_circuit', autoStart: true });
-          setSelectedGame('sakura');
-        }}
-      />
+      <div className="fixed inset-0 overflow-hidden bg-[#0B0D13]">
+        <div className="absolute inset-0">
+          <SakuraDriftApp
+            key="driftking"
+            initialCircuitId="ebisu_drift_circuit"
+            showroom={menuUp}
+            suspended={menuUp && !ebisuMenuVisible}
+            onSwitchGame={() => {
+              // "Menu utama" inside the race → back to the DRIFT KING menu (same scene, car re-parked on the grid)
+              setSakuraLaunch(null);
+              setSelectedGame('ebisu');
+            }}
+          />
+        </div>
+        {menuUp && (
+          <div className="absolute inset-0">
+            <EbisuApp
+              onSwitchGame={() => {
+                setShowOtherModes(true); // arriving from Ebisu = the user wants the other modes → show them expanded
+                setSelectedGame('menu');
+              }}
+              menuShowroom="sakura"
+              onShowroomChange={setEbisuMenuVisible}
+              onPlaySakuraEbisu={() => {
+                setSakuraLaunch({ circuitId: 'ebisu_drift_circuit', autoStart: true });
+                setSelectedGame('sakura');
+              }}
+            />
+          </div>
+        )}
+      </div>
     );
   }
 
   if (selectedGame === 'sakura') {
     return (
       <SakuraDriftApp
-        key={sakuraLaunch ? 'from-ebisu' : 'picker'}
-        initialCircuitId={sakuraLaunch?.circuitId}
-        autoStart={sakuraLaunch?.autoStart ?? false}
-        onSwitchGame={() => {
-          // launched from DRIFT KING → go back there; otherwise back to the picker
-          const backToEbisu = !!sakuraLaunch;
-          setSakuraLaunch(null);
-          setSelectedGame(backToEbisu ? 'ebisu' : 'menu');
-        }}
+        key="picker"
+        onSwitchGame={() => setSelectedGame('menu')}
       />
     );
   }
