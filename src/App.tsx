@@ -19,6 +19,8 @@ type GameSelection = 'menu' | 'haruna_new' | 'haruna_old' | 'pro_drift' | 'ebisu
 export default function App() {
   // The app boots straight into Ebisu Drift's own menu; the landing picker is reached via its "Mode Lain" button.
   const [selectedGame, setSelectedGame] = useState<GameSelection>('ebisu');
+  // set when Sakura RC is launched from the DRIFT KING menu → Ebisu circuit, straight into the session
+  const [sakuraLaunch, setSakuraLaunch] = useState<{ circuitId: string; autoStart: boolean } | null>(null);
   const [showPhysicsGuide, setShowPhysicsGuide] = useState(false);
   const [showOtherGames, setShowOtherGames] = useState(true);
   // Landing shows ONLY Ebisu Drift; every other mode is hidden behind the "Mode Lain" button.
@@ -92,12 +94,28 @@ export default function App() {
           setShowOtherModes(true); // arriving from Ebisu = the user wants the other modes → show them expanded
           setSelectedGame('menu');
         }}
+        onPlaySakuraEbisu={() => {
+          setSakuraLaunch({ circuitId: 'ebisu_drift_circuit', autoStart: true });
+          setSelectedGame('sakura');
+        }}
       />
     );
   }
 
   if (selectedGame === 'sakura') {
-    return <SakuraDriftApp onSwitchGame={() => setSelectedGame('menu')} />;
+    return (
+      <SakuraDriftApp
+        key={sakuraLaunch ? 'from-ebisu' : 'picker'}
+        initialCircuitId={sakuraLaunch?.circuitId}
+        autoStart={sakuraLaunch?.autoStart ?? false}
+        onSwitchGame={() => {
+          // launched from DRIFT KING → go back there; otherwise back to the picker
+          const backToEbisu = !!sakuraLaunch;
+          setSakuraLaunch(null);
+          setSelectedGame(backToEbisu ? 'ebisu' : 'menu');
+        }}
+      />
+    );
   }
 
   return (

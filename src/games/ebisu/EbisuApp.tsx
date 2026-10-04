@@ -138,7 +138,7 @@ async function enterLandscapeFullscreen() {
 
 type PanelKind = 'none' | 'tuning' | 'visual';
 
-export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }) {
+export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitchGame?: () => void; onPlaySakuraEbisu?: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const phaseRef = useRef<Phase>('menu');
@@ -551,6 +551,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
           isTouch={isTouchDevice}
           backdrop={menuBackdrop}
           onToggleBackdrop={toggleBackdrop}
+          onPlaySakuraEbisu={onPlaySakuraEbisu}
         />
       )}
 

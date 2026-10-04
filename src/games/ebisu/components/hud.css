@@ -637,6 +637,7 @@
 .dk-tile--blue { --tile-a: #5a8be8; --tile-b: #8ec2ff; --tile-c: #4467e0; --tile-edge: #3350b8; --tile-glow: rgba(90, 139, 232, 0.5); }
 .dk-tile--teal { --tile-a: #5fd9c4; --tile-b: #a4f3e4; --tile-c: #38bfae; --tile-edge: #1f9484; --tile-glow: rgba(95, 217, 196, 0.5); }
 .dk-tile--purple { --tile-a: #9a7cf0; --tile-b: #c6b0ff; --tile-c: #7f5ee6; --tile-edge: #5a3fc0; --tile-glow: rgba(154, 124, 240, 0.5); }
+.dk-tile--sakura { --tile-a: #f06aa8; --tile-b: #ffb3d4; --tile-c: #d9468a; --tile-edge: #a62d68; --tile-glow: rgba(240, 106, 168, 0.5); }
 .dk-tile--violet { --tile-a: #8d6ee8; --tile-b: #b89cff; --tile-c: #6f4fd9; --tile-edge: #4f36b3; --tile-glow: rgba(141, 110, 232, 0.5); }
 .dk-tiles__row .dk-tile::after { animation-delay: -2s; }
 .dk-tile--wide::after { animation-delay: -4s; }

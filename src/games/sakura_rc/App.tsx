@@ -24,8 +24,20 @@ import { DesignDocsModal } from './components/DesignDocsModal';
 import { rcSound } from './utils/soundEngine';
 import { BMWAdjustmentModal } from '@/components/BMWAdjustmentModal';
 
-export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) {
-  const [circuit, setCircuit] = useState<CircuitDef>(RC_CIRCUITS[0]);
+export function SakuraDriftApp({
+  onSwitchGame,
+  initialCircuitId,
+  autoStart = false,
+}: {
+  onSwitchGame?: () => void;
+  /** Preselect a circuit (e.g. 'ebisu_drift_circuit' when launched from the DRIFT KING menu). */
+  initialCircuitId?: string;
+  /** Skip the Sakura main menu and drop straight into the session. */
+  autoStart?: boolean;
+}) {
+  const [circuit, setCircuit] = useState<CircuitDef>(
+    () => RC_CIRCUITS.find((c) => c.id === initialCircuitId) ?? RC_CIRCUITS[0],
+  );
   const [gameMode, setGameMode] = useState<GameMode>('race');
   const [cameraMode, setCameraMode] = useState<CameraMode>('chase_close');
   const [resetTrigger, setResetTrigger] = useState<number>(0);
@@ -185,6 +197,15 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     setHasStarted(true);
     setCountdown(3);
   };
+
+  // Launched from another menu (DRIFT KING → "Ebisu Drift by Sakura RC"): start immediately.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoStart || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    handleStartFromMenu();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
 
   // Countdown 3-2-1-GO setelah START
   useEffect(() => {

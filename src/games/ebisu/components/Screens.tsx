@@ -151,6 +151,8 @@ interface StartProps {
   isTouch: boolean;
   backdrop?: 'wall' | 'scenic';
   onToggleBackdrop?: () => void;
+  /** Launch the Sakura RC engine on the Ebisu circuit (same venue, RC physics). */
+  onPlaySakuraEbisu?: () => void;
 }
 
 /**
@@ -204,7 +206,7 @@ function VisualChip({ prefs, onClick }: { prefs: VisualPrefs; onClick: () => voi
   );
 }
 
-export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, onOpenSetup, onOpenVisual, onOpenBMWAdjust, isTouch, backdrop = 'wall', onToggleBackdrop }: StartProps) {
+export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, onOpenSetup, onOpenVisual, onOpenBMWAdjust, isTouch, backdrop = 'wall', onToggleBackdrop, onPlaySakuraEbisu }: StartProps) {
   const engineInfo = ENGINES.find((e) => e.id === setup.engine);
   const diff = DIFFICULTIES.find((d) => d.id === setup.race.difficulty)?.label ?? 'Normal';
   const preset =
@@ -302,6 +304,15 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
             <span className="dk-tile__name">BODY BMW GLB</span>
             <span className="dk-tile__meta">PANJANG · LEBAR · TINGGI · RIDE HEIGHT</span>
             <span className="dk-tile__glyph">📐</span>
+          </button>
+        ) : null}
+
+        {onPlaySakuraEbisu ? (
+          <button type="button" onClick={onPlaySakuraEbisu} className="dk-tile dk-tile--sakura dk-tile--wide dk-anim-in" style={{ animationDelay: '0.36s' }}>
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__name">EBISU DRIFT BY SAKURA RC</span>
+            <span className="dk-tile__meta">SIRKUIT &amp; VENUE EBISU · FISIKA RC 1:10 · LANGSUNG MAIN</span>
+            <span className="dk-tile__glyph dk-float">🌸</span>
           </button>
         ) : null}
       </div>
