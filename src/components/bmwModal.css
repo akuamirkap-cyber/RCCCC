@@ -170,8 +170,3 @@
   transform: translateX(-70%);
   animation: bmw-sheen 4s ease-in-out infinite;
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .bmw-flag, .bmw-val, .bmw-modal .grid.grid-cols-3 > button.text-black::after, .bmw-modal .border-t > button.bg-gradient-to-r::after { animation: none; }
-  .bmw-modal__card, .bmw-modal .overflow-y-auto > div { animation: none; opacity: 1; }
-}

@@ -668,20 +668,34 @@
   top: 0;
   bottom: 0;
   width: 42%;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%);
+  mask-image: linear-gradient(90deg, transparent, #000 35%);
+  opacity: 0.9;
+  pointer-events: none;
+}
+.dk-tile__checker::before {
+  /* oversized checker strip that slides LEFT by exactly one pattern tile per cycle (seamless loop) */
+  content: '';
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: 0;
+  width: calc(100% + 4rem);
   background-color: rgba(255, 255, 255, 0.12);
   background-image:
     linear-gradient(45deg, rgba(255, 255, 255, 0.5) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.5) 75%),
     linear-gradient(45deg, rgba(255, 255, 255, 0.5) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.5) 75%);
   background-size: 2rem 2rem;
   background-position: 0 0, 1rem 1rem;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%);
-  mask-image: linear-gradient(90deg, transparent, #000 35%);
-  opacity: 0.9;
-  animation: dk-checker-wave 1.6s linear infinite; /* the flag scrolls to the left */
+  will-change: transform;
+  animation: dk-checker-wave 1.2s linear infinite;
 }
 @keyframes dk-checker-wave {
-  /* pattern scrolls straight to the LEFT (one full tile per cycle → seamless) */
-  from { background-position: 0 0, 1rem 1rem; }
+  0% { transform: translateX(0) skewY(0deg); }
+  50% { transform: translateX(-1rem) skewY(-2deg); }
+  100% { transform: translateX(-2rem) skewY(0deg); }
+}
   to { background-position: -2rem 0, -1rem 1rem; }
 }
 /* light sweep across every tile */
@@ -739,10 +753,6 @@
 @keyframes dk-shimmer { 0%, 60% { background-position: 160% 0, 0 0; } 100% { background-position: -160% 0, 0 0; } }
 .dk-bar__stripes { animation: dk-stripes 3s linear infinite; }
 @keyframes dk-stripes { to { background-position: 1.63rem 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .dk-tile__checker, .dk-tile__sheen, .dk-chevrons i, .dk-float, .dk-spin-slow, .dk-bars i, .dk-title__accent, .dk-bar__stripes, .dk-tile, .dk-bubbles i { animation: none; }
-  .dk-anim-in { opacity: 1; animation: none; }
-}
 .dk-tile__label { font-size: 0.95rem; letter-spacing: 0.08em; opacity: 0.95; position: relative; }
 .dk-tile__big {
   position: relative;
