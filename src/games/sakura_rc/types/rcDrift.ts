@@ -2,7 +2,8 @@ export type GameMode = 'race' | 'tsuiso' | 'qualifying' | 'freedrift';
 
 export type SpeedLevel = 'normal' | 'sedang' | '2x';
 
-export type CameraMode = 'isometric_broadcast' | 'driver_stand' | 'chase_close';
+/** Ebisu Drift camera set (chase, chase far, art-of-rally, cockpit) + the two Sakura arena views. */
+export type CameraMode = 'chase_close' | 'chase_far' | 'rally' | 'cockpit' | 'isometric_broadcast' | 'driver_stand';
 
 /** Visual/road environment used by Sakura RC Pro. */
 export type MapStyle = 'aula' | 'haruna' | 'ebisu';

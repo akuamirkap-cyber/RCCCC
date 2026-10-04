@@ -244,7 +244,17 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
   }, [telemetry.judgeCallout?.timestamp]);
 
   const cameraLabel =
-    cameraMode === 'isometric_broadcast' ? 'BROADCAST' : cameraMode === 'driver_stand' ? 'ROSTRUM' : 'CHASE';
+    cameraMode === 'isometric_broadcast'
+      ? 'BROADCAST'
+      : cameraMode === 'driver_stand'
+      ? 'ROSTRUM'
+      : cameraMode === 'chase_far'
+      ? 'CHASE FAR'
+      : cameraMode === 'rally'
+      ? 'ART OF RALLY'
+      : cameraMode === 'cockpit'
+      ? 'COCKPIT'
+      : 'CHASE';
   const shellLabel = bodyShellMode === 'painted' ? 'PAINTED' : bodyShellMode === 'translucent' ? 'X-RAY' : 'NAKED';
 
   const trackMapData = useMemo(() => {

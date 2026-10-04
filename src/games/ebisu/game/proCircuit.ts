@@ -337,7 +337,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
     roughnessMap: tex.roughnessMap,
     roughness: 1.0,
     metalness: 0.0,
-    color: '#ffffff', // the texture carries the (cool-neutral) colour untouched
+    color: '#e6e6e6', // 10 % darker than the texture's cool-neutral colour (user request)
     envMapIntensity: 0.4, // a touch of blue sky in the stone crowns — the real reason asphalt reads grey-blue outdoors
     side: THREE.DoubleSide,
   });

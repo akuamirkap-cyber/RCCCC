@@ -143,13 +143,9 @@ export function SakuraDriftApp({
 
   const handleCycleCamera = () => {
     rcSound.init();
-    setCameraMode((prev) =>
-      prev === 'chase_close'
-        ? 'isometric_broadcast'
-        : prev === 'isometric_broadcast'
-        ? 'driver_stand'
-        : 'chase_close'
-    );
+    // same order as Ebisu Drift: chase → chase far → art of rally → cockpit, then the arena views
+    const order: CameraMode[] = ['chase_close', 'chase_far', 'rally', 'cockpit', 'isometric_broadcast', 'driver_stand'];
+    setCameraMode((prev) => order[(order.indexOf(prev) + 1) % order.length]);
   };
 
   const handleCycleBodyShellMode = () => {

@@ -2406,6 +2406,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       landShake: 0,
       camYaw: 0, // smoothed chase-camera yaw (rad) — never snaps when velocity angle flips
       camYawInit: false,
+      camRallyYaw: 0, // art-of-rally slow heading follow
       jumpCount: 0,
       visPitchSlope: 0, // sikap root (pitch) yang sedang ditampilkan — ramp / melayang
       visRoll: 0,
@@ -4104,9 +4105,50 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
       });
 
-      // 9. CAMERA CONTROLLER
+      // 9. CAMERA CONTROLLER (Ebisu Drift camera set + arena views)
       const camMode = cameraModeRef.current;
-      if (camMode === 'isometric_broadcast') {
+      const wantNear = camMode === 'cockpit' ? 0.6 : 0.1; // cockpit: near plane clips roof/windshield away
+      if (camera.near !== wantNear) {
+        camera.near = wantNear;
+        camera.updateProjectionMatrix();
+      }
+      const setFov = (target: number, k = 3) => {
+        if (Math.abs(camera.fov - target) > 0.05) {
+          camera.fov += (target - camera.fov) * (1 - Math.exp(-dt * k));
+          camera.updateProjectionMatrix();
+        }
+      };
+      const speedNowCam = state.vel.length();
+      const camRatio = THREE.MathUtils.clamp(speedNowCam / 36, 0, 1.3);
+      if (camMode === 'cockpit') {
+        // behind the wheel: eye point from the rig itself (follows heading, pitch and roll)
+        playerRig.root.updateMatrixWorld();
+        const eye = playerRig.root.localToWorld(new THREE.Vector3(0.38, 1.1, 0.25));
+        eye.y += Math.sin(now * 0.018) * 0.004 * camRatio;
+        camera.position.lerp(eye, 1 - Math.exp(-dt * 30));
+        const slip = wrapAngle(state.velocityAngle - state.heading);
+        const lookYaw = state.heading + THREE.MathUtils.clamp(slip * 0.35, -0.35, 0.35);
+        const look = new THREE.Vector3(camera.position.x + Math.sin(lookYaw) * 20, eye.y - 0.3, camera.position.z + Math.cos(lookYaw) * 20);
+        camera.up.set(0, 1, 0);
+        camera.lookAt(look);
+        setFov(74 + camRatio * 16 + (state.turboActive ? 10 : 0), 4);
+      } else if (camMode === 'rally') {
+        // Art of Rally: high isometric follow, heading eased very slowly so the whole slide is visible
+        let diff = state.heading - state.camRallyYaw;
+        diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+        state.camRallyYaw += diff * Math.min(1, dt * 1.1);
+        const yx = Math.sin(state.camRallyYaw);
+        const yz = Math.cos(state.camRallyYaw);
+        const back = 13 + camRatio * 3;
+        const height = 15 + camRatio * 3;
+        const lead = 6 + camRatio * 8;
+        const dirX = speedNowCam > 2 ? state.vel.x / speedNowCam : Math.sin(state.heading);
+        const dirZ = speedNowCam > 2 ? state.vel.z / speedNowCam : Math.cos(state.heading);
+        camera.position.lerp(new THREE.Vector3(state.pos.x - yx * back, state.pos.y + height, state.pos.z - yz * back), 1 - Math.exp(-dt * 6));
+        camera.up.set(0, 1, 0);
+        camera.lookAt(state.pos.x + dirX * lead, state.pos.y + 0.5, state.pos.z + dirZ * lead);
+        setFov(48 + camRatio * 6 + (state.turboActive ? 4 : 0));
+      } else if (camMode === 'isometric_broadcast') {
         const targetCamPos = new THREE.Vector3(
           state.pos.x * 0.68,
           23,
@@ -4116,7 +4158,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         const lookAtTarget = state.pos
           .clone()
           .addScaledVector(state.vel, 0.18);
+        camera.up.set(0, 1, 0);
         camera.lookAt(lookAtTarget.x, state.pos.y + 0.8, lookAtTarget.z);
+        setFov(46);
       } else if (camMode === 'driver_stand') {
         const standPos = new THREE.Vector3(
           hallFrame.cx,
@@ -4124,7 +4168,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           hallFrame.cz + hallFrame.depth / 2 - 14
         );
         camera.position.lerp(standPos, dt * 4.0);
+        camera.up.set(0, 1, 0);
         camera.lookAt(state.pos.x * 0.88, state.pos.y + 0.6, state.pos.z * 0.88);
+        setFov(46);
       } else {
         state.landShake = Math.max(0, state.landShake - dt * 2.4);
         const shake = state.landShake > 0 ? Math.sin(now * 0.045) * state.landShake * 0.22 : 0;
@@ -4147,25 +4193,24 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         state.camYaw = wrapAngle(state.camYaw + wrapAngle(targetYaw - state.camYaw) * (1 - Math.exp(-dt * 4.2)));
         // distance / height breathe a little with speed (pulls back at pace, tucks in when slow)
         const paceN = THREE.MathUtils.clamp(speedNow / 36, 0, 1);
-        const camDist = (isEbisuMap ? 8.2 : 7.4) + paceN * 1.6;
-        const camHeight = (isEbisuMap ? 3.3 : 3.1) + paceN * 0.5;
+        const far = camMode === 'chase_far';
+        const camDist = far ? 12.5 + paceN * 3.5 : (isEbisuMap ? 8.2 : 7.4) + paceN * 1.6;
+        const camHeight = far ? 6.8 + paceN * 1.4 : (isEbisuMap ? 3.3 : 3.1) + paceN * 0.5;
         const desired = new THREE.Vector3(
           state.pos.x - Math.sin(state.camYaw) * camDist,
           camBaseY + camHeight + shake,
           state.pos.z - Math.cos(state.camYaw) * camDist
         );
-        camera.position.lerp(desired, 1 - Math.exp(-dt * 7.5));
+        camera.position.lerp(desired, 1 - Math.exp(-dt * (far ? 4 : 7.5)));
+        const leadM = far ? 9 : 4.5;
         const lookAhead = new THREE.Vector3(
-          state.pos.x + Math.sin(state.camYaw) * 4.5,
-          camBaseY + 0.75 + (camBaseY - state.pos.y) * 0.5,
-          state.pos.z + Math.cos(state.camYaw) * 4.5
+          state.pos.x + Math.sin(state.camYaw) * leadM,
+          camBaseY + (far ? 1.2 : 0.75) + (camBaseY - state.pos.y) * 0.5,
+          state.pos.z + Math.cos(state.camYaw) * leadM
         );
+        camera.up.set(0, 1, 0);
         camera.lookAt(lookAhead);
-        const targetFov = 46 + paceN * 8;
-        if (Math.abs(camera.fov - targetFov) > 0.05) {
-          camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-dt * 3));
-          camera.updateProjectionMatrix();
-        }
+        setFov(far ? 55 + paceN * 10 : 46 + paceN * 8);
       }
 
       // Pylon LED ramp berkedip bergantian
