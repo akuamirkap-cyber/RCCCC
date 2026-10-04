@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { Venue } from './game/track';
 import { Game, type HudState, type MenuBackdrop, type Phase, type PopupKind, type RaceResult } from './game/Game';
 import {
   DEFAULT_ENGINE,
@@ -143,6 +144,8 @@ export default function EbisuApp({
   onPlaySakuraEbisu,
   menuShowroom = 'ebisu',
   onShowroomChange,
+  venue = 'ebisu',
+  onChangeVenue,
 }: {
   onSwitchGame?: () => void;
   onPlaySakuraEbisu?: () => void;
@@ -150,6 +153,9 @@ export default function EbisuApp({
   menuShowroom?: 'ebisu' | 'sakura';
   /** Fires when the Sakura backdrop should be visible (menu) or asleep (Ebisu Drift mode running). */
   onShowroomChange?: (visible: boolean) => void;
+  /** Circuit/venue for both games (Long Beach street circuit or Ebisu). */
+  venue?: Venue;
+  onChangeVenue?: (v: Venue) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
@@ -301,6 +307,7 @@ export default function EbisuApp({
         },
       },
       prefsRef.current,
+      venue,
     );
     gameRef.current = game;
     game.setSuspended(menuShowroom === 'sakura' && phaseRef.current === 'menu'); // Sakura showroom owns the screen in the menu
@@ -388,7 +395,7 @@ export default function EbisuApp({
       game.dispose();
       gameRef.current = null;
     };
-  }, [addPopup, cycleCamera, handleResult, setPausedBoth, togglePause]);
+  }, [addPopup, cycleCamera, handleResult, setPausedBoth, togglePause, venue]);
 
   const start = () => {
     setPopups([]);
@@ -579,6 +586,8 @@ export default function EbisuApp({
           backdrop={sakuraShowroom ? 'scenic' : menuBackdrop}
           onToggleBackdrop={sakuraShowroom ? undefined : toggleBackdrop}
           onPlaySakuraEbisu={onPlaySakuraEbisu}
+          venue={venue}
+          onChangeVenue={onChangeVenue}
         />
       )}
 

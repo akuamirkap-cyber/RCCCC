@@ -4,6 +4,7 @@ import HarunaOldApp from './games/haruna_old/App';
 import ProDriftApp from './games/pro_drift/ProDriftApp';
 import EbisuApp from './games/ebisu/EbisuApp';
 import SakuraDriftApp from './games/sakura_rc/App';
+import { loadVenue, saveVenue, type Venue } from './games/ebisu/game/track';
 import { PromptDownloadModal } from './components/PromptDownloadModal';
 import { DRIFT_PROMPTS, downloadFile } from './data/driftPrompts';
 import { BMWAdjustmentModal } from './components/BMWAdjustmentModal';
@@ -23,6 +24,13 @@ export default function App() {
   const [sakuraLaunch, setSakuraLaunch] = useState<{ circuitId: string; autoStart: boolean } | null>(null);
   // true while the DRIFT KING menu is showing (Sakura backdrop live); false while Ebisu Drift mode races on top
   const [ebisuMenuVisible, setEbisuMenuVisible] = useState(true);
+  // DRIFT KING circuit: Long Beach street circuit by default, Ebisu as the option (persisted)
+  const [venue, setVenueState] = useState<Venue>(() => loadVenue());
+  const setVenue = (v: Venue) => {
+    saveVenue(v);
+    setVenueState(v);
+  };
+  const venueCircuitId = venue === 'longbeach' ? 'longbeach_street_circuit' : 'ebisu_drift_circuit';
   const [showPhysicsGuide, setShowPhysicsGuide] = useState(false);
   const [showOtherGames, setShowOtherGames] = useState(true);
   // Landing shows ONLY Ebisu Drift; every other mode is hidden behind the "Mode Lain" button.
@@ -99,7 +107,7 @@ export default function App() {
         <div className="absolute inset-0">
           <SakuraDriftApp
             key="driftking"
-            initialCircuitId="ebisu_drift_circuit"
+            initialCircuitId={venueCircuitId}
             showroom={menuUp}
             suspended={menuUp && !ebisuMenuVisible}
             onSwitchGame={() => {
@@ -118,8 +126,10 @@ export default function App() {
               }}
               menuShowroom="sakura"
               onShowroomChange={setEbisuMenuVisible}
+              venue={venue}
+              onChangeVenue={setVenue}
               onPlaySakuraEbisu={() => {
-                setSakuraLaunch({ circuitId: 'ebisu_drift_circuit', autoStart: true });
+                setSakuraLaunch({ circuitId: venueCircuitId, autoStart: true });
                 setSelectedGame('sakura');
               }}
             />

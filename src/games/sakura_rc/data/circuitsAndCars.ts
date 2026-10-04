@@ -1,4 +1,4 @@
-import { Track as EbisuTrack, TRACK_WIDTH as EBISU_TRACK_WIDTH } from '../../ebisu/game/track';
+import { Track as EbisuTrack, TRACK_WIDTH as EBISU_TRACK_WIDTH, VENUE_POINTS, type Venue } from '../../ebisu/game/track';
 import {
   CircuitDef,
   ClippingZoneDef,
@@ -170,8 +170,9 @@ export const SMOKE_PRESETS: Record<
  * (same control points, same Catmull-Rom tension, same 14 m width), densely sampled so the arena's
  * smoothing pass cannot alter the shape. Drift zones are the Ebisu zones mapped to clipping points.
  */
-function buildEbisuCircuit(): CircuitDef {
-  const track = new EbisuTrack();
+function buildEbisuCircuit(venue: Venue = 'ebisu'): CircuitDef {
+  const track = new EbisuTrack(VENUE_POINTS[venue]);
+  const LB = venue === 'longbeach';
   const dense = track.curve.getSpacedPoints(160).slice(0, 160);
   // clipping points = the 6 sharpest corners of the layout (local curvature peaks, well separated)
   const s = track.samples;
@@ -193,24 +194,27 @@ function buildEbisuCircuit(): CircuitDef {
   chosen.sort((x, y) => x.i - y.i);
   const types: ClippingZoneDef['type'][] = ['outer_zone', 'inner_clip', 'wall_kiss', 'inner_clip', 'outer_zone', 'wall_kiss'];
   return {
-    id: 'ebisu_drift_circuit',
-    name: 'EBISU DRIFT // PRO CIRCUIT (100% LAYOUT)',
-    jpName: 'エビスサーキット ドリフトコース (ドリフトキング レイアウト)',
-    subtitle: 'Start straight -> T1 sweeper -> tight hairpin -> esses -> back hairpin -> final banked sweeper — identical to Ebisu Drift',
-    surfaceName: 'Ebisu uniform grey asphalt, 14 m wide',
+    id: LB ? 'longbeach_street_circuit' : 'ebisu_drift_circuit',
+    name: LB ? 'LONG BEACH // STREET CIRCUIT (FORMULA DRIFT STYLE)' : 'EBISU DRIFT // PRO CIRCUIT (100% LAYOUT)',
+    jpName: LB ? 'ロングビーチ ストリートサーキット (フォーミュラ・ドリフト)' : 'エビスサーキット ドリフトコース (ドリフトキング レイアウト)',
+    subtitle: LB
+      ? 'Shoreline straight -> long Turn 9 wall sweeper -> Turn 10 kink -> Turn 11 hairpin -> harbour run -> return sweeper — concrete walls, packed stands, downtown skyline'
+      : 'Start straight -> T1 sweeper -> tight hairpin -> esses -> back hairpin -> final banked sweeper — identical to Ebisu Drift',
+    surfaceName: LB ? 'Long Beach street asphalt, 14 m wide, concrete K-rail walls' : 'Ebisu uniform grey asphalt, 14 m wide',
     hallTheme: 'epoxy_hall',
-    mapStyle: 'ebisu', // full Ebisu venue (asphalt, kerbs, barriers, grandstands, hills, sky) instead of the aula
+    mapStyle: 'ebisu', // shared outdoor engine (asphalt, kerbs, barriers, grandstands, sky) instead of the aula
+    venue,
     trackWidth: EBISU_TRACK_WIDTH,
     floorColor: '#3B4048',
     gridColor: '#4A5059',
-    accentColor: '#FFB703',
+    accentColor: LB ? '#1E63D6' : '#FFB703',
     controlPoints: dense.map((p) => [Number(p.x.toFixed(2)), Number(p.z.toFixed(2))] as [number, number]),
     clippingZones: chosen.map((pk, i) => {
       const left = s[pk.i].curv > 0; // left-hand corner → outer edge is the right side (+1)
       const type = types[i % types.length];
       const inner = type === 'inner_clip';
       return {
-        id: `eb${i + 1}`,
+        id: `${LB ? 'lb' : 'eb'}${i + 1}`,
         label: `${left ? 'LEFT' : 'RIGHT'} ${pk.c > 0.06 ? 'HAIRPIN' : 'SWEEPER'} #${i + 1}`,
         type,
         t: pk.i / n,
@@ -225,7 +229,8 @@ function buildEbisuCircuit(): CircuitDef {
 }
 
 export const RC_CIRCUITS: CircuitDef[] = [
-  buildEbisuCircuit(),
+  buildEbisuCircuit('longbeach'),
+  buildEbisuCircuit('ebisu'),
   {
     id: 'shibuya_ptile',
     name: 'TOKYO GRAND AULA // D1GP TSUKUBA TECHNICAL PRO',

@@ -16,6 +16,7 @@ import {
   type GameSetup,
 } from '../game/tuning';
 import { CAMERA_MODES, CAR_STYLES, matchSmokePreset, type VisualPrefs } from '../game/prefs';
+import { VENUES, type Venue } from '../game/track';
 import { formatTime, ordinal, useRollingNumber } from './Hud';
 import { cn } from '../utils/cn';
 
@@ -153,6 +154,8 @@ interface StartProps {
   onToggleBackdrop?: () => void;
   /** Launch the Sakura RC engine on the Ebisu circuit (same venue, RC physics). */
   onPlaySakuraEbisu?: () => void;
+  venue?: Venue;
+  onChangeVenue?: (v: Venue) => void;
 }
 
 /**
@@ -206,7 +209,9 @@ function VisualChip({ prefs, onClick }: { prefs: VisualPrefs; onClick: () => voi
   );
 }
 
-export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, onOpenSetup, onOpenVisual, onOpenBMWAdjust, isTouch, backdrop = 'wall', onToggleBackdrop, onPlaySakuraEbisu }: StartProps) {
+export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, onOpenSetup, onOpenVisual, onOpenBMWAdjust, isTouch, backdrop = 'wall', onToggleBackdrop, onPlaySakuraEbisu, venue = 'longbeach', onChangeVenue }: StartProps) {
+  const venueInfo = VENUES.find((v) => v.id === venue) ?? VENUES[0];
+  const nextVenue = VENUES[(VENUES.findIndex((v) => v.id === venue) + 1) % VENUES.length];
   const engineInfo = ENGINES.find((e) => e.id === setup.engine);
   const diff = DIFFICULTIES.find((d) => d.id === setup.race.difficulty)?.label ?? 'Normal';
   const preset =
@@ -250,10 +255,28 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
           </div>
           <div className="dk-tile__meta">
             {onPlaySakuraEbisu
-              ? 'SIRKUIT EBISU 100% · RC 1:10 · 3 LAPS · LANGSUNG MAIN'
-              : `${setup.race.laps} LAPS · ${diff.toUpperCase()} · ${engineInfo?.label.toUpperCase()}${preset ? ` · ${preset.name.toUpperCase()}` : ''}`}
+              ? `${venueInfo.short} · RC 1:10 · 3 LAPS · LANGSUNG MAIN`
+              : `${setup.race.laps} LAPS · ${diff.toUpperCase()} · ${engineInfo?.label.toUpperCase()}`}
           </div>
         </button>
+
+        {onChangeVenue ? (
+          <button
+            type="button"
+            onClick={() => onChangeVenue(nextVenue.id)}
+            className={cn('dk-tile dk-tile--wide dk-anim-in', venue === 'longbeach' ? 'dk-tile--blue' : 'dk-tile--teal')}
+            style={{ animationDelay: '0.09s' }}
+            aria-label="Ganti sirkuit"
+          >
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__name">
+              CIRCUIT · {venueInfo.short}
+              <span className="ml-2 text-[0.6em] opacity-70">▸ {nextVenue.short}</span>
+            </span>
+            <span className="dk-tile__meta">{venueInfo.desc.toUpperCase()}</span>
+            <span className="dk-tile__glyph dk-float">{venue === 'longbeach' ? '🌴' : '⛰️'}</span>
+          </button>
+        ) : null}
 
         <div className="dk-tiles__row">
           <button type="button" onClick={onOpenSetup} className="dk-tile dk-tile--teal dk-anim-in" style={{ animationDelay: '0.12s' }}>

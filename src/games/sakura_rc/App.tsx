@@ -177,6 +177,19 @@ export function SakuraDriftApp({
     setCountdown(3);
   };
 
+  // DRIFT KING host: the circuit tile in the menu switches the venue → rebuild the showroom on the new layout
+  useEffect(() => {
+    if (!hosted || !initialCircuitId) return;
+    setCircuit((cur) => {
+      if (cur.id === initialCircuitId) return cur;
+      const next = RC_CIRCUITS.find((c) => c.id === initialCircuitId);
+      if (!next) return cur;
+      setSessionResult(null);
+      setResetTrigger((prev) => prev + 1);
+      return next;
+    });
+  }, [hosted, initialCircuitId]);
+
   // DRIFT KING host: menu → START RACE flips `showroom` false → start here without rebuilding the scene;
   // back to the menu (showroom true again) → rebuild so the car is parked on the grid again.
   const showroomPrev = useRef(showroom);

@@ -92,6 +92,10 @@ export interface StandOptions {
   vip?: boolean; // glass hospitality boxes under the roof
   name?: string; // text on the roof fascia
   floodlights?: boolean;
+  /** Striped event canopies (peaked tents on poles) over the top tiers instead of a solid roof (Long Beach). */
+  canopy?: { a: string; b: string };
+  /** Aluminium bleacher look: bare benches, low back rail, no tall back wall. */
+  bleacher?: boolean;
 }
 
 /**
@@ -173,8 +177,8 @@ export function buildProStand(length: number, tiers: number, colors: string[], r
   );
   railBanner.position.set(STEP_D / 2 + 0.03, 0.5 + STEP_H + 0.5, 0);
   group.add(railBanner);
-  const backH = tiers * STEP_H + 0.5 + (o.vip ? 3.0 : 1.2);
-  const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, backH, length + 0.4), new THREE.MeshStandardMaterial({ color: '#3a4250', roughness: 0.8 }));
+  const backH = tiers * STEP_H + 0.5 + (o.vip ? 3.0 : o.bleacher ? 0.4 : 1.2);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.5, backH, length + 0.4), new THREE.MeshStandardMaterial({ color: o.bleacher ? '#9aa3ad' : '#3a4250', roughness: 0.8, metalness: o.bleacher ? 0.4 : 0 }));
   back.position.set(-depth + 0.95, backH / 2, 0);
   back.castShadow = true;
   group.add(back);
@@ -258,6 +262,55 @@ export function buildProStand(length: number, tiers: number, colors: string[], r
         head.rotation.z = -0.5;
         group.add(head);
       }
+    }
+  }
+
+  // striped event canopies: a row of peaked tents on slim poles above the upper tiers
+  if (o.canopy && !o.roof) {
+    const c = document.createElement('canvas');
+    c.width = 256;
+    c.height = 32;
+    const ctx = c.getContext('2d')!;
+    for (let i = 0; i < 16; i++) {
+      ctx.fillStyle = i % 2 ? o.canopy.b : o.canopy.a;
+      ctx.fillRect(i * 16, 0, 17, 32);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const canopyMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.85, side: THREE.DoubleSide });
+    const tentW = Math.min(12, length / Math.max(1, Math.round(length / 11)));
+    const count = Math.max(1, Math.round(length / tentW));
+    const peakGeo = new THREE.ConeGeometry(tentW * 0.74, 3.0, 4, 1, true);
+    peakGeo.rotateY(Math.PI / 4);
+    const topY = 0.5 + tiers * STEP_H + 3.4;
+    const cxLocal = -depth * 0.55;
+    for (let k = 0; k < count; k++) {
+      const z = -length / 2 + tentW * (k + 0.5);
+      const peak = new THREE.Mesh(peakGeo, canopyMat);
+      peak.position.set(cxLocal, topY + 1.5, z);
+      peak.castShadow = true;
+      group.add(peak);
+      // scalloped valance under each peak
+      const valance = new THREE.Mesh(new THREE.BoxGeometry(tentW * 1.02, 0.5, tentW * 1.02), canopyMat);
+      valance.position.set(cxLocal, topY - 0.2, z);
+      group.add(valance);
+    }
+    for (let z = -length / 2 + 0.6; z <= length / 2; z += tentW) {
+      for (const x of [cxLocal - tentW * 0.48, cxLocal + tentW * 0.48]) {
+        const h = topY - Math.max(0, 0.5 + STEP_H * (1 + Math.round(-x / STEP_D)));
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, h, 6), whiteSteelMat);
+        pole.position.set(x, topY - h / 2, z);
+        group.add(pole);
+      }
+    }
+    if (o.name) {
+      const fascia = new THREE.Mesh(
+        new THREE.BoxGeometry(0.14, 1.1, length),
+        new THREE.MeshStandardMaterial({ map: textTexture(o.name, { w: 2048, h: 160, bg: '#0f172a', fg: '#ffffff', size: 110 }), roughness: 0.8 }),
+      );
+      fascia.position.set(cxLocal + tentW * 0.5, topY - 0.8, 0);
+      group.add(fascia);
     }
   }
 

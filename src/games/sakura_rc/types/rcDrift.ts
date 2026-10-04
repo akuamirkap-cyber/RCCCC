@@ -113,6 +113,8 @@ export interface CircuitDef {
   hallTheme: 'parquet_aula' | 'epoxy_hall' | 'carpet_convention';
   /** Haruna switches Sakura RC from the indoor arena to the outdoor touge scene. */
   mapStyle?: MapStyle;
+  /** For mapStyle 'ebisu' (shared outdoor engine): which venue/layout — 'ebisu' (default) or 'longbeach'. */
+  venue?: 'ebisu' | 'longbeach';
   trackWidth: number;
   floorColor: string;
   gridColor: string;

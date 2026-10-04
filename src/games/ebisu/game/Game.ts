@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST } from './track';
+import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, VENUE_POINTS, type Venue } from './track';
 import { buildWorld, GROUND_Y, type WorldRefs } from './world';
 import { CinematicFx, SakuraPetals } from './cinematic';
 import { Garage } from './garage';
@@ -295,10 +295,11 @@ export class Game {
     private canvas: HTMLCanvasElement,
     private cb: GameCallbacks,
     initialPrefs?: VisualPrefs,
+    readonly venue: Venue = 'ebisu',
   ) {
     if (initialPrefs) this.prefs = { ...initialPrefs, smoke: { ...initialPrefs.smoke } };
-    this.track = new Track();
-    this.zones = computeDriftZones(this.track, 4);
+    this.track = new Track(VENUE_POINTS[venue]);
+    this.zones = computeDriftZones(this.track, 4, venue);
     this.zoneOf = zoneLookup(this.track, this.zones);
     this.nextZone = nextZoneDistances(this.track, this.zoneOf);
 
@@ -312,7 +313,7 @@ export class Game {
     this.renderer.toneMappingExposure = 1.22;
 
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.5, 2000);
-    this.world = buildWorld(this.scene, this.track, this.renderer, this.zones);
+    this.world = buildWorld(this.scene, this.track, this.renderer, this.zones, venue);
     this.sun = this.world.sun;
     if (isMobile) {
       this.sun.shadow.mapSize.set(1024, 1024);

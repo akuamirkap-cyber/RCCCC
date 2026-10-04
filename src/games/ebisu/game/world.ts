@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { buildProCircuit } from './proCircuit';
 import type { LightingRig } from './lighting';
+import { buildLongBeachVenue } from './longBeach';
 import { buildProStand, buildStartGantry, buildProForest, makeRoadText } from './proVenue';
 import { buildGuardrails, buildCornerBlocks, makeTrafficCone, buildSponsorBoards, makeSponsorStrip } from './proBarriers';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
+import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH, type Venue } from './track';
 import { zoneLookup, type DriftZone } from './zones';
 
 export interface WorldRefs {
@@ -536,7 +537,7 @@ interface CrowdSpot {
   flag: boolean;
 }
 
-class Crowd {
+export class Crowd {
   readonly spots: CrowdSpot[] = [];
   constructor(private rand: () => number) {}
 
@@ -906,7 +907,8 @@ function applyEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer): TH
 /*  World                                                              */
 /* ------------------------------------------------------------------ */
 
-export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.WebGLRenderer, zones: DriftZone[]): WorldRefs {
+export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.WebGLRenderer, zones: DriftZone[], venue: Venue = 'ebisu'): WorldRefs {
+  const LB = venue === 'longbeach';
   const rand = mulberry32(1337);
   const aniso = renderer.capabilities.getMaxAnisotropy();
   const n = track.count;
@@ -1007,12 +1009,20 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   /* ---------- Image-based lighting: tiny custom env map for glossy reflections ---------- */
   const stylizedEnv = applyEnvironment(scene, renderer);
 
-  /* ---------- Terrain ---------- */
-  const terrain = buildTerrain(track, aniso);
-  scene.add(terrain.mesh);
+  /* ---------- Terrain (Ebisu hills) / flat harbour-city ground (Long Beach) ---------- */
+  const terrain = LB ? null : buildTerrain(track, aniso);
+  if (terrain) scene.add(terrain.mesh);
+  if (LB) {
+    // SoCal: clearer, bluer sky and crisper light than the mountain venue
+    skyMat.uniforms.topColor.value.set('#1f5fd6');
+    skyMat.uniforms.midColor.value.set('#6fa3ee');
+    skyMat.uniforms.warmColor.value.set('#ffe6c4');
+    hemi.intensity = 1.0;
+    hemi.groundColor.set('#8f9196');
+  }
 
   /* ---------- Pro circuit surface: asphalt, kerbs, run-off, grid, boards ---------- */
-  buildProCircuit(scene, track, zones, { aniso, groundY: GROUND_Y });
+  buildProCircuit(scene, track, zones, { aniso, groundY: GROUND_Y, runoff: LB ? 'none' : 'grass' });
 
   /* ---------- Drift zones: entry/exit lines, gates, cones ---------- */
   const coneSpots: { x: number; z: number; color: THREE.Color }[] = [];
@@ -1079,6 +1089,28 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   startText2.rotation.z = Math.PI;
   startGroup.add(startText2);
 
+  if (LB) {
+    buildLongBeachVenue(scene, track, zones, {
+      rand,
+      aniso,
+      crowd,
+      animated,
+      groundY: GROUND_Y,
+      buildWallStrip,
+      buildRangeStrip,
+      makeFenceTexture,
+      makeTextTexture,
+    });
+  }
+
+  // positions that the Ebisu scenery pass (part 2) must avoid
+  let standX = 0;
+  let standZ = 0;
+  let pitX = 0;
+  let pitZ = 0;
+  const miniStandCenters: { x: number; z: number }[] = [];
+
+  if (!LB) {
   /* ---------- Main grandstand (start straight) ---------- */
   const gs = samples[34];
   const mainStand = buildProStand(52, 6, ['#c8102e', '#f5f5f5', '#1d4ed8', '#f5f5f5'], rand, { roof: true, vip: true, name: 'EBISU CIRCUIT  ·  DRIFT KING', floodlights: true });
@@ -1091,8 +1123,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     mainStand.group.localToWorld(tmpV.set(lx, ly, lz));
     crowd.add(tmpV.x, tmpV.y, tmpV.z, { wave: lz + 23, jumpChance: 0.25, flagChance: 0.14 });
   }
-  const standX = mainStand.group.position.x;
-  const standZ = mainStand.group.position.z;
+  standX = mainStand.group.position.x;
+  standZ = mainStand.group.position.z;
 
   /* ---------- Pit building, pit wall, big screen (opposite the grandstand) ---------- */
   const ps = samples[32];
@@ -1163,8 +1195,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
       }
     }
   }
-  const pitX = pit.position.x + ps.rx * 9;
-  const pitZ = pit.position.z + ps.rz * 9;
+  pitX = pit.position.x + ps.rx * 9;
+  pitZ = pit.position.z + ps.rz * 9;
 
   /* ---------- Tire stacks (pit boxes + corner apexes) ---------- */
   const tireSpots: { x: number; z: number; y: number; color: THREE.Color }[] = [];
@@ -1219,7 +1251,6 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   const fencePostSpots: { x: number; z: number }[] = [];
   const umbrellaSpots: { x: number; z: number; color: THREE.Color }[] = [];
   const miniStandZones = [...zones]; // every corner gets a covered grandstand — all fans are seated
-  const miniStandCenters: { x: number; z: number }[] = [];
 
   for (const z of zones) {
     const side = -z.dir;
@@ -1419,6 +1450,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     });
   }
 
+  } // end Ebisu venue dressing (part 1)
+
   /* ---------- Crowd meshes (everyone faces the nearest bit of track) ---------- */
   animated.push(
     crowd.build(scene, (x, z) => {
@@ -1427,6 +1460,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }),
   );
 
+  if (terrain) {
   /* ---------- Ebisu paddock: asphalt lot, tents, service buildings ---------- */
   const rockMat = new THREE.MeshStandardMaterial({ color: '#8d8f94', roughness: 0.95, flatShading: true });
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
@@ -1685,6 +1719,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   rocks.count = nRk;
   rocks.castShadow = true;
   scene.add(rocks);
+  } // end Ebisu scenery (part 2)
 
   /* ---------- Drifting clouds ---------- */
   const cloudMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, emissive: '#ffe7cf', emissiveIntensity: 0.45, envMapIntensity: 0.4 });
@@ -1713,6 +1748,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }
   });
 
+  if (!LB) {
   /* ---------- Layered mountain silhouettes (iRacing-style backdrop) ---------- */
   const ridgeCols = ['#5d7090', '#6d80a0', '#7e92b0', '#8fa3c2'];
   for (let i = 0; i < 10; i++) {
@@ -1750,6 +1786,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
       if (m.position.x > cx + 520) m.position.x = cx - 520;
     }
   });
+  } // end Ebisu backdrop (part 3)
 
   return {
     sun,

@@ -1,4 +1,4 @@
-import type { Track } from './track';
+import type { Track, Venue } from './track';
 
 /** A stretch of the circuit where drifting pays extra ("drift zone"). */
 export interface DriftZone {
@@ -25,7 +25,7 @@ interface CornerGroup {
 }
 
 /** Finds the most significant corners of the track and turns them into drift zones. */
-export function computeDriftZones(track: Track, maxZones = 4): DriftZone[] {
+export function computeDriftZones(track: Track, maxZones = 4, venue: Venue = 'ebisu'): DriftZone[] {
   const n = track.count;
   const s = track.samples;
   const TH = 0.012;
@@ -94,7 +94,17 @@ export function computeDriftZones(track: Track, maxZones = 4): DriftZone[] {
         apex = i;
       }
     }
-    const base = g.parts > 1 ? 'TOUGE ESSES' : g.turn > 2.3 ? 'MINAMI HAIRPIN' : g.turn > 1.15 ? 'NISHI SWEEPER' : 'KITA KINK';
+    const LB_NAMES = ['TURN 9 SWEEPER', 'TURN 10 ESSES', 'TURN 11 HAIRPIN', 'SHORELINE COMPLEX'];
+    const base =
+      venue === 'longbeach'
+        ? LB_NAMES[id] ?? 'HARBOR CORNER'
+        : g.parts > 1
+        ? 'TOUGE ESSES'
+        : g.turn > 2.3
+        ? 'MINAMI HAIRPIN'
+        : g.turn > 1.15
+        ? 'NISHI SWEEPER'
+        : 'KITA KINK';
     const count = (nameCount.get(base) ?? 0) + 1;
     nameCount.set(base, count);
     const name = count > 1 ? `${base} ${'I'.repeat(count)}` : base;

@@ -25,7 +25,7 @@ import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
 import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 import { createBMWCarMesh } from '@/utils/bmwCar';
 import { buildCarXWheelParts } from '../../ebisu/game/car';
-import { Track as EbisuTrack, HALF_WIDTH as EBISU_HALF_WIDTH, CURB_WIDTH as EBISU_CURB_WIDTH, WALL_DIST as EBISU_WALL_DIST } from '../../ebisu/game/track';
+import { Track as EbisuTrack, HALF_WIDTH as EBISU_HALF_WIDTH, CURB_WIDTH as EBISU_CURB_WIDTH, WALL_DIST as EBISU_WALL_DIST, VENUE_POINTS } from '../../ebisu/game/track';
 import { buildWorld as buildEbisuWorld, SUN_OFFSET as EBISU_SUN_OFFSET } from '../../ebisu/game/world';
 import { computeDriftZones as computeEbisuZones } from '../../ebisu/game/zones';
 import { LightingController as EbisuLighting } from '../../ebisu/game/lighting';
@@ -449,8 +449,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     let ebisuWorld: ReturnType<typeof buildEbisuWorld> | null = null;
     let ebisuLighting: EbisuLighting | null = null;
     if (useEbisuWorld) {
-      const ebisuTrack = new EbisuTrack();
-      ebisuWorld = buildEbisuWorld(scene, ebisuTrack, renderer, computeEbisuZones(ebisuTrack, 4));
+      const venue = circuit.venue ?? 'ebisu';
+      const ebisuTrack = new EbisuTrack(VENUE_POINTS[venue]);
+      ebisuWorld = buildEbisuWorld(scene, ebisuTrack, renderer, computeEbisuZones(ebisuTrack, 4, venue), venue);
       ebisuLighting = new EbisuLighting(scene, renderer, ebisuWorld.lighting);
       ebisuLighting.setMode('hdri');
     }

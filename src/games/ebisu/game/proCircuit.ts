@@ -298,6 +298,8 @@ function windowAbsMax(track: Track, i: number, back: number, ahead: number): num
 export interface ProCircuitOptions {
   aniso: number;
   groundY: number;
+  /** 'grass' (Ebisu) or 'none' when the venue draws its own street apron (Long Beach). */
+  runoff?: 'grass' | 'none';
 }
 
 /** Builds the full pro track dressing. Returns the meshes it added (for disposal if ever needed). */
@@ -443,7 +445,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
 
   /* ---------- run-off: clean uniform grass (no gravel / apron strips) ---------- */
   const grassMat = new THREE.MeshStandardMaterial({ color: '#5da84f', roughness: 1, side: THREE.DoubleSide });
-  for (const side of [1, -1] as const) {
+  for (const side of (o.runoff ?? 'grass') === 'grass' ? ([1, -1] as const) : []) {
     const g = buildColumnsStrip(track, 2, () => [
       { off: (HALF_WIDTH + CURB_WIDTH) * side, y: 0.0 },
       { off: WALL_DIST * side, y: 0.0 },
