@@ -248,6 +248,8 @@ interface HudProps {
   popups: Popup[];
   onSteer: (side: 'left' | 'right', down: boolean) => void;
   onHandbrake: (down: boolean) => void;
+  /** Throttle hold — only shown for the Sakura RC engine (manual gas). */
+  onGas?: (down: boolean) => void;
   onBoost: (down: boolean) => void;
   onPause: () => void;
   onToggleMute: () => void;
@@ -261,7 +263,7 @@ interface HudProps {
 
 const CAMERA_ICON: Record<HudState['camera'], string> = { rally: '🎨', chase: '🎬', cockpit: '🪟', far: '🚁' };
 
-export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPause, onToggleMute, onCycleCamera, onCycleEngine, muted, isTouch: isTouchDevice, layout = 'pc' }: HudProps) {
+export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onGas, onBoost, onPause, onToggleMute, onCycleCamera, onCycleEngine, muted, isTouch: isTouchDevice, layout = 'pc' }: HudProps) {
   const active = hud.phase === 'racing' || hud.phase === 'countdown' || hud.phase === 'finished';
   const racing = hud.phase === 'racing';
   const mobile = layout === 'mobile';
@@ -513,6 +515,32 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
               <span className="flex flex-col items-center leading-tight">
                 DRIFT
                 {!isTouch && <span className="text-[10px] font-bold tracking-[0.3em] text-white/80">SPACE</span>}
+              </span>
+            </button>
+          )}
+
+          {/* GAS button — Sakura RC engine only (manual throttle, like the original Sakura RC) */}
+          {racing && hud.engine === 'sakura_rc' && onGas && (
+            <button
+              type="button"
+              className={cn(
+                'eb-drift-btn eb-gas-btn pointer-events-auto absolute select-none',
+                mobile ? 'bottom-3 right-[7.5rem] eb-drift-btn--mobile' : 'bottom-4 left-1/2 ml-28 sm:bottom-6 sm:ml-32',
+                !isTouch && 'hidden sm:flex',
+              )}
+              style={{ touchAction: 'none' }}
+              onPointerDown={(e) => {
+                e.currentTarget.setPointerCapture(e.pointerId);
+                onGas(true);
+              }}
+              onPointerUp={() => onGas(false)}
+              onPointerCancel={() => onGas(false)}
+              onLostPointerCapture={() => onGas(false)}
+              onContextMenu={(e) => e.preventDefault()}
+            >
+              <span className="flex flex-col items-center leading-tight">
+                GAS
+                {!isTouch && <span className="text-[10px] font-bold tracking-[0.3em] text-white/80">W / ↑</span>}
               </span>
             </button>
           )}

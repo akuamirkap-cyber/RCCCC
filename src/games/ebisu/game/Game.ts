@@ -131,6 +131,7 @@ export interface InputState {
   right: boolean;
   handbrake: boolean;
   brake: boolean;
+  gas: boolean; // throttle (W / ↑ / GAS button) — only the Sakura RC engine needs it; Slip & Classic auto-accelerate
   boost: boolean; // manual boost trigger (SHIFT / boost button)
 }
 
@@ -231,7 +232,7 @@ function hex(c: number) {
 }
 
 export class Game {
-  readonly input: InputState = { left: false, right: false, handbrake: false, brake: false, boost: false };
+  readonly input: InputState = { left: false, right: false, handbrake: false, brake: false, gas: false, boost: false };
   readonly track: Track;
   readonly zones: DriftZone[];
   readonly audio = new GameAudio();
@@ -452,7 +453,7 @@ export class Game {
     if (this.paused === v) return;
     this.paused = v;
     if (v) {
-      this.input.left = this.input.right = this.input.handbrake = this.input.brake = this.input.boost = false;
+      this.input.left = this.input.right = this.input.handbrake = this.input.brake = this.input.gas = this.input.boost = false;
       this.audio.setEngine(0, 0, false);
       this.audio.setDrift(0);
     }
@@ -1088,7 +1089,8 @@ export class Game {
       v,
       {
         steerTarget: racing ? (inp.right ? 1 : 0) - (inp.left ? 1 : 0) : 0,
-        throttle: inp.brake ? -0.6 : 1,
+        // Sakura RC = manual throttle like the original game: no gas held → no acceleration, the car coasts down
+        throttle: inp.brake ? -0.6 : inp.gas ? 1 : 0,
         handbrake: inp.handbrake,
         active: racing,
       },

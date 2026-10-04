@@ -294,6 +294,10 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
         case 'KeyS':
           g.input.brake = down;
           break;
+        case 'ArrowUp':
+        case 'KeyW':
+          g.input.gas = down;
+          break;
         case 'KeyC':
           if (down && panelRef.current === 'none' && (phaseRef.current === 'racing' || phaseRef.current === 'countdown')) cycleCamera();
           break;
@@ -315,7 +319,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
     const blur = () => {
       const g = gameRef.current;
       if (g) {
-        g.input.left = g.input.right = g.input.handbrake = g.input.brake = g.input.boost = false;
+        g.input.left = g.input.right = g.input.handbrake = g.input.brake = g.input.gas = g.input.boost = false;
       }
     };
     const onVisibility = () => {
@@ -463,6 +467,11 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
     if (g) g.input.boost = down;
   }, []);
 
+  const gas = useCallback((down: boolean) => {
+    const g = gameRef.current;
+    if (g) g.input.gas = down;
+  }, []);
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-sky-300">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full touch-none" />
@@ -473,6 +482,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
         popups={popups}
         onSteer={steer}
         onHandbrake={handbrake}
+        onGas={gas}
         onBoost={boost}
         onPause={() => togglePause(true)}
         onToggleMute={toggleMute}
