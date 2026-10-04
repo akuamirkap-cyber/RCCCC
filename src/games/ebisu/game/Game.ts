@@ -3,6 +3,8 @@ import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST } from './track';
 import { buildWorld, GROUND_Y, type WorldRefs } from './world';
 import { CinematicFx, SakuraPetals } from './cinematic';
 import { Garage } from './garage';
+
+export type MenuBackdrop = 'wall' | 'scenic';
 import { LightingController } from './lighting';
 import { createCar, disposeCar, setBrakeLights, type CarModel } from './car';
 import { SkidMarks, Smoke, type WheelAnchor } from './effects';
@@ -247,6 +249,7 @@ export class Game {
   private fx: CinematicFx | null = null;
   private petals: SakuraPetals;
   private garage = new Garage();
+  private menuBackdrop: MenuBackdrop = 'wall';
   private playerModel: CarModel;
   private player!: PlayerState;
   private ais: AICar[] = [];
@@ -360,7 +363,7 @@ export class Game {
     this.applyAiSpeeds();
     this.resetGrid();
     this.phase = 'menu';
-    this.garage.show(this.playerModel.group);
+    this.applyMenuBackdrop();
     this.handleResize();
     this.resizeObs = new ResizeObserver(() => this.handleResize());
     this.resizeObs.observe(canvas.parentElement ?? canvas);
@@ -509,7 +512,7 @@ export class Game {
     this.playerModel = createCar(CFG.playerColor, style, { nativePaint: true });
     this.playerModel.group.position.set(p.x, 0, p.z);
     this.playerModel.group.rotation.y = p.angle;
-    if (this.phase === 'menu') this.garage.show(this.playerModel.group);
+    if (this.phase === 'menu') this.applyMenuBackdrop();
     else this.scene.add(this.playerModel.group);
     for (const ai of this.ais) {
       disposeCar(ai.model);
@@ -731,6 +734,31 @@ export class Game {
     this.emitHud(true);
   }
 
+  /** Start-menu backdrop: flat studio wall, or the real circuit (grandstand, hills, sky) behind the parked car. */
+  setMenuBackdrop(mode: MenuBackdrop) {
+    if (this.menuBackdrop === mode) return;
+    this.menuBackdrop = mode;
+    if (this.phase === 'menu') this.applyMenuBackdrop();
+  }
+
+  getMenuBackdrop(): MenuBackdrop {
+    return this.menuBackdrop;
+  }
+
+  private applyMenuBackdrop() {
+    const car = this.playerModel.group;
+    if (this.menuBackdrop === 'wall') {
+      this.garage.show(car);
+      return;
+    }
+    const parked = this.garage.release();
+    if (parked && parked.parent !== this.scene) this.scene.add(parked);
+    else if (!car.parent) this.scene.add(car);
+    const p = this.player;
+    car.position.set(p.x, 0, p.z);
+    car.rotation.set(0, p.angle, 0);
+  }
+
   /** R key / reset button: put the player back on the centerline of the nearest track sample, facing forward. */
   resetToTrack() {
     if (this.phase !== 'racing' || this.paused) return;
@@ -778,7 +806,7 @@ export class Game {
     this.paused = false;
     this.resetGrid();
     this.phase = 'menu';
-    this.garage.show(this.playerModel.group);
+    this.applyMenuBackdrop();
     this.updateCockpitVisibility();
     this.cb.onPhase('menu');
   }
@@ -1654,14 +1682,20 @@ export class Game {
     const p = this.player;
     const cam = this.camera;
     if (this.phase === 'menu') {
-      const t = this.time * 0.35;
-      const target = new THREE.Vector3(p.x + Math.sin(t) * 10.5, 3.6 + Math.sin(t * 0.7) * 0.6, p.z + Math.cos(t) * 10.5);
-      this.camPos.lerp(target, 1 - Math.exp(-dt * 2.5));
-      this.camLook.lerp(new THREE.Vector3(p.x, 0.7, p.z), 1 - Math.exp(-dt * 4));
+      // scenic backdrop: the same fixed showroom pose as the garage, but on the circuit — the car never orbits
+      const a = p.angle;
+      const fx = Math.sin(a);
+      const fz = Math.cos(a);
+      const rx = Math.cos(a);
+      const rz = -Math.sin(a);
+      const look = new THREE.Vector3(p.x + fx * Garage.CAM_SHIFT, Garage.LOOK_HEIGHT, p.z + fz * Garage.CAM_SHIFT);
+      const pos = new THREE.Vector3(look.x + rx * Garage.CAM_SIDE, Garage.CAM_HEIGHT, look.z + rz * Garage.CAM_SIDE);
+      this.camPos.copy(pos);
+      this.camLook.copy(look);
       cam.up.set(0, 1, 0);
-      cam.position.copy(this.camPos);
-      cam.lookAt(this.camLook);
-      this.camFov += (50 - this.camFov) * Math.min(1, dt * 3);
+      cam.position.copy(pos);
+      cam.lookAt(look);
+      this.camFov = this.garage.camera.fov;
       cam.fov = this.camFov;
       cam.updateProjectionMatrix();
       return;

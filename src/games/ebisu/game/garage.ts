@@ -25,6 +25,11 @@ function gradientTexture(top: string, bottom: string): THREE.CanvasTexture {
 }
 
 export class Garage {
+  /** Showroom camera in car-local space (+Z = nose, +X = car's right). Also used for the scenic (on-circuit) backdrop. */
+  static readonly CAM_SIDE = -12.8; // 30 % further back than the first version — the whole car fits with margin
+  static readonly CAM_HEIGHT = 1.2;
+  static readonly LOOK_HEIGHT = 0.85;
+  static readonly CAM_SHIFT = -1.6; // look target toward the tail → car sits right of centre, nose toward screen-right
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   private car: THREE.Group | null = null;
@@ -87,8 +92,8 @@ export class Garage {
 
     // fixed low side camera; the look target is shifted toward the nose so the car sits on the right of the frame
     this.camera = new THREE.PerspectiveCamera(30, 1, 0.1, 300);
-    this.camera.position.set(-9.8, 1.15, -2.0);
-    this.camera.lookAt(0, 0.85, -2.0);
+    this.camera.position.set(Garage.CAM_SIDE, Garage.CAM_HEIGHT, Garage.CAM_SHIFT);
+    this.camera.lookAt(0, Garage.LOOK_HEIGHT, Garage.CAM_SHIFT);
   }
 
   setAspect(aspect: number) {

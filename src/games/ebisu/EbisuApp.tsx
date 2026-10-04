@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Game, type HudState, type Phase, type PopupKind, type RaceResult } from './game/Game';
+import { Game, type HudState, type MenuBackdrop, type Phase, type PopupKind, type RaceResult } from './game/Game';
 import {
   DEFAULT_ENGINE,
   DEFAULT_RACE,
@@ -90,6 +90,14 @@ const isTouchDevice = typeof window !== 'undefined' && window.matchMedia('(point
 /** Display mode: PC (keyboard, large HUD) vs Mobile Landscape (touch buttons, compact HUD). */
 export type DisplayMode = 'auto' | 'pc' | 'mobile';
 const DISPLAY_KEY = 'ebisu.displayMode';
+const BACKDROP_KEY = 'ebisu.menuBackdrop';
+function loadBackdrop(): MenuBackdrop {
+  try {
+    return localStorage.getItem(BACKDROP_KEY) === 'scenic' ? 'scenic' : 'wall';
+  } catch {
+    return 'wall';
+  }
+}
 function loadDisplayMode(): DisplayMode {
   try {
     const v = localStorage.getItem(DISPLAY_KEY);
@@ -153,6 +161,19 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
 
   // Display mode (PC / Mobile Landscape / Auto)
   const [displayMode, setDisplayMode] = useState<DisplayMode>(loadDisplayMode);
+  const [menuBackdrop, setMenuBackdrop] = useState<MenuBackdrop>(loadBackdrop);
+  const toggleBackdrop = useCallback(() => {
+    setMenuBackdrop((prev) => {
+      const next: MenuBackdrop = prev === 'wall' ? 'scenic' : 'wall';
+      try {
+        localStorage.setItem(BACKDROP_KEY, next);
+      } catch {
+        /* ignore */
+      }
+      gameRef.current?.setMenuBackdrop(next);
+      return next;
+    });
+  }, []);
   const mobileUI = displayMode === 'mobile' || (displayMode === 'auto' && isTouchDevice);
   const portrait = useIsPortrait();
   const cycleDisplayMode = () => {
@@ -261,6 +282,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
       prefsRef.current,
     );
     gameRef.current = game;
+    game.setMenuBackdrop(loadBackdrop());
     game.setTuning(setupRef.current.tuning);
     game.setSlipTuning(setupRef.current.slipTuning);
     game.setSakuraTuning(setupRef.current.sakuraTuning);
@@ -527,6 +549,8 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
           onOpenVisual={() => setPanel('visual')}
           onOpenBMWAdjust={() => setShowBMWAdjust(true)}
           isTouch={isTouchDevice}
+          backdrop={menuBackdrop}
+          onToggleBackdrop={toggleBackdrop}
         />
       )}
 

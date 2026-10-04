@@ -148,6 +148,8 @@ interface StartProps {
   onOpenVisual: () => void;
   onOpenBMWAdjust?: () => void;
   isTouch: boolean;
+  backdrop?: 'wall' | 'scenic';
+  onToggleBackdrop?: () => void;
 }
 
 function VisualChip({ prefs, onClick }: { prefs: VisualPrefs; onClick: () => void }) {
@@ -167,7 +169,7 @@ function VisualChip({ prefs, onClick }: { prefs: VisualPrefs; onClick: () => voi
   );
 }
 
-export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, onOpenSetup, onOpenVisual, onOpenBMWAdjust, isTouch }: StartProps) {
+export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, onOpenSetup, onOpenVisual, onOpenBMWAdjust, isTouch, backdrop = 'wall', onToggleBackdrop }: StartProps) {
   const engineInfo = ENGINES.find((e) => e.id === setup.engine);
   const diff = DIFFICULTIES.find((d) => d.id === setup.race.difficulty)?.label ?? 'Normal';
   const preset =
@@ -177,9 +179,14 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
   const smoke = matchSmokePreset(prefs.smoke)?.label ?? 'Custom';
   const scoreAnim = useRollingNumber(best.score, 900);
   return (
-    <div className="dk-menu scroll-y absolute inset-0 text-white">
+    <div className={cn('dk-menu scroll-y absolute inset-0 text-white', backdrop === 'scenic' && 'dk-menu--scenic')}>
       {/* angled slate panel behind the tile column (keeps the 3D car visible on the right) */}
       <div className="dk-menu__panel" />
+      <div className="dk-bubbles" aria-hidden>
+        {Array.from({ length: 9 }, (_, i) => (
+          <i key={i} style={{ left: `${4 + i * 5.2}%`, animationDelay: `${i * 0.9}s`, animationDuration: `${7 + (i % 4) * 2}s` }} />
+        ))}
+      </div>
 
       {/* title — top right, above the showroom car */}
       <div className="dk-title anim-slide-up">
@@ -276,6 +283,12 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
             <span>⚙️</span>
             <span>SETTINGS</span>
           </button>
+          {onToggleBackdrop && (
+            <button type="button" onClick={onToggleBackdrop} className="dk-bar__btn dk-bar__btn--accent" title="Ganti latar garasi / pemandangan sirkuit">
+              <span>{backdrop === 'wall' ? '🏔️' : '🏢'}</span>
+              <span>{backdrop === 'wall' ? 'PEMANDANGAN' : 'GARASI'}</span>
+            </button>
+          )}
           <span className="dk-bar__hint">
             {isTouch ? (
               <>HOLD LEFT / RIGHT = STEER · DRIFT = HANDBRAKE · GAS (SAKURA RC) · ↺ RESET</>
