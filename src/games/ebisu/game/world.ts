@@ -1014,16 +1014,12 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   /* ---------- Pro circuit surface: asphalt, kerbs, run-off, grid, boards ---------- */
   buildProCircuit(scene, track, zones, { aniso, groundY: GROUND_Y });
 
-  /* ---------- Drift zones: painted road, gates, cones ---------- */
+  /* ---------- Drift zones: entry/exit lines, gates, cones ---------- */
   const coneSpots: { x: number; z: number; color: THREE.Color }[] = [];
   for (const z of zones) {
     const base = new THREE.Color(z.color);
-    const paint = new THREE.Mesh(
-      buildRangeStrip(track, z.start, z.len, -HALF_WIDTH + 0.3, HALF_WIDTH - 0.3, 0.018),
-      new THREE.MeshBasicMaterial({ color: base, transparent: true, opacity: 0.13, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-    );
-    paint.renderOrder = 1;
-    scene.add(paint);
+    // NOTE: no tinted "paint" over the asphalt inside the zone — it turned the road tan/brown in the
+    // ×3 (amber) zones. The zone is marked by its entry/exit lines, gates and coloured cones only.
     const lineMat = new THREE.MeshBasicMaterial({ color: base, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
     const lineIn = new THREE.Mesh(buildRangeStrip(track, z.start, 2, -HALF_WIDTH + 0.3, HALF_WIDTH - 0.3, 0.02), lineMat);
     const lineOut = new THREE.Mesh(buildRangeStrip(track, (z.start + z.len - 2 + n) % n, 2, -HALF_WIDTH + 0.3, HALF_WIDTH - 0.3, 0.02), lineMat);
