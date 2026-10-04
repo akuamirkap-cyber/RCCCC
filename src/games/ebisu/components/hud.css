@@ -696,8 +696,6 @@
   50% { transform: translateX(-1rem) skewY(-2deg); }
   100% { transform: translateX(-2rem) skewY(0deg); }
 }
-  to { background-position: -2rem 0, -1rem 1rem; }
-}
 /* light sweep across every tile */
 .dk-tile__sheen {
   position: absolute;
