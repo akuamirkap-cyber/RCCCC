@@ -199,6 +199,7 @@ function buildEbisuCircuit(): CircuitDef {
     subtitle: 'Start straight -> T1 sweeper -> tight hairpin -> esses -> back hairpin -> final banked sweeper — identical to Ebisu Drift',
     surfaceName: 'Ebisu uniform grey asphalt, 14 m wide',
     hallTheme: 'epoxy_hall',
+    mapStyle: 'ebisu', // full Ebisu venue (asphalt, kerbs, barriers, grandstands, hills, sky) instead of the aula
     trackWidth: EBISU_TRACK_WIDTH,
     floorColor: '#3B4048',
     gridColor: '#4A5059',

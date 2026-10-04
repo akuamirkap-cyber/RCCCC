@@ -24,6 +24,10 @@ import { buildWorld as buildHarunaWorld } from '../../haruna_new/game/world';
 import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
 import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 import { createBMWCarMesh } from '@/utils/bmwCar';
+import { Track as EbisuTrack } from '../../ebisu/game/track';
+import { buildWorld as buildEbisuWorld, SUN_OFFSET as EBISU_SUN_OFFSET } from '../../ebisu/game/world';
+import { computeDriftZones as computeEbisuZones } from '../../ebisu/game/zones';
+import { LightingController as EbisuLighting } from '../../ebisu/game/lighting';
 import { ENEMY_BOTS_DATA } from '../data/circuitsAndCars';
 import {
   JumpRamp,
@@ -248,9 +252,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // Jangan bangun terrain besar saat menu; map akan dibangun ulang ketika START ditekan.
     const useHarunaWorld = isHarunaMap && !MENU_MODE;
     const harunaRuntimeTrack = isHarunaMap ? buildHarunaTrack() : null;
+    // Ebisu: the complete Ebisu Drift venue is built by the Ebisu world builder; Sakura only adds cars + physics.
+    const isEbisuMap = circuit.mapStyle === 'ebisu';
+    const useEbisuWorld = isEbisuMap && !MENU_MODE;
+    // Sakura's own arena dressing (P-tile ribbon, curbs, gantry, banners, garden, ramps) is skipped on imported worlds.
+    const skipArenaDressing = isHarunaMap || isEbisuMap;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(
-      MENU_MODE ? '#2a1440' : useHarunaWorld ? '#e6eeeb' : '#1A2030'
+      MENU_MODE ? '#2a1440' : useHarunaWorld ? '#e6eeeb' : useEbisuWorld ? '#d9e1f2' : '#1A2030'
     );
     // Haruna memakai kabut horizon lembut ala Art of Rally; aula tetap memakai fog volumetrik.
     scene.fog = MENU_MODE
@@ -263,7 +272,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       MENU_MODE ? 48 : 46,
       container.clientWidth / container.clientHeight,
       0.1,
-      MENU_MODE ? 1200 : useHarunaWorld ? 1400 : 350
+      MENU_MODE ? 1200 : useHarunaWorld ? 1400 : useEbisuWorld ? 2000 : 350
     );
     if (MENU_MODE) {
       // Frame pertama langsung benar: kamera mulai di dekat diorama
@@ -285,7 +294,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = useHarunaWorld ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = useHarunaWorld ? 0.95 : 1.0;
+    renderer.toneMappingExposure = useHarunaWorld ? 0.95 : useEbisuWorld ? 1.22 : 1.0;
 
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
@@ -294,7 +303,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
     pmremGenerator.compileEquirectangularShader();
 
-    const hdriRenderTarget = useHarunaWorld ? null : buildProceduralHDREnv(pmremGenerator);
+    const hdriRenderTarget = useHarunaWorld || useEbisuWorld ? null : buildProceduralHDREnv(pmremGenerator);
     if (hdriRenderTarget) {
       scene.environment = hdriRenderTarget.texture;
       // HDRI aula HD: pantulan panel LED & skylight terlihat jelas di bodi/lantai
@@ -354,6 +363,15 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     );
     sakuraWash.position.set(-20, 18, 45);
     scene.add(sakuraWash);
+    if (useEbisuWorld) {
+      // the Ebisu rig (sun + hemi + fill + HDRI/stylized env) lights the scene; mute the arena lights
+      ambientLight.intensity = 0;
+      hemiLight.intensity = 0;
+      mainDirLight.intensity = 0;
+      mainDirLight.castShadow = false;
+      fillDirLight.intensity = 0;
+      sakuraWash.intensity = 0;
+    }
 
     // --- 3. MAP ENVIRONMENT ---
     const harunaBounds = harunaRuntimeTrack?.bounds;
@@ -366,7 +384,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           cz: (harunaBounds.minZ + harunaBounds.maxZ) / 2,
         }
       : computeHallFrame(circuit.controlPoints);
-    const aulaBuilt = useHarunaWorld
+    const aulaBuilt = useHarunaWorld || useEbisuWorld
       ? {
           aulaGroup: new THREE.Group(),
           rostrumRect: { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity },
@@ -404,6 +422,17 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         [-0.42, 0.8, 0.38]
       );
       scene.add(harunaSky.dome, harunaSky.clouds);
+    }
+
+    // Ebisu Drift venue: identical builder, track and zones as the Ebisu game (asphalt, kerbs, LED gantry,
+    // sponsor hoardings, grandstands with seated crowd, cones, hills, lake, sky, HDRI lighting).
+    let ebisuWorld: ReturnType<typeof buildEbisuWorld> | null = null;
+    let ebisuLighting: EbisuLighting | null = null;
+    if (useEbisuWorld) {
+      const ebisuTrack = new EbisuTrack();
+      ebisuWorld = buildEbisuWorld(scene, ebisuTrack, renderer, computeEbisuZones(ebisuTrack, 4));
+      ebisuLighting = new EbisuLighting(scene, renderer, ebisuWorld.lighting);
+      ebisuLighting.setMode('hdri');
     }
 
     // --- KODE AULA LAMA DINONAKTIFKAN (diganti builder di atas) ---
@@ -1098,7 +1127,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const _scratchFrame2 = { x: 0, z: 0, nx: 0, nz: 0, heading: 0 };
 
     // --- AIR JUMP RAMPS (aula saja): gundukan kicker otomatis di lurusan terpanjang ---
-    const jumpRamps: JumpRamp[] = isHarunaMap
+    const jumpRamps: JumpRamp[] = skipArenaDressing
       ? []
       : findJumpRampSpots(botTrack, circuit.clippingZones.map((z) => z.t), 2);
     const JUMP_GRAVITY = 13.5; // sedikit > 9.81 agar lompatan terasa padat, tidak melayang lama
@@ -1220,12 +1249,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     // Tokyo Grand Aula RC surface overlay: Haruna keeps its centerline/world,
     // but the drivable asphalt is the same Sakura P-Tile track surface.
-    const subMatMesh = buildTrackRibbon(circuit.trackWidth + 2.0, 0.015, '#090C12', 0.45, false);
-    scene.add(subMatMesh);
+    if (!isEbisuMap) {
+      const subMatMesh = buildTrackRibbon(circuit.trackWidth + 2.0, 0.015, '#090C12', 0.45, false);
+      scene.add(subMatMesh);
 
-    // Main Pro P-Tile Track Surface (satin, tidak silau)
-    const trackMesh = buildTrackRibbon(circuit.trackWidth, 0.028, '#161C28', 0.34, true);
-    scene.add(trackMesh);
+      // Main Pro P-Tile Track Surface (satin, tidak silau)
+      const trackMesh = buildTrackRibbon(circuit.trackWidth, 0.028, '#161C28', 0.34, true);
+      scene.add(trackMesh);
+    }
 
     // Mesh ramp air-jump (permukaan + dinding hazard + pylon LED berkedip)
     const rampPylonMats: THREE.MeshStandardMaterial[] = [];
@@ -1236,10 +1267,12 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     }
 
     // Ideal D1 Drift Line Groove
-    const grooveMesh = buildTrackRibbon(0.42, 0.036, circuit.accentColor, 0.16, false);
-    (grooveMesh.material as THREE.MeshStandardMaterial).transparent = true;
-    (grooveMesh.material as THREE.MeshStandardMaterial).opacity = 0.28;
-    scene.add(grooveMesh);
+    if (!isEbisuMap) {
+      const grooveMesh = buildTrackRibbon(0.42, 0.036, circuit.accentColor, 0.16, false);
+      (grooveMesh.material as THREE.MeshStandardMaterial).transparent = true;
+      (grooveMesh.material as THREE.MeshStandardMaterial).opacity = 0.28;
+      scene.add(grooveMesh);
+    }
 
     // Continuous 3D Extruded RC Track Guardrails & Beveled Curbs (Zero jagged blocks or broken seams!)
     const createCurbStripeTexture = () => {
@@ -1334,12 +1367,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     };
 
     // Left & Right Continuous Striped Inner Curbs
-    scene.add(buildContinuousRail(-(halfWidth + 0.25), 0.45, 0.30, curbStripeMat));
-    scene.add(buildContinuousRail(halfWidth + 0.25, 0.45, 0.30, curbStripeMat));
+    if (!isEbisuMap) {
+      scene.add(buildContinuousRail(-(halfWidth + 0.25), 0.45, 0.30, curbStripeMat));
+      scene.add(buildContinuousRail(halfWidth + 0.25, 0.45, 0.30, curbStripeMat));
+    }
 
     // Left & Right Continuous Sleek Dark Outer Cushion Guardrail Walls
-    // Haruna already has its native mountain guardrails; Aula keeps the extra RC wall.
-    if (!isHarunaMap) {
+    // Haruna / Ebisu already have their native guardrails; Aula keeps the extra RC wall.
+    if (!skipArenaDressing) {
       scene.add(buildContinuousRail(-(halfWidth + 0.68), 0.32, 0.46, outerRetainingMat));
       scene.add(buildContinuousRail(halfWidth + 0.68, 0.32, 0.46, outerRetainingMat));
     }
@@ -1401,7 +1436,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     startLineMesh.position.y = trackSurfaceLift + 0.046;
 
     gantryGroup.add(leftPillar, rightPillar, topBeam, startLineMesh);
-    scene.add(gantryGroup);
+    if (!isEbisuMap) scene.add(gantryGroup); // Ebisu has its own LED start gantry
 
     // --- 5. D1GP CLIPPING ZONES (PAINTED ASPHALT BOXES + HOLOGRAPHIC RINGS + SIGNBOARDS) ---
     interface ClipZone3D {
@@ -1528,7 +1563,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       const t = routeClosed ? i / 240 : i / 239;
       trackSamplePts.push(trackCurve.getPointAt(t));
     }
-    const sakuraGarden = isHarunaMap
+    const sakuraGarden = skipArenaDressing
       ? { swayGroups: [] as THREE.Group[], spots: [] as [number, number, number][], petals: [] as { mesh: THREE.Mesh; vy: number; swayPhase: number; swaySpeed: number; rotSpeed: number }[] }
       : buildSakuraGardenAuto(
           scene,
@@ -1546,7 +1581,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     const sakuraSwayGroups = sakuraGarden.swayGroups;
     const sakuraSpots = sakuraGarden.spots;
     const petals = sakuraGarden.petals;
-    if (!isHarunaMap) buildHangingStartBanners(scene, trackCurve, hallFrame.height);
+    if (!skipArenaDressing) buildHangingStartBanners(scene, trackCurve, hallFrame.height);
 
     // --- 5Z. UNDERGLOW TEXTURES (dibuat sekali, dipakai semua mobil) ---
     let _underglowTex: THREE.CanvasTexture | null = null;
@@ -4168,6 +4203,13 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       mainDirLight.target.position.copy(state.pos);
       harunaSky?.follow(camera.position);
       mainDirLight.target.updateMatrixWorld();
+      if (ebisuWorld) {
+        ebisuWorld.update(dt); // crowd, flags, clouds, balloons
+        const so = EBISU_SUN_OFFSET;
+        ebisuWorld.sun.position.set(state.pos.x + so.x, so.y, state.pos.z + so.z);
+        ebisuWorld.sun.target.position.set(state.pos.x, 0, state.pos.z);
+        ebisuWorld.sun.target.updateMatrixWorld();
+      }
 
       renderer.render(scene, camera);
 
@@ -4254,6 +4296,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', handleResize);
       hdriRenderTarget?.dispose();
+      ebisuLighting?.dispose();
       pmremGenerator.dispose();
       renderer.dispose();
       dioramaCarRigRef.current = null;
