@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { softCircleTexture } from './effects';
 import type { CarStyle } from './prefs';
 import { createBMWCarMesh } from '@/utils/bmwCar';
@@ -37,7 +38,6 @@ export interface CarModel {
   steeringWheel: THREE.Group;
 }
 
-const tireMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95 });
 const rimMat = new THREE.MeshStandardMaterial({ color: 0xd9d9d9, roughness: 0.32, metalness: 0.75, envMapIntensity: 1.1 });
 const darkMat = new THREE.MeshStandardMaterial({ color: 0x1f1f24, roughness: 0.8 });
 const interiorMat = new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.95 });
@@ -51,13 +51,193 @@ function box(w: number, h: number, d: number, mat: THREE.Material | THREE.Materi
   return m;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Wheels — CarX-style detail: treaded tyre with branded sidewall,     */
+/*  deep-dish 6-spoke forged rim, lip, lug nuts, brake rotor + caliper   */
+/* ------------------------------------------------------------------ */
+
+let treadTex: THREE.CanvasTexture | null = null;
+let sidewallTex: THREE.CanvasTexture | null = null;
+
+/** Tread: three circumferential grooves + angled sipes (u = around the tyre, v = across the width). */
+function getTreadTexture(): THREE.CanvasTexture {
+  if (treadTex) return treadTex;
+  const W = 256;
+  const H = 128;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#1b1c1e';
+  ctx.fillRect(0, 0, W, H);
+  // fine rubber grain
+  for (let i = 0; i < 2600; i++) {
+    const v = 20 + Math.random() * 18;
+    ctx.fillStyle = `rgb(${v},${v},${v + 1})`;
+    ctx.fillRect(Math.random() * W, Math.random() * H, 2, 1);
+  }
+  // circumferential grooves (constant v)
+  ctx.fillStyle = '#0a0a0b';
+  for (const y of [0.3, 0.5, 0.7]) ctx.fillRect(0, y * H - 4, W, 8);
+  // shoulder blocks: angled sipes
+  ctx.strokeStyle = '#0c0c0d';
+  ctx.lineWidth = 4;
+  for (let x = 0; x < W; x += 32) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + 14, H * 0.28);
+    ctx.moveTo(x + 16, H * 0.72);
+    ctx.lineTo(x + 30, H);
+    ctx.stroke();
+  }
+  // subtle highlight edge on each block for a moulded look
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 2;
+  for (let x = 0; x < W; x += 32) {
+    ctx.beginPath();
+    ctx.moveTo(x + 4, 0);
+    ctx.lineTo(x + 18, H * 0.28);
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(10, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  treadTex = tex;
+  return tex;
+}
+
+/** Sidewall: rubber disc with moulded rim-protector ring and brand lettering around the bead. */
+function getSidewallTexture(): THREE.CanvasTexture {
+  if (sidewallTex) return sidewallTex;
+  const S = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const ctx = c.getContext('2d')!;
+  const cx = S / 2;
+  ctx.fillStyle = '#1a1b1d';
+  ctx.fillRect(0, 0, S, S);
+  // tread shoulder shading at the very edge
+  const g = ctx.createRadialGradient(cx, cx, S * 0.42, cx, cx, S * 0.5);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  // raised rim-protector rings
+  ctx.strokeStyle = '#242527';
+  ctx.lineWidth = 6;
+  for (const rr of [0.455, 0.36]) {
+    ctx.beginPath();
+    ctx.arc(cx, cx, S * rr, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = '#111214';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cx, S * 0.445, 0, Math.PI * 2);
+  ctx.stroke();
+  // brand lettering along the sidewall (twice, opposite sides) + white-letter accent
+  const word = 'TOYO TIRES  PROXES R888R  ';
+  ctx.font = 'bold 30px "Barlow Condensed", "Arial Narrow", Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const radius = S * 0.405;
+  const total = word.length * 2;
+  for (let i = 0; i < total; i++) {
+    const ch = word[i % word.length];
+    const a = (i / total) * Math.PI * 2 - Math.PI / 2;
+    ctx.save();
+    ctx.translate(cx + Math.cos(a) * radius, cx + Math.sin(a) * radius);
+    ctx.rotate(a + Math.PI / 2);
+    ctx.fillStyle = i % word.length < 10 ? '#e8e8e6' : '#3a3b3e'; // "TOYO TIRES" in white letters, rest moulded grey
+    ctx.fillText(ch, 0, 0);
+    ctx.restore();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  sidewallTex = tex;
+  return tex;
+}
+
+const rimSilverMat = new THREE.MeshStandardMaterial({ color: 0xdfe1e4, roughness: 0.22, metalness: 0.9, envMapIntensity: 1.3, side: THREE.DoubleSide });
+const rimDarkMat = new THREE.MeshStandardMaterial({ color: 0x2a2b2f, roughness: 0.45, metalness: 0.8, side: THREE.DoubleSide });
+const rotorMat = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 0.4, metalness: 0.95 });
+const caliperMat = new THREE.MeshStandardMaterial({ color: 0xd4172a, roughness: 0.35, metalness: 0.3, emissive: 0x3a0308, emissiveIntensity: 0.4 });
+
+const rimGeoCache = new Map<string, { silver: THREE.BufferGeometry; dark: THREE.BufferGeometry }>();
+
+/**
+ * Forged 6-spoke rim in cylinder-local space (axis = +Y, outer face at +w/2).
+ * Deep dish: the spoke plate sits ~35 % of the width inside the barrel, spokes are concave.
+ */
+function getRimGeometry(r: number, w: number) {
+  const key = `${r.toFixed(3)}:${w.toFixed(3)}`;
+  const hit = rimGeoCache.get(key);
+  if (hit) return hit;
+  const silver: THREE.BufferGeometry[] = [];
+  const dark: THREE.BufferGeometry[] = [];
+  const m = new THREE.Matrix4();
+  const push = (arr: THREE.BufferGeometry[], g: THREE.BufferGeometry, mat?: THREE.Matrix4) => {
+    const ng = g.toNonIndexed();
+    if (mat) ng.applyMatrix4(mat);
+    arr.push(ng);
+    g.dispose();
+  };
+  const R = r * 0.64; // rim outer radius (bead seat)
+  // barrel (open tube, visible from both sides through the spokes)
+  push(silver, new THREE.CylinderGeometry(R, R, w * 0.96, 28, 1, true));
+  // outer lip ring + inner bead ring
+  push(silver, new THREE.TorusGeometry(R - r * 0.02, r * 0.03, 8, 36), m.makeRotationX(Math.PI / 2).setPosition(0, w * 0.48, 0));
+  push(silver, new THREE.TorusGeometry(R - r * 0.02, r * 0.025, 6, 36), m.makeRotationX(Math.PI / 2).setPosition(0, -w * 0.48, 0));
+  // polished step ring just inside the lip (the "dish" edge)
+  push(silver, new THREE.CylinderGeometry(R - r * 0.03, R - r * 0.03, w * 0.08, 28, 1, true), m.identity().setPosition(0, w * 0.4, 0));
+  // 6 concave spokes
+  const yIn = w * 0.02; // hub face depth
+  const yOut = w * 0.36; // spoke outer end (near the lip)
+  const rIn = r * 0.15;
+  const rOut = R - r * 0.03;
+  const len = Math.hypot(rOut - rIn, yOut - yIn);
+  const tilt = Math.atan2(yOut - yIn, rOut - rIn);
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2;
+    const spoke = new THREE.BoxGeometry(len, w * 0.16, r * 0.12);
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -a).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), tilt));
+    const rc = (rIn + rOut) / 2;
+    const pos = new THREE.Vector3(Math.cos(a) * rc, (yIn + yOut) / 2, Math.sin(a) * rc);
+    push(silver, spoke, new THREE.Matrix4().compose(pos, q, new THREE.Vector3(1, 1, 1)));
+  }
+  // hub plate + centre cap
+  push(silver, new THREE.CylinderGeometry(r * 0.2, r * 0.2, w * 0.1, 18), m.identity().setPosition(0, yIn + w * 0.02, 0));
+  push(dark, new THREE.CylinderGeometry(r * 0.07, r * 0.07, w * 0.12, 12), m.identity().setPosition(0, yIn + w * 0.06, 0));
+  // 5 lug nuts
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * Math.PI * 2 + 0.3;
+    push(dark, new THREE.CylinderGeometry(r * 0.025, r * 0.025, w * 0.14, 6), m.identity().setPosition(Math.cos(a) * r * 0.125, yIn + w * 0.06, Math.sin(a) * r * 0.125));
+  }
+  const out = { silver: mergeGeometries(silver)!, dark: mergeGeometries(dark)! };
+  for (const g of [...silver, ...dark]) g.dispose();
+  rimGeoCache.set(key, out);
+  return out;
+}
+
 function addWheels(group: THREE.Group, dims: CarDims, width: number): { wheels: THREE.Group[]; front: THREE.Group[] } {
   const wheels: THREE.Group[] = [];
   const front: THREE.Group[] = [];
   const r = dims.wheelRadius;
-  const tireGeo = new THREE.CylinderGeometry(r, r, width, 16);
-  const rimGeo = new THREE.CylinderGeometry(r * 0.6, r * 0.6, width + 0.02, 8);
-  const hubGeo = new THREE.CylinderGeometry(r * 0.22, r * 0.22, width + 0.06, 8);
+  const w = width;
+  // tyre: tread on the side wall of the cylinder, branded sidewall on both caps
+  const tireGeo = new THREE.CylinderGeometry(r, r, w, 32, 1, false);
+  const treadMat = new THREE.MeshStandardMaterial({ map: getTreadTexture(), color: 0xffffff, roughness: 0.92, metalness: 0 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: getSidewallTexture(), color: 0xffffff, roughness: 0.85, metalness: 0 });
+  const tireMats = [treadMat, wallMat, wallMat];
+  // rounded shoulders so the tyre is not a sharp-edged drum
+  const shoulderGeo = new THREE.TorusGeometry(r - r * 0.05, r * 0.05, 8, 32);
+  const rim = getRimGeometry(r, w);
+  const rotorGeo = new THREE.CylinderGeometry(r * 0.5, r * 0.5, 0.025, 28);
+  const rotorHatGeo = new THREE.CylinderGeometry(r * 0.22, r * 0.22, 0.05, 16);
+  const caliperGeo = new THREE.BoxGeometry(w * 0.42, r * 0.32, r * 0.22);
   const positions: [number, number, boolean][] = [
     [-dims.halfWidth, dims.wheelBase, true],
     [dims.halfWidth, dims.wheelBase, true],
@@ -65,19 +245,38 @@ function addWheels(group: THREE.Group, dims: CarDims, width: number): { wheels: 
     [dims.halfWidth, -dims.wheelBase, false],
   ];
   for (const [x, z, isFront] of positions) {
-    const pivot = new THREE.Group();
+    const side = x < 0 ? 1 : -1; // outer face of the wheel points away from the car
+    const pivot = new THREE.Group(); // steers (rotation.y)
     pivot.position.set(x, r, z);
     pivot.rotation.order = 'YXZ';
-    const tire = new THREE.Mesh(tireGeo, tireMat);
-    tire.rotation.z = Math.PI / 2;
+    const spin = new THREE.Group(); // rolls (rotation.x)
+    const face = new THREE.Group(); // cylinder-local → car-local (axis Y → ±X)
+    face.rotation.z = (Math.PI / 2) * side;
+    const tire = new THREE.Mesh(tireGeo, tireMats);
     tire.castShadow = true;
-    const rim = new THREE.Mesh(rimGeo, rimMat);
-    rim.rotation.z = Math.PI / 2;
-    const hub = new THREE.Mesh(hubGeo, darkMat);
-    hub.rotation.z = Math.PI / 2;
-    pivot.add(tire, rim, hub);
+    const shoulderA = new THREE.Mesh(shoulderGeo, treadMat);
+    shoulderA.rotation.x = Math.PI / 2;
+    shoulderA.position.y = w / 2 - r * 0.03;
+    const shoulderB = shoulderA.clone();
+    shoulderB.position.y = -w / 2 + r * 0.03;
+    const rimSilver = new THREE.Mesh(rim.silver, rimSilverMat);
+    rimSilver.castShadow = true;
+    const rimDark = new THREE.Mesh(rim.dark, rimDarkMat);
+    face.add(tire, shoulderA, shoulderB, rimSilver, rimDark);
+    spin.add(face);
+    // brake rotor + caliper: steer with the hub but do not spin
+    const brake = new THREE.Group();
+    brake.rotation.z = (Math.PI / 2) * side;
+    const rotor = new THREE.Mesh(rotorGeo, rotorMat);
+    rotor.position.y = -w * 0.3;
+    const hat = new THREE.Mesh(rotorHatGeo, rimDarkMat);
+    hat.position.y = -w * 0.3;
+    brake.add(rotor, hat);
+    const caliper = new THREE.Mesh(caliperGeo, caliperMat);
+    caliper.position.set(side * w * 0.22, r * 0.12, isFront ? -r * 0.42 : r * 0.42); // inboard, trailing the hub
+    pivot.add(spin, brake, caliper);
     group.add(pivot);
-    wheels.push(pivot);
+    wheels.push(spin);
     if (isFront) front.push(pivot);
   }
   return { wheels, front };
@@ -231,7 +430,7 @@ export function createCar(color: number, style: CarStyle = 'standard', opts: Cre
     }
   }
 
-  const { wheels, front } = addWheels(group, dims, style === 'toon' ? 0.46 : 0.32);
+  const { wheels, front } = addWheels(group, dims, style === 'toon' ? 0.46 : 0.36);
   addUnderbody(group, dims);
   return { style, dims, group, body, wheels, frontWheels: front, flames, brakeMat, brakeGlows, glowMat, cockpitHidden, cockpitOnly, steeringWheel };
 }
