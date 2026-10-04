@@ -24,6 +24,7 @@ import { buildWorld as buildHarunaWorld } from '../../haruna_new/game/world';
 import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
 import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 import { createBMWCarMesh } from '@/utils/bmwCar';
+import { buildCarXWheelParts } from '../../ebisu/game/car';
 import { Track as EbisuTrack, HALF_WIDTH as EBISU_HALF_WIDTH, CURB_WIDTH as EBISU_CURB_WIDTH, WALL_DIST as EBISU_WALL_DIST } from '../../ebisu/game/track';
 import { buildWorld as buildEbisuWorld, SUN_OFFSET as EBISU_SUN_OFFSET } from '../../ebisu/game/world';
 import { computeDriftZones as computeEbisuZones } from '../../ebisu/game/zones';
@@ -200,7 +201,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     rig.bodyShellGroup.visible = bodyShellMode !== 'naked_chassis';
     rig.bodyPaintMaterials.forEach((mat) => {
-      mat.color.set(bodyColor);
+      mat.color.set('#ffffff'); // keep the BMW GLB's native livery (no tint)
       if (bodyShellMode === 'translucent') {
         mat.transparent = true;
         mat.opacity = 0.36;
@@ -1690,7 +1691,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // --- 6. BUILD 1:10 RWD RC DRIFT CHASSIS + WOBBLE-FREE WHEELS + SKYLINE GT-R ---
     const createRCCarRig = (
       _bodyId: CarCustomization['bodyId'],
-      paintHex: string,
+      _paintHex: string, // body keeps its native GLB livery; kept for call-site compatibility
       anodizeHex: string,
       neonHex: string,
       shellMode: CarCustomization['bodyShellMode']
@@ -1908,27 +1909,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       const spinAxles: THREE.Group[] = [];
       const camberHubs: THREE.Group[] = [];
-      const tireMat = new THREE.MeshStandardMaterial({
-        color: '#10131A',
-        roughness: 0.14,
-        metalness: 0.18,
-      });
-      const rimLipMat = new THREE.MeshStandardMaterial({
-        color: '#DDE3EE',
-        roughness: 0.25,
-        metalness: 0.85,
-        envMapIntensity: 0.9,
-      });
-      const rotorMat = new THREE.MeshStandardMaterial({
-        color: '#94A3B8',
-        roughness: 0.3,
-        metalness: 0.85,
-      });
-      const caliperMat = new THREE.MeshStandardMaterial({
-        color: '#F59E0B',
-        roughness: 0.25,
-        metalness: 0.6,
-      });
+      // tyre / rim / rotor / caliper materials come from the shared CarX wheel builder (ebisu/game/car.ts)
 
       const createWheelAssembly = (isLeft: boolean, isFront: boolean) => {
         // Stationary Camber Hub (holds negative camber tilt & fixed Brembo caliper)
@@ -1937,51 +1918,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         camberHub.rotation.z = isLeft ? camberRad : -camberRad;
         camberHubs.push(camberHub);
 
-        // Fixed Brembo Gold Brake Caliper (does NOT spin with the wheel!)
-        const caliper = new THREE.Mesh(
-          new THREE.BoxGeometry(0.14, 0.16, 0.11),
-          caliperMat
-        );
-        caliper.position.set(isLeft ? -0.04 : 0.04, 0.06, -0.14);
-        camberHub.add(caliper);
-
         // Purely Axial Spinning Wheel Group (ONLY rotates around local X axis!)
         const spinAxle = new THREE.Group();
 
-        // 1. HDPE Drift Tire Cylinder (perfectly centered on X axis)
-        const tireGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.31, 32);
-        tireGeo.rotateZ(Math.PI / 2);
-        const tire = new THREE.Mesh(tireGeo, tireMat);
-        tire.castShadow = true;
-
-        // 2. Deep-Dish Chrome Outer Barrel
-        const barrelGeo = new THREE.CylinderGeometry(0.275, 0.275, 0.32, 28);
-        barrelGeo.rotateZ(Math.PI / 2);
-        const barrel = new THREE.Mesh(barrelGeo, rimLipMat);
-
-        // 3. Vented Steel Brake Disc Rotor
-        const rotorGeo = new THREE.CylinderGeometry(0.21, 0.21, 0.04, 24);
-        rotorGeo.rotateZ(Math.PI / 2);
-        const rotor = new THREE.Mesh(rotorGeo, rotorMat);
-        rotor.position.x = isLeft ? -0.05 : 0.05;
-
-        // 4. 6-Spoke Volk Racing TE37 Wheel Face (Symmetrically arranged around X axis)
-        const faceOffset = isLeft ? 0.08 : -0.08;
-        for (let s = 0; s < 3; s++) {
-          const spokeGeo = new THREE.BoxGeometry(0.05, 0.47, 0.072);
-          const spoke = new THREE.Mesh(spokeGeo, anodizeMat);
-          spoke.position.x = faceOffset;
-          spoke.rotation.x = (s * Math.PI) / 3;
-          spinAxle.add(spoke);
-        }
-
-        // 5. Center Locking Wheel Nut
-        const hubCapGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.08, 16);
-        hubCapGeo.rotateZ(Math.PI / 2);
-        const hubCap = new THREE.Mesh(hubCapGeo, rimLipMat);
-        hubCap.position.x = isLeft ? 0.1 : -0.1;
-
-        spinAxle.add(tire, barrel, rotor, hubCap);
+        // CarX-style wheel shared with Ebisu Drift: treaded tyre + branded sidewalls, deep-dish spoke rim,
+        // rotor + hat and red caliper. Sakura's left wheels sit at +X, so their outer face points to +X (side −1).
+        const wheelParts = buildCarXWheelParts(0.35, 0.31, isLeft ? -1 : 1, isFront);
+        spinAxle.add(wheelParts.face);
+        camberHub.add(wheelParts.brake, wheelParts.caliper);
         camberHub.add(spinAxle);
         spinAxles.push(spinAxle);
 
@@ -2010,7 +1954,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         rotY: 0,
         offsetY: 0.09,
         offsetZ: 0.0,
-        color: paintHex,
+        // native GLB livery — the paint colour picker tints only the chassis/neon, never the body texture
         opacity: shellMode === 'translucent' ? 0.45 : 1.0,
         transparent: shellMode === 'translucent',
         roughness: shellMode === 'translucent' ? 0.12 : 0.25,

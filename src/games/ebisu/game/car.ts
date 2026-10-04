@@ -223,11 +223,21 @@ function getRimGeometry(r: number, w: number) {
   return out;
 }
 
-function addWheels(group: THREE.Group, dims: CarDims, width: number): { wheels: THREE.Group[]; front: THREE.Group[] } {
-  const wheels: THREE.Group[] = [];
-  const front: THREE.Group[] = [];
-  const r = dims.wheelRadius;
-  const w = width;
+export interface CarXWheelParts {
+  /** Rolls around local X (tyre + rim). Add it to the group that spins. */
+  face: THREE.Group;
+  /** Brake rotor + hat: steers with the hub but does not spin. */
+  brake: THREE.Group;
+  /** Brake caliper, inboard & trailing the hub (does not spin). */
+  caliper: THREE.Mesh;
+}
+
+/**
+ * CarX-style wheel in car-local orientation (axle along X): treaded tyre drum with branded ring sidewalls,
+ * deep-dish spoke rim, rotor + hat and a red caliper.
+ * @param side +1 when the wheel's OUTER face points to −X (car's left side at x<0), −1 when it points to +X.
+ */
+export function buildCarXWheelParts(r: number, w: number, side: 1 | -1, isFront: boolean): CarXWheelParts {
   // tyre: tread on the side wall of the cylinder, branded sidewall on both caps
   // open tread drum + ring sidewalls (inner radius = rim bead) so the rim face is never covered
   const tireGeo = new THREE.CylinderGeometry(r, r, w, 32, 1, true);
@@ -240,6 +250,46 @@ function addWheels(group: THREE.Group, dims: CarDims, width: number): { wheels: 
   const rotorGeo = new THREE.CylinderGeometry(r * 0.5, r * 0.5, 0.025, 28);
   const rotorHatGeo = new THREE.CylinderGeometry(r * 0.22, r * 0.22, 0.05, 16);
   const caliperGeo = new THREE.BoxGeometry(w * 0.42, r * 0.32, r * 0.22);
+
+  const face = new THREE.Group(); // cylinder-local → car-local (axis Y → ±X)
+  face.rotation.z = (Math.PI / 2) * side;
+  const tire = new THREE.Mesh(tireGeo, treadMat);
+  tire.castShadow = true;
+  // sidewalls: rings facing ±Y in cylinder-local space (RingGeometry faces +Z → rotate onto the axis)
+  const wallOut = new THREE.Mesh(wallGeo, wallMat);
+  wallOut.rotation.x = -Math.PI / 2;
+  wallOut.position.y = w / 2;
+  const wallIn = new THREE.Mesh(wallGeo, wallMat);
+  wallIn.rotation.x = Math.PI / 2;
+  wallIn.position.y = -w / 2;
+  const shoulderA = new THREE.Mesh(shoulderGeo, treadMat);
+  shoulderA.rotation.x = Math.PI / 2;
+  shoulderA.position.y = w / 2 - r * 0.03;
+  const shoulderB = shoulderA.clone();
+  shoulderB.position.y = -w / 2 + r * 0.03;
+  const rimSilver = new THREE.Mesh(rim.silver, rimSilverMat);
+  rimSilver.castShadow = true;
+  const rimDark = new THREE.Mesh(rim.dark, rimDarkMat);
+  face.add(tire, wallOut, wallIn, shoulderA, shoulderB, rimSilver, rimDark);
+
+  // brake rotor + caliper: steer with the hub but do not spin
+  const brake = new THREE.Group();
+  brake.rotation.z = (Math.PI / 2) * side;
+  const rotor = new THREE.Mesh(rotorGeo, rotorMat);
+  rotor.position.y = -w * 0.3;
+  const hat = new THREE.Mesh(rotorHatGeo, rimDarkMat);
+  hat.position.y = -w * 0.3;
+  brake.add(rotor, hat);
+  const caliper = new THREE.Mesh(caliperGeo, caliperMat);
+  caliper.position.set(side * w * 0.22, r * 0.12, isFront ? -r * 0.42 : r * 0.42); // inboard, trailing the hub
+  return { face, brake, caliper };
+}
+
+function addWheels(group: THREE.Group, dims: CarDims, width: number): { wheels: THREE.Group[]; front: THREE.Group[] } {
+  const wheels: THREE.Group[] = [];
+  const front: THREE.Group[] = [];
+  const r = dims.wheelRadius;
+  const w = width;
   const positions: [number, number, boolean][] = [
     [-dims.halfWidth, dims.wheelBase, true],
     [dims.halfWidth, dims.wheelBase, true],
@@ -247,43 +297,14 @@ function addWheels(group: THREE.Group, dims: CarDims, width: number): { wheels: 
     [dims.halfWidth, -dims.wheelBase, false],
   ];
   for (const [x, z, isFront] of positions) {
-    const side = x < 0 ? 1 : -1; // outer face of the wheel points away from the car
+    const side: 1 | -1 = x < 0 ? 1 : -1; // outer face of the wheel points away from the car
     const pivot = new THREE.Group(); // steers (rotation.y)
     pivot.position.set(x, r, z);
     pivot.rotation.order = 'YXZ';
     const spin = new THREE.Group(); // rolls (rotation.x)
-    const face = new THREE.Group(); // cylinder-local → car-local (axis Y → ±X)
-    face.rotation.z = (Math.PI / 2) * side;
-    const tire = new THREE.Mesh(tireGeo, treadMat);
-    tire.castShadow = true;
-    // sidewalls: rings facing ±Y in cylinder-local space (RingGeometry faces +Z → rotate onto the axis)
-    const wallOut = new THREE.Mesh(wallGeo, wallMat);
-    wallOut.rotation.x = -Math.PI / 2;
-    wallOut.position.y = w / 2;
-    const wallIn = new THREE.Mesh(wallGeo, wallMat);
-    wallIn.rotation.x = Math.PI / 2;
-    wallIn.position.y = -w / 2;
-    const shoulderA = new THREE.Mesh(shoulderGeo, treadMat);
-    shoulderA.rotation.x = Math.PI / 2;
-    shoulderA.position.y = w / 2 - r * 0.03;
-    const shoulderB = shoulderA.clone();
-    shoulderB.position.y = -w / 2 + r * 0.03;
-    const rimSilver = new THREE.Mesh(rim.silver, rimSilverMat);
-    rimSilver.castShadow = true;
-    const rimDark = new THREE.Mesh(rim.dark, rimDarkMat);
-    face.add(tire, wallOut, wallIn, shoulderA, shoulderB, rimSilver, rimDark);
-    spin.add(face);
-    // brake rotor + caliper: steer with the hub but do not spin
-    const brake = new THREE.Group();
-    brake.rotation.z = (Math.PI / 2) * side;
-    const rotor = new THREE.Mesh(rotorGeo, rotorMat);
-    rotor.position.y = -w * 0.3;
-    const hat = new THREE.Mesh(rotorHatGeo, rimDarkMat);
-    hat.position.y = -w * 0.3;
-    brake.add(rotor, hat);
-    const caliper = new THREE.Mesh(caliperGeo, caliperMat);
-    caliper.position.set(side * w * 0.22, r * 0.12, isFront ? -r * 0.42 : r * 0.42); // inboard, trailing the hub
-    pivot.add(spin, brake, caliper);
+    const parts = buildCarXWheelParts(r, w, side, isFront);
+    spin.add(parts.face);
+    pivot.add(spin, parts.brake, parts.caliper);
     group.add(pivot);
     wheels.push(spin);
     if (isFront) front.push(pivot);
