@@ -2413,6 +2413,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       camYaw: 0, // smoothed chase-camera yaw (rad) — never snaps when velocity angle flips
       camYawInit: false,
       camRallyYaw: 0, // art-of-rally slow heading follow
+      camIntro: isEbisuMap ? 0 : 1, // 0→1: menu showroom pose blends into the chase camera (seamless DRIFT KING → race)
       jumpCount: 0,
       visPitchSlope: 0, // sikap root (pitch) yang sedang ditampilkan — ramp / melayang
       visRoll: 0,
@@ -2427,6 +2428,32 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       damperRR: 50,
       callout: null as LiveTelemetry['judgeCallout'],
     };
+
+    // Ebisu Drift showroom framing (same constants as the Ebisu menu): used by the DRIFT KING backdrop and as the
+    // starting pose of the race camera so menu → game is one continuous shot.
+    const SHOWROOM_CAM = { side: -9.2, height: 1.2, lookHeight: 0.85, shift: -0.9 };
+    const showroomFov = () => (camera.aspect < 1 ? 46 : camera.aspect < 1.4 ? 36 : 30);
+    const showroomPose = (outPos: THREE.Vector3, outLook: THREE.Vector3) => {
+      const a = state.heading;
+      const fx = Math.sin(a);
+      const fz = Math.cos(a);
+      const rx = Math.cos(a);
+      const rz = -Math.sin(a);
+      const lookX = state.pos.x + fx * SHOWROOM_CAM.shift;
+      const lookZ = state.pos.z + fz * SHOWROOM_CAM.shift;
+      outLook.set(lookX, state.pos.y + SHOWROOM_CAM.lookHeight, lookZ);
+      outPos.set(lookX + rx * SHOWROOM_CAM.side, state.pos.y + SHOWROOM_CAM.height, lookZ + rz * SHOWROOM_CAM.side);
+    };
+    const _introPos = new THREE.Vector3();
+    const _introLook = new THREE.Vector3();
+    if (isEbisuMap) {
+      // first frame already matches the menu backdrop — no jump from the world origin / sky
+      showroomPose(_introPos, _introLook);
+      camera.position.copy(_introPos);
+      camera.lookAt(_introLook);
+      camera.fov = showroomFov();
+      camera.updateProjectionMatrix();
+    }
 
     // Autonomous Physics-Driven 1:10 RWD Pro Drift Opponent Bots (5 Bots)
     const botStates = ENEMY_BOTS_DATA.map((bot, index) => {
@@ -2590,22 +2617,11 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         botRigs.forEach((r) => {
           r.root.visible = false;
         });
-        const a = state.heading;
-        const fx = Math.sin(a);
-        const fz = Math.cos(a);
-        const rx = Math.cos(a);
-        const rz = -Math.sin(a);
-        const CAM_SIDE = -9.2;
-        const CAM_HEIGHT = 1.2;
-        const LOOK_HEIGHT = 0.85;
-        const CAM_SHIFT = -0.9;
-        const lookX = state.pos.x + fx * CAM_SHIFT;
-        const lookZ = state.pos.z + fz * CAM_SHIFT;
+        showroomPose(_introPos, _introLook);
         camera.up.set(0, 1, 0);
-        camera.position.set(lookX + rx * CAM_SIDE, state.pos.y + CAM_HEIGHT, lookZ + rz * CAM_SIDE);
-        camera.lookAt(lookX, state.pos.y + LOOK_HEIGHT, lookZ);
-        const aspect = camera.aspect;
-        const wantFov = aspect < 1 ? 46 : aspect < 1.4 ? 36 : 30;
+        camera.position.copy(_introPos);
+        camera.lookAt(_introLook);
+        const wantFov = showroomFov();
         if (camera.fov !== wantFov || camera.near !== 0.1) {
           camera.fov = wantFov;
           camera.near = 0.1;
@@ -4169,6 +4185,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       };
       const speedNowCam = state.vel.length();
       const camRatio = THREE.MathUtils.clamp(speedNowCam / 36, 0, 1.3);
+      if (camMode !== 'chase_close' && camMode !== 'chase_far') state.camIntro = 1;
       if (camMode === 'cockpit') {
         // behind the wheel: eye point from the rig itself (follows heading, pitch and roll)
         playerRig.root.updateMatrixWorld();
@@ -4250,7 +4267,6 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           camBaseY + camHeight + shake,
           state.pos.z - Math.cos(state.camYaw) * camDist
         );
-        camera.position.lerp(desired, 1 - Math.exp(-dt * (far ? 4 : 7.5)));
         const leadM = far ? 9 : 4.5;
         const lookAhead = new THREE.Vector3(
           state.pos.x + Math.sin(state.camYaw) * leadM,
@@ -4258,8 +4274,21 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           state.pos.z + Math.cos(state.camYaw) * leadM
         );
         camera.up.set(0, 1, 0);
-        camera.lookAt(lookAhead);
-        setFov(far ? 55 + paceN * 10 : 46 + paceN * 8);
+        const chaseFov = far ? 55 + paceN * 10 : 46 + paceN * 8;
+        if (state.camIntro < 1) {
+          // seamless menu → race: one continuous dolly from the showroom side view into the chase position
+          state.camIntro = Math.min(1, state.camIntro + dt / 2.4);
+          const s = THREE.MathUtils.smootherstep(state.camIntro, 0, 1);
+          showroomPose(_introPos, _introLook);
+          camera.position.copy(_introPos).lerp(desired, s);
+          camera.lookAt(_introLook.lerp(lookAhead, s));
+          camera.fov = THREE.MathUtils.lerp(showroomFov(), chaseFov, s);
+          camera.updateProjectionMatrix();
+        } else {
+          camera.position.lerp(desired, 1 - Math.exp(-dt * (far ? 4 : 7.5)));
+          camera.lookAt(lookAhead);
+          setFov(chaseFov);
+        }
       }
 
       // Pylon LED ramp berkedip bergantian
