@@ -67,6 +67,8 @@ interface RCDriftCanvas3DProps {
   cameraMode: CameraMode;
   resetTrigger: number;
   isMenu: boolean; // true = phase menu: tampilkan diorama sakura, kamera sinematik
+  /** Menu showroom ala Ebisu Drift: dunia Ebisu lengkap, mobil parkir di garis start, kamera statis (DRIFT KING menu). */
+  menuShowroom?: boolean;
   externalSteer: number; // -1 to 1 from on-screen transmitter wheel
   externalThrottle: boolean;
   externalBrake: boolean;
@@ -143,6 +145,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
   cameraMode,
   resetTrigger,
   isMenu,
+  menuShowroom = false,
   externalSteer,
   externalThrottle,
   externalBrake,
@@ -246,7 +249,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     if (!container) return;
 
     // --- 1. SCENE, CAMERA, RENDERER ---
-    const MENU_MODE = isMenu;
+    // DRIFT KING menu backdrop: the real Ebisu venue with the Sakura car parked on the grid, framed exactly like
+    // Ebisu Drift's showroom (static camera, nose to screen-right). Not the Sakura diorama.
+    const SHOWROOM = isMenu && menuShowroom && circuit.mapStyle === 'ebisu';
+    const MENU_MODE = isMenu && !SHOWROOM;
     const isHarunaMap = circuit.mapStyle === 'haruna';
     // Pace dasar Haruna (jalan gunung skala asli 6.1 km, 75% lurus) relatif terhadap aula
     const HARUNA_PACE = 1.6;
@@ -2575,6 +2581,49 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       lastTime = now;
       frameCounter++;
 
+      // --- DRIFT KING SHOWROOM: static pose, same framing constants as Ebisu Drift's garage/scenic menu ---
+      if (SHOWROOM) {
+        playerRig.root.position.copy(state.pos);
+        playerRig.root.rotation.set(0, state.heading, 0);
+        playerRig.flKnuckle.rotation.y = 0;
+        playerRig.frKnuckle.rotation.y = 0;
+        botRigs.forEach((r) => {
+          r.root.visible = false;
+        });
+        const a = state.heading;
+        const fx = Math.sin(a);
+        const fz = Math.cos(a);
+        const rx = Math.cos(a);
+        const rz = -Math.sin(a);
+        const CAM_SIDE = -9.2;
+        const CAM_HEIGHT = 1.2;
+        const LOOK_HEIGHT = 0.85;
+        const CAM_SHIFT = -0.9;
+        const lookX = state.pos.x + fx * CAM_SHIFT;
+        const lookZ = state.pos.z + fz * CAM_SHIFT;
+        camera.up.set(0, 1, 0);
+        camera.position.set(lookX + rx * CAM_SIDE, state.pos.y + CAM_HEIGHT, lookZ + rz * CAM_SIDE);
+        camera.lookAt(lookX, state.pos.y + LOOK_HEIGHT, lookZ);
+        const aspect = camera.aspect;
+        const wantFov = aspect < 1 ? 46 : aspect < 1.4 ? 36 : 30;
+        if (camera.fov !== wantFov || camera.near !== 0.1) {
+          camera.fov = wantFov;
+          camera.near = 0.1;
+          camera.updateProjectionMatrix();
+        }
+        if (ebisuWorld) {
+          ebisuWorld.update(dt); // crowd, flags, clouds, balloons keep moving behind the menu
+          const so = EBISU_SUN_OFFSET;
+          ebisuWorld.sun.position.set(state.pos.x + so.x, so.y, state.pos.z + so.z);
+          ebisuWorld.sun.target.position.set(state.pos.x, 0, state.pos.z);
+          ebisuWorld.sun.target.updateMatrixWorld();
+        }
+        const cust = customRef.current;
+        applyUnderglow(playerRig, cust.neonColor, cust.underglowMode ?? 'steady', cust.underglowIntensity ?? 0.8, now * 0.001, 0.3);
+        renderer.render(scene, camera);
+        return;
+      }
+
       // --- MENU CINEMATIC CAMERA: orbit pelan ala dolly shot rendah ---
       if (MENU_MODE) {
         const t = now * 0.001;
@@ -4329,7 +4378,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       renderer.dispose();
       dioramaCarRigRef.current = null;
     };
-  }, [circuit, resetTrigger, customization.bodyId, isMenu]);
+  }, [circuit, resetTrigger, customization.bodyId, isMenu, menuShowroom]);
 
   return (
     <div

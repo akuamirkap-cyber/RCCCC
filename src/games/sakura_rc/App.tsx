@@ -10,11 +10,8 @@ import {
   SpeedLevel,
   TuningSetup,
 } from './types/rcDrift';
-import {
-  DEFAULT_SMOKE_CONFIG,
-  DEFAULT_SUSPENSION_SETUP,
-  RC_CIRCUITS,
-} from './data/circuitsAndCars';
+import { DEFAULT_SMOKE_CONFIG, RC_CIRCUITS } from './data/circuitsAndCars';
+import { DEFAULT_CUSTOMIZATION, DEFAULT_TUNING } from './data/defaults';
 import { RCDriftCanvas3D } from './components/RCDriftCanvas3D';
 import { TelemetryHUD } from './components/TelemetryHUD';
 import { PitBenchDrawer } from './components/PitBenchDrawer';
@@ -44,36 +41,10 @@ export function SakuraDriftApp({
   const [showBMWAdjust, setShowBMWAdjust] = useState<boolean>(false);
 
   // Authentic 1:10 RWD RC Drift Physics Tuning State + Pro Suspension + RB26DETT Sound Box + 5-Stage Smoke
-  const [tuning, setTuning] = useState<TuningSetup>({
-    gyroGain: 82,
-    maxSteerAngle: 76,
-    escTurboBoost: 78,
-    // Haruna/Akina feel controls: Sakura RC Pro remains manual and still needs W.
-    accelerationPower: 100,
-    driftResponse: 55,
-    throttleResponse: 100,
-    handlingAssist: 35,
-    tireCompound: 'hdpe_ptile',
-    // Gas harus selalu diberi lewat W / tombol throttle; tidak auto-maju saat idle.
-    autoThrottle: false,
-    speedLevel: 'normal',
-    cornerSpeedLock: true,
-    soundMode: 'rb26_soundbox',
-    smokeConfig: DEFAULT_SMOKE_CONFIG,
-    suspension: DEFAULT_SUSPENSION_SETUP,
-  });
+  const [tuning, setTuning] = useState<TuningSetup>(DEFAULT_TUNING);
 
   // Default Car: Nissan Skyline GT-R (BNR34) in Iconic Bayside Blue
-  const [customization, setCustomization] = useState<CarCustomization>({
-    bodyId: 'r34_skyline',
-    bodyShellMode: 'painted',
-    bodyColor: '#0E64FF',
-    chassisAnodizeColor: '#F59E0B',
-    neonColor: '#00F0FF',
-    wheelColor: '#F8FAFC',
-    underglowMode: 'steady',
-    underglowIntensity: 0.8,
-  });
+  const [customization, setCustomization] = useState<CarCustomization>(DEFAULT_CUSTOMIZATION);
 
   const [rcCredits, setRcCredits] = useState<number>(3500);
   const [isPitBenchOpen, setIsPitBenchOpen] = useState<boolean>(false);

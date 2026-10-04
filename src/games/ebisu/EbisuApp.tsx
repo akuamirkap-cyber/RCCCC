@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SakuraShowroom } from '../sakura_rc/components/SakuraShowroom';
 import { Game, type HudState, type MenuBackdrop, type Phase, type PopupKind, type RaceResult } from './game/Game';
 import {
   DEFAULT_ENGINE,
@@ -138,7 +139,16 @@ async function enterLandscapeFullscreen() {
 
 type PanelKind = 'none' | 'tuning' | 'visual';
 
-export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitchGame?: () => void; onPlaySakuraEbisu?: () => void }) {
+export default function EbisuApp({
+  onSwitchGame,
+  onPlaySakuraEbisu,
+  menuShowroom = 'ebisu',
+}: {
+  onSwitchGame?: () => void;
+  onPlaySakuraEbisu?: () => void;
+  /** What renders behind the DRIFT KING menu: Ebisu's own game ('ebisu') or Sakura RC on the Ebisu circuit ('sakura'). */
+  menuShowroom?: 'ebisu' | 'sakura';
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const gameRef = useRef<Game | null>(null);
   const phaseRef = useRef<Phase>('menu');
@@ -202,6 +212,10 @@ export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitch
   const pausedRef = useRef(false);
   pausedRef.current = paused;
   const [showBMWAdjust, setShowBMWAdjust] = useState(false);
+  const sakuraShowroom = menuShowroom === 'sakura' && phase === 'menu';
+  useEffect(() => {
+    gameRef.current?.setSuspended(sakuraShowroom);
+  }, [sakuraShowroom]);
 
   const bestRef = useRef<BestRecords>(best);
   bestRef.current = best;
@@ -284,6 +298,7 @@ export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitch
       prefsRef.current,
     );
     gameRef.current = game;
+    game.setSuspended(menuShowroom === 'sakura' && phaseRef.current === 'menu'); // Sakura showroom owns the screen in the menu
     game.setMenuBackdrop(loadBackdrop());
     game.setTuning(setupRef.current.tuning);
     game.setSlipTuning(setupRef.current.slipTuning);
@@ -510,6 +525,8 @@ export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitch
   return (
     <div className="relative h-full w-full overflow-hidden bg-sky-300">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full touch-none" />
+      {/* DRIFT KING menu backdrop = the Sakura RC game on the Ebisu circuit (Ebisu's own renderer sleeps meanwhile) */}
+      {sakuraShowroom && <SakuraShowroom />}
 
       <Hud
         hud={hud}
@@ -555,8 +572,8 @@ export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitch
           onOpenVisual={() => setPanel('visual')}
           onOpenBMWAdjust={() => setShowBMWAdjust(true)}
           isTouch={isTouchDevice}
-          backdrop={menuBackdrop}
-          onToggleBackdrop={toggleBackdrop}
+          backdrop={sakuraShowroom ? 'scenic' : menuBackdrop}
+          onToggleBackdrop={sakuraShowroom ? undefined : toggleBackdrop}
           onPlaySakuraEbisu={onPlaySakuraEbisu}
         />
       )}
@@ -642,7 +659,7 @@ export default function EbisuApp({ onSwitchGame, onPlaySakuraEbisu }: { onSwitch
 
       {/* BMW GLB Dimensions & Ride Height Adjustment Modal */}
       <BMWAdjustmentModal
-        mode="ebisu"
+        mode={sakuraShowroom ? 'sakura_rc' : 'ebisu'}
         isOpen={showBMWAdjust}
         onClose={() => setShowBMWAdjust(false)}
       />

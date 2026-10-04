@@ -271,6 +271,8 @@ export class Game {
   private lastWrongWayPopup = -10;
   private resizeObs: ResizeObserver | null = null;
   private disposed = false;
+  /** True while another renderer (the Sakura RC showroom) owns the screen: skip simulation + rendering, keep the loop alive. */
+  private suspended = false;
   private engine: EngineKind = DEFAULT_ENGINE;
   private tuning: CarTuning = { ...DEFAULT_TUNING };
   private slipTuning: SlipTuning = { ...DEFAULT_SLIP };
@@ -823,9 +825,16 @@ export class Game {
     this.renderer.dispose();
   }
 
+  setSuspended(v: boolean) {
+    if (this.suspended === v) return;
+    this.suspended = v;
+    if (!v) this.clock.getDelta(); // drop the idle time so the first live frame is not a huge step
+  }
+
   private tick = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.tick);
+    if (this.suspended) return;
     const dt = Math.min(0.033, this.clock.getDelta());
     if (!this.paused) {
       this.time += dt;

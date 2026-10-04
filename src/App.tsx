@@ -94,6 +94,7 @@ export default function App() {
           setShowOtherModes(true); // arriving from Ebisu = the user wants the other modes → show them expanded
           setSelectedGame('menu');
         }}
+        menuShowroom="sakura"
         onPlaySakuraEbisu={() => {
           setSakuraLaunch({ circuitId: 'ebisu_drift_circuit', autoStart: true });
           setSelectedGame('sakura');
