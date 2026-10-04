@@ -1,0 +1,177 @@
+/* ============================================================
+   ADJUST BODY BMW GLB — compact, sporty, animated
+   (scoped overrides; unlayered rules beat Tailwind utilities)
+   ============================================================ */
+.bmw-modal {
+  font-family: 'Exo 2', 'Barlow Condensed', 'Oswald', system-ui, sans-serif;
+}
+.bmw-modal__card {
+  position: relative;
+  border-radius: 0.5rem !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  background: linear-gradient(165deg, #44566f 0%, #2f3d52 100%) !important;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55) !important;
+  animation: bmw-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  max-width: 34rem !important;
+}
+@keyframes bmw-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- header with a waving checker strip ---------- */
+.bmw-modal__head {
+  position: relative;
+  overflow: hidden;
+  padding: 0.7rem 0.9rem !important;
+  background: rgba(0, 0, 0, 0.18) !important;
+}
+.bmw-modal__head > * + * { margin-top: 0.45rem !important; }
+.bmw-flag {
+  position: absolute;
+  right: -1.5rem;
+  top: 0;
+  bottom: 0;
+  width: 11rem;
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.16) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.16) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.16) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.16) 75%);
+  background-size: 1.6rem 1.6rem;
+  background-position: 0 0, 0.8rem 0.8rem;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 45%, #000 85%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 45%, #000 85%, transparent);
+  transform: skewX(-18deg);
+  animation: bmw-flag 2.4s linear infinite;
+  pointer-events: none;
+}
+@keyframes bmw-flag {
+  from { background-position: 0 0, 0.8rem 0.8rem; }
+  to { background-position: 1.6rem -1.6rem, 2.4rem -0.8rem; }
+}
+.bmw-modal h2 {
+  font-style: italic;
+  font-weight: 900 !important;
+  letter-spacing: 0.01em;
+  font-size: 1.1rem !important;
+}
+.bmw-modal__head p { display: none; } /* long description — the sliders explain themselves */
+.bmw-modal__head .text-xl { font-size: 1.05rem; }
+
+/* ---------- mode tabs ---------- */
+.bmw-modal .grid.grid-cols-3 { padding: 0.2rem !important; border-radius: 0.25rem !important; background: rgba(0, 0, 0, 0.22) !important; border-color: rgba(255, 255, 255, 0.08) !important; }
+.bmw-modal .grid.grid-cols-3 > button {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.2rem !important;
+  padding: 0.35rem 0.4rem !important;
+  font-style: italic;
+}
+.bmw-modal .grid.grid-cols-3 > button.text-black::after {
+  content: '';
+  position: absolute;
+  inset: -40% -60%;
+  background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.45) 50%, transparent 58%);
+  transform: translateX(-70%);
+  animation: bmw-sheen 3.2s ease-in-out infinite;
+}
+@keyframes bmw-sheen {
+  0%, 55% { transform: translateX(-70%); }
+  85%, 100% { transform: translateX(70%); }
+}
+
+/* ---------- info bar ---------- */
+.bmw-modal .rounded-xl.border.flex { padding: 0.25rem 0.6rem !important; border-radius: 0.2rem !important; }
+
+/* ---------- body: compact slider cards, staggered slide-in ---------- */
+.bmw-modal .overflow-y-auto { padding: 0.6rem 0.9rem !important; }
+.bmw-modal .overflow-y-auto > * + * { margin-top: 0.4rem !important; }
+.bmw-modal .overflow-y-auto > div {
+  animation: bmw-row 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  border-radius: 0.25rem !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  padding: 0.45rem 0.65rem !important;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.bmw-modal .overflow-y-auto > div:hover { background: rgba(255, 255, 255, 0.09) !important; }
+.bmw-modal .overflow-y-auto > div:nth-child(1) { animation-delay: 0.04s; }
+.bmw-modal .overflow-y-auto > div:nth-child(2) { animation-delay: 0.1s; }
+.bmw-modal .overflow-y-auto > div:nth-child(3) { animation-delay: 0.16s; }
+.bmw-modal .overflow-y-auto > div:nth-child(4) { animation-delay: 0.22s; }
+.bmw-modal .overflow-y-auto > div:nth-child(5) { animation-delay: 0.28s; background: transparent !important; }
+@keyframes bmw-row {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: none; }
+}
+.bmw-modal .overflow-y-auto > div > * + * { margin-top: 0.25rem !important; }
+.bmw-modal .text-xs.font-black.uppercase { font-style: italic; font-size: 0.72rem; letter-spacing: 0.03em; }
+.bmw-modal .text-\[10px\].text-neutral-400 { display: none; } /* per-slider helper line */
+.bmw-modal .bg-neutral-800 { background: rgba(255, 255, 255, 0.12) !important; }
+.bmw-modal .hover\:bg-neutral-700:hover { background: rgba(255, 255, 255, 0.22) !important; }
+.bmw-modal .rounded-lg { border-radius: 0.15rem !important; }
+.bmw-modal .w-7.h-7 { width: 1.5rem; height: 1.5rem; }
+
+/* value chip pops on every change (re-mounted via key) */
+.bmw-val {
+  display: inline-block;
+  min-width: 64px !important;
+  padding: 0.15rem 0.45rem !important;
+  border-radius: 0.15rem !important;
+  font-family: 'Exo 2', 'Barlow Condensed', monospace !important;
+  font-weight: 900 !important;
+  font-style: italic;
+  animation: bmw-pop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+}
+@keyframes bmw-pop {
+  0% { transform: scale(0.85); filter: brightness(1.8); }
+  100% { transform: none; filter: none; }
+}
+
+/* sliders: slimmer track, glowing thumb */
+.bmw-modal input[type='range'] {
+  height: 0.35rem !important;
+  background: rgba(0, 0, 0, 0.3) !important;
+  border-radius: 999px !important;
+  margin: 0.2rem 0;
+}
+.bmw-modal input[type='range']::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.15), 0 0 14px currentColor; transition: transform 0.12s ease; }
+.bmw-modal input[type='range']:active::-webkit-slider-thumb { transform: scale(1.25); }
+.bmw-modal .flex.justify-between.text-\[10px\] { font-size: 0.58rem; opacity: 0.85; }
+
+/* presets */
+.bmw-modal .grid-cols-2 > button,
+.bmw-modal .sm\:grid-cols-4 > button {
+  border-radius: 0.2rem !important;
+  padding: 0.35rem 0.4rem !important;
+  font-style: italic;
+  font-weight: 800 !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+.bmw-modal .grid-cols-2 > button:hover { transform: translateY(-2px); background: rgba(255, 255, 255, 0.16) !important; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3); }
+.bmw-modal .pt-1 .mb-1\.5 { margin-bottom: 0.3rem !important; font-style: italic; }
+
+/* footer */
+.bmw-modal .border-t { padding: 0.55rem 0.9rem !important; background: rgba(0, 0, 0, 0.2) !important; border-color: rgba(255, 255, 255, 0.08) !important; }
+.bmw-modal .border-t > button { border-radius: 0.2rem !important; font-style: italic; }
+.bmw-modal .border-t > button.bg-gradient-to-r {
+  background: #5a8be8 !important;
+  color: #fff !important;
+  letter-spacing: 0.12em;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3) !important;
+  position: relative;
+  overflow: hidden;
+}
+.bmw-modal .border-t > button.bg-gradient-to-r::after {
+  content: '';
+  position: absolute;
+  inset: -40% -60%;
+  background: linear-gradient(115deg, transparent 42%, rgba(255, 255, 255, 0.35) 50%, transparent 58%);
+  transform: translateX(-70%);
+  animation: bmw-sheen 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bmw-flag, .bmw-val, .bmw-modal .grid.grid-cols-3 > button.text-black::after, .bmw-modal .border-t > button.bg-gradient-to-r::after { animation: none; }
+  .bmw-modal__card, .bmw-modal .overflow-y-auto > div { animation: none; opacity: 1; }
+}

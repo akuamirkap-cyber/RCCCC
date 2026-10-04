@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import './bmwModal.css';
 import {
   BMWModeKey,
   BMWAdjustment,
@@ -133,15 +134,16 @@ export function BMWAdjustmentModal({ mode: initialMode, isOpen, onClose, onModeC
 
   return (
     <div
-      className="fixed inset-0 z-[150] flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+      className="bmw-modal fixed inset-0 z-[150] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl max-h-[92vh] flex flex-col rounded-3xl bg-neutral-900 border-2 border-neutral-700/80 shadow-2xl text-white overflow-hidden"
+        className="bmw-modal__card w-full max-w-xl max-h-[92vh] flex flex-col rounded-3xl bg-neutral-900 border-2 border-neutral-700/80 shadow-2xl text-white overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header with Title & Mode Tabs */}
-        <div className="p-4 sm:p-5 border-b border-neutral-800 bg-neutral-950/70 space-y-3 shrink-0">
+        <div className="bmw-modal__head p-4 sm:p-5 border-b border-neutral-800 bg-neutral-950/70 space-y-3 shrink-0">
+          <div className="bmw-flag" aria-hidden />
           <div className="flex items-start justify-between">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
@@ -220,7 +222,7 @@ export function BMWAdjustmentModal({ mode: initialMode, isOpen, onClose, onModeC
                 >
                   −
                 </button>
-                <span className="font-mono text-xs font-bold text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-500/25 min-w-[70px] text-center">
+                <span key={adj.length} className="bmw-val font-mono text-xs font-bold text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-500/25 min-w-[70px] text-center">
                   {adj.length.toFixed(2)} m
                 </span>
                 <button
@@ -266,7 +268,7 @@ export function BMWAdjustmentModal({ mode: initialMode, isOpen, onClose, onModeC
                 >
                   −
                 </button>
-                <span className="font-mono text-xs font-bold text-cyan-300 bg-cyan-400/10 px-2 py-1 rounded-lg border border-cyan-500/25 min-w-[70px] text-center">
+                <span key={adj.width} className="bmw-val font-mono text-xs font-bold text-cyan-300 bg-cyan-400/10 px-2 py-1 rounded-lg border border-cyan-500/25 min-w-[70px] text-center">
                   {adj.width.toFixed(2)} m
                 </span>
                 <button
@@ -312,7 +314,7 @@ export function BMWAdjustmentModal({ mode: initialMode, isOpen, onClose, onModeC
                 >
                   −
                 </button>
-                <span className="font-mono text-xs font-bold text-emerald-300 bg-emerald-400/10 px-2 py-1 rounded-lg border border-emerald-500/25 min-w-[70px] text-center">
+                <span key={adj.height} className="bmw-val font-mono text-xs font-bold text-emerald-300 bg-emerald-400/10 px-2 py-1 rounded-lg border border-emerald-500/25 min-w-[70px] text-center">
                   {adj.height.toFixed(2)} m
                 </span>
                 <button
@@ -358,7 +360,7 @@ export function BMWAdjustmentModal({ mode: initialMode, isOpen, onClose, onModeC
                 >
                   −
                 </button>
-                <span className="font-mono text-xs font-bold text-purple-300 bg-purple-400/10 px-2 py-1 rounded-lg border border-purple-500/25 min-w-[70px] text-center">
+                <span key={adj.offsetY} className="bmw-val font-mono text-xs font-bold text-purple-300 bg-purple-400/10 px-2 py-1 rounded-lg border border-purple-500/25 min-w-[70px] text-center">
                   {adj.offsetY >= 0 ? `+${adj.offsetY.toFixed(2)}` : adj.offsetY.toFixed(2)} m
                 </span>
                 <button
