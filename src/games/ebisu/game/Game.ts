@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST } from './track';
 import { buildWorld, GROUND_Y, type WorldRefs } from './world';
 import { CinematicFx, SakuraPetals } from './cinematic';
+import { Garage } from './garage';
 import { LightingController } from './lighting';
 import { createCar, disposeCar, setBrakeLights, type CarModel } from './car';
 import { SkidMarks, Smoke, type WheelAnchor } from './effects';
@@ -245,6 +246,7 @@ export class Game {
   private lighting: LightingController;
   private fx: CinematicFx | null = null;
   private petals: SakuraPetals;
+  private garage = new Garage();
   private playerModel: CarModel;
   private player!: PlayerState;
   private ais: AICar[] = [];
@@ -358,6 +360,7 @@ export class Game {
     this.applyAiSpeeds();
     this.resetGrid();
     this.phase = 'menu';
+    this.garage.show(this.playerModel.group);
     this.handleResize();
     this.resizeObs = new ResizeObserver(() => this.handleResize());
     this.resizeObs.observe(canvas.parentElement ?? canvas);
@@ -506,7 +509,8 @@ export class Game {
     this.playerModel = createCar(CFG.playerColor, style, { nativePaint: true });
     this.playerModel.group.position.set(p.x, 0, p.z);
     this.playerModel.group.rotation.y = p.angle;
-    this.scene.add(this.playerModel.group);
+    if (this.phase === 'menu') this.garage.show(this.playerModel.group);
+    else this.scene.add(this.playerModel.group);
     for (const ai of this.ais) {
       disposeCar(ai.model);
       ai.model = createCar(ai.color, style);
@@ -621,6 +625,7 @@ export class Game {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.garage.setAspect(w / h);
     this.fx?.setSize(w, h);
   }
 
@@ -714,6 +719,8 @@ export class Game {
   startRace() {
     this.audio.init();
     this.paused = false;
+    const parked = this.garage.release();
+    if (parked) this.scene.add(parked);
     this.resetGrid();
     this.phase = 'countdown';
     this.countdownT = 3.0;
@@ -771,12 +778,14 @@ export class Game {
     this.paused = false;
     this.resetGrid();
     this.phase = 'menu';
+    this.garage.show(this.playerModel.group);
     this.updateCockpitVisibility();
     this.cb.onPhase('menu');
   }
 
   dispose() {
     this.lighting.dispose();
+    this.garage.dispose();
     this.fx?.dispose();
     this.petals.dispose();
     this.disposed = true;
@@ -796,6 +805,12 @@ export class Game {
     }
     this.world.update(dt); // ambient scenery keeps moving even while paused
     this.petals.update(dt, this.player.x, this.player.z, GROUND_Y);
+    if (this.phase === 'menu' && this.garage.active) {
+      // static showroom behind the start menu — the car never moves or rotates
+      this.garage.pose();
+      this.garage.render(this.renderer, this.scene.environment);
+      return;
+    }
     if (this.fx && this.prefs.fx === 'cinematic') {
       this.fx.updateSun(this.lighting.sunOffset);
       this.fx.render();

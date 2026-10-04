@@ -180,20 +180,20 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
       {/* angled slate panel behind the tile column (keeps the 3D car visible on the right) */}
       <div className="dk-menu__panel" />
 
-      {/* title — top right, over the circuit */}
+      {/* title — top right, above the showroom car */}
       <div className="dk-title anim-slide-up">
         <div className="dk-title__main">
           <span>DRIFT</span>
           <span className="dk-title__accent"> KING</span>
         </div>
-        <div className="dk-title__sub">EBISU-STYLE DRIFT CIRCUIT</div>
+        <div className="dk-title__sub">EBISU DRIFT · BMW GLB WIDE-BODY</div>
       </div>
 
       {/* tile column */}
       <div className="dk-tiles anim-slide-up" style={{ animationDelay: '0.05s' }}>
         <button type="button" onClick={onStart} className="dk-tile dk-tile--blue dk-tile--hero" aria-label="Start race">
           <div className="dk-tile__checker" />
-          <div className="dk-tile__label">RACE</div>
+          <div className="dk-tile__label">RACE MODES</div>
           <div className="dk-tile__big">{isTouch ? 'TAP TO RACE' : 'START RACE'}</div>
           <div className="dk-tile__meta">
             {setup.race.laps} LAPS · {diff.toUpperCase()} · {engineInfo?.label.toUpperCase()}
@@ -204,8 +204,8 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
         <div className="dk-tiles__row">
           <button type="button" onClick={onOpenSetup} className="dk-tile dk-tile--teal">
             <span className="dk-tile__icon">🏆</span>
-            <span className="dk-tile__name">SETUP</span>
-            <span className="dk-tile__meta">ENGINE · TUNING · LAPS</span>
+            <span className="dk-tile__name">TOURNAMENT</span>
+            <span className="dk-tile__meta">SETUP · ENGINE · TUNING · LAPS</span>
           </button>
           <button type="button" onClick={onOpenVisual} className="dk-tile dk-tile--purple">
             <span className="dk-tile__icon">⚙️</span>

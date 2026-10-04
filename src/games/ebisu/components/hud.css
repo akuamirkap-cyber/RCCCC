@@ -495,14 +495,15 @@
 .dk-menu {
   --dk-font: 'Exo 2', 'Barlow Condensed', 'Oswald', system-ui, sans-serif;
   font-family: var(--dk-font);
-  background: linear-gradient(180deg, rgba(20, 32, 52, 0.18) 0%, rgba(20, 32, 52, 0.08) 60%, rgba(20, 32, 52, 0.3) 100%);
+  /* the 3D showroom behind is already a flat slate studio — only a light top sheen like the reference */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 7%);
 }
 .dk-menu__panel {
   position: absolute;
   inset: 0 auto 0 0;
-  width: min(46rem, 58vw);
-  background: linear-gradient(100deg, rgba(58, 74, 96, 0.93) 0%, rgba(58, 74, 96, 0.9) 55%, rgba(72, 118, 214, 0.78) 56%, rgba(72, 118, 214, 0.55) 100%);
-  clip-path: polygon(0 0, 100% 0, 72% 100%, 0 100%);
+  width: min(34rem, 46vw);
+  background: rgba(60, 76, 98, 0.55);
+  clip-path: polygon(0 0, 100% 0, 78% 100%, 0 100%);
   pointer-events: none;
 }
 .dk-title {
@@ -541,10 +542,10 @@
   left: clamp(0.75rem, 2.4vw, 2.25rem);
   top: clamp(3.4rem, 9vh, 5.5rem);
   bottom: 4.6rem;
-  width: min(26rem, calc(100vw - 1.5rem));
+  width: min(27rem, calc(100vw - 1.5rem));
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.75rem;
 }
 .dk-tiles__row {
   display: grid;
@@ -563,24 +564,24 @@
   gap: 0.15rem;
   padding: 0.9rem 1rem;
   border: 0;
-  border-radius: 0.35rem;
+  border-radius: 0.2rem;
   color: #fff;
   text-align: left;
   font-family: var(--dk-font);
   font-weight: 800;
   font-style: italic;
   letter-spacing: 0.02em;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
   transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
   cursor: pointer;
   pointer-events: auto;
 }
 .dk-tile:hover { transform: translateY(-2px) scale(1.01); filter: brightness(1.08); }
 .dk-tile:active { transform: scale(0.985); }
-.dk-tile--blue { background: linear-gradient(135deg, #5b8cf0 0%, #4f80e8 100%); }
-.dk-tile--teal { background: linear-gradient(135deg, #7be0cf 0%, #5fd0bf 100%); }
-.dk-tile--purple { background: linear-gradient(135deg, #9b7bf0 0%, #8c69e6 100%); }
-.dk-tile--violet { background: linear-gradient(135deg, #8f6fe6 0%, #7f5ed9 100%); }
+.dk-tile--blue { background: #5a8be8; }
+.dk-tile--teal { background: #7fe2d0; }
+.dk-tile--purple { background: #9a7cf0; }
+.dk-tile--violet { background: #8d6ee8; }
 .dk-tile--hero {
   flex: 1.5 1 0;
   min-height: 9.5rem;
@@ -720,3 +721,75 @@
   .dk-tile__icon { font-size: 1.3rem; }
   .dk-bar { height: 2.8rem; }
 }
+
+/* ---------- panels (Setup / Customization) in the same slate + tile theme ---------- */
+.dk-panel {
+  --dk-font: 'Exo 2', 'Barlow Condensed', 'Oswald', system-ui, sans-serif;
+  font-family: var(--dk-font);
+}
+.dk-panel > .card-solid {
+  background: linear-gradient(165deg, #44566f 0%, #34435a 100%);
+  color: #fff;
+  border-radius: 0.5rem;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.dk-panel .border-slate-200 { border-color: rgba(255, 255, 255, 0.1); }
+.dk-panel .text-slate-800,
+.dk-panel .text-slate-900,
+.dk-panel .text-slate-700 { color: #fff; }
+.dk-panel .text-slate-500,
+.dk-panel .text-slate-600 { color: rgba(255, 255, 255, 0.72); }
+.dk-panel .text-brand { color: #ffd166; }
+.dk-panel .text-pink-600 { color: #ffb3d9; }
+.dk-panel .bg-slate-100 { background: rgba(255, 255, 255, 0.1); }
+.dk-panel .bg-slate-200 { background: rgba(255, 255, 255, 0.16); }
+.dk-panel .hover\:bg-slate-200:hover { background: rgba(255, 255, 255, 0.2); }
+.dk-panel .bg-brand { background: #7fe2d0; }
+.dk-panel .font-bold.tracking-wider,
+.dk-panel .font-bold.tracking-wide { font-style: italic; text-transform: uppercase; letter-spacing: 0.08em; }
+/* option cards → purple tiles, active → teal tile */
+.dk-panel button.rounded-2xl.border-2 {
+  background: #8d6ee8;
+  border-color: transparent;
+  border-radius: 0.2rem;
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+.dk-panel button.rounded-2xl.border-2:hover { filter: brightness(1.08); border-color: transparent; }
+.dk-panel button.rounded-2xl.border-2 .text-slate-800,
+.dk-panel button.rounded-2xl.border-2 .text-slate-500 { color: #fff; }
+.dk-panel button.rounded-2xl.border-2.bg-orange-50,
+.dk-panel button.rounded-2xl.border-2.bg-pink-50 {
+  background: #7fe2d0;
+  color: #0f3a33;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 8px 22px rgba(0, 0, 0, 0.25);
+}
+.dk-panel button.rounded-2xl.border-2.bg-orange-50 .text-brand,
+.dk-panel button.rounded-2xl.border-2.bg-pink-50 .text-pink-600,
+.dk-panel button.rounded-2xl.border-2.bg-orange-50 .text-slate-500,
+.dk-panel button.rounded-2xl.border-2.bg-pink-50 .text-slate-500 { color: #0f3a33; }
+/* segmented tabs */
+.dk-panel .rounded-xl.bg-slate-100 > button.bg-white { background: #5a8be8; color: #fff; box-shadow: none; }
+.dk-panel .rounded-xl.bg-slate-100 > button { border-radius: 0.2rem; }
+/* ± steppers */
+.dk-panel button.h-7.w-7 { background: rgba(255, 255, 255, 0.12); color: #fff; border-radius: 0.2rem; }
+.dk-panel button.h-7.w-7:hover { background: rgba(255, 255, 255, 0.22); }
+/* sliders */
+.dk-panel input[type='range'] { accent-color: #7fe2d0; }
+/* close + primary */
+.dk-panel button.rounded-full.bg-slate-100 { background: rgba(255, 255, 255, 0.12); color: #fff; border-radius: 0.2rem; }
+.dk-panel button.rounded-full.from-orange-400 {
+  background: #5a8be8;
+  border-radius: 0.25rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  font-style: italic;
+  letter-spacing: 0.12em;
+}
+.dk-panel button.rounded-full.from-orange-400:hover { filter: brightness(1.08); }
+.dk-panel .bg-orange-50:not(button),
+.dk-panel .bg-orange-100 { background: rgba(255, 255, 255, 0.08); }
+.dk-panel div.bg-pink-50 { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.12); color: rgba(255, 255, 255, 0.85); }
+.dk-panel .text-pink-900 { color: rgba(255, 255, 255, 0.85); }
+.dk-panel button.bg-orange-50:not(.border-2) { background: #5a8be8; color: #fff; border-color: transparent; border-radius: 0.2rem; }
+.dk-panel button.from-orange-400:not(.rounded-full) { background: #5a8be8; box-shadow: none; }
