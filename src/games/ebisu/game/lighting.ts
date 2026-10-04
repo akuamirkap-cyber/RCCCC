@@ -160,14 +160,14 @@ export class LightingController {
     return new THREE.Vector3(Math.cos(az) * Math.cos(el), Math.sin(el), Math.sin(az) * Math.cos(el));
   }
 
-  private usePhysicalSky() {
-    const sunDir = this.sunDirFor(REAL.elevationDeg);
+  /** Clear-blue physically based sky dome (+ its PMREM env). Created once per controller; env cached per renderer. */
+  private ensurePhysSky(sunDir: THREE.Vector3): THREE.Mesh {
     if (!this.physSky) {
       const sky = new Sky();
       const u = sky.material.uniforms;
-      u.turbidity.value = 2.4; // crisp clear day
-      u.rayleigh.value = 1.1; // saturated blue zenith
-      u.mieCoefficient.value = 0.004;
+      u.turbidity.value = 2.0; // crisp clear day
+      u.rayleigh.value = 1.5; // saturated blue zenith
+      u.mieCoefficient.value = 0.003;
       u.mieDirectionalG.value = 0.8;
       u.sunPosition.value.copy(sunDir);
       // visible dome: a sphere sharing the Sky shader (its vertex shader pins depth to the far plane)
@@ -193,7 +193,14 @@ export class LightingController {
         physEnvByRenderer.set(this.renderer, this.physEnv);
       }
     }
-    this.physSky.visible = true;
+    (this.physSky.material as THREE.ShaderMaterial).uniforms.sunPosition.value.copy(sunDir);
+    return this.physSky;
+  }
+
+  private usePhysicalSky() {
+    const sunDir = this.sunDirFor(REAL.elevationDeg);
+    this.ensurePhysSky(sunDir);
+    this.physSky!.visible = true;
     this.scene.background = null;
     this.scene.environment = this.physEnv!;
     this.scene.environmentIntensity = REAL.envI * 0.9;
@@ -202,15 +209,15 @@ export class LightingController {
   }
 
   private useHdr() {
-    if (this.physSky) this.physSky.visible = false;
-    this.scene.background = this.hdrTex!;
-    this.scene.backgroundIntensity = 1.15;
-    this.scene.backgroundBlurriness = 0;
+    // The HDRI drives reflections / ambient light only. The visible sky is always the clear-blue midday
+    // atmosphere: the photographed sky read as hazy-overcast once tone-mapped, which is not the sunny
+    // Long Beach / Ebisu look this game wants.
+    const dir = this.hdrSunDir ?? this.sunDirFor(REAL.elevationDeg);
+    this.ensurePhysSky(dir).visible = true;
+    this.scene.background = null;
     this.scene.environment = this.hdrEnv!;
     this.scene.environmentIntensity = REAL.envI;
-    const fogC = this.hdrFog ?? new THREE.Color(REAL.fogColor);
-    this.scene.fog = new THREE.Fog(fogC, REAL.fogNear, REAL.fogFar);
-    const dir = this.hdrSunDir ?? this.sunDirFor(REAL.elevationDeg);
+    this.scene.fog = new THREE.Fog(REAL.fogColor, REAL.fogNear, REAL.fogFar);
     this.sunOffset.copy(dir).multiplyScalar(this.rig.sunOffset.length());
   }
 

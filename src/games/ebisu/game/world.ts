@@ -573,6 +573,12 @@ export class Crowd {
     const skins = ['#f6c9a0', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#fbd3b6'].map((c) => new THREE.Color(c));
     const hatCols = ['#5cb85c', '#43a047', '#ff6f3c', '#2f80ff', '#ffd166', '#e63946', '#ffffff'].map((c) => new THREE.Color(c));
     const hairCols = ['#1b1b1f', '#3a2418', '#6b3e26', '#111118', '#8a4b1f'].map((c) => new THREE.Color(c));
+    // businessmen: dark suits, white shirt, tie; dapper gents: coloured blazers, bow tie, fedora + shades
+    const suitCols = ['#1e2a44', '#2b2d33', '#16171b', '#4b5563', '#243b6b', '#3a2f2a'].map((c) => new THREE.Color(c));
+    const tieCols = ['#c62828', '#1d4ed8', '#7a1f2b', '#0f766e', '#f59e0b', '#111827'].map((c) => new THREE.Color(c));
+    const blazerCols = ['#7a1f2b', '#efe6d2', '#b98b5a', '#1f6f6b', '#d4a017', '#f1f1f1', '#5b3a8a'].map((c) => new THREE.Color(c));
+    const fedoraCols = ['#1a1a1f', '#4a3222', '#efe6d2', '#6b7280', '#2b2d33'].map((c) => new THREE.Color(c));
+    const dressShoeCols = ['#1a1a1f', '#4a3222', '#2b1d14'].map((c) => new THREE.Color(c));
     const flagColors = ['#ff5a1f', '#ffd166', '#ffffff', '#2f80ff', '#06d6a0'].map((c) => new THREE.Color(c));
     const eyeBase = new THREE.Color('#15151a');
     const white = new THREE.Color('#f7f7f7');
@@ -595,6 +601,12 @@ export class Crowd {
     const bucketBrimGeo = new THREE.CylinderGeometry(0.38, 0.4, 0.035, 10);
     const glassesGeo = new THREE.BoxGeometry(0.44, 0.1, 0.05);
     const pompGeo = new RoundedBoxGeometry(0.5, 0.2, 0.46, 1, 0.07);
+    const shirtGeo = new THREE.BoxGeometry(0.2, 0.26, 0.03);
+    const tieGeo = new THREE.BoxGeometry(0.07, 0.24, 0.02);
+    const bowTieGeo = new THREE.BoxGeometry(0.15, 0.07, 0.03);
+    const slickHairGeo = new THREE.BoxGeometry(0.5, 0.07, 0.48);
+    const fedoraTopGeo = new THREE.CylinderGeometry(0.25, 0.3, 0.22, 10);
+    const fedoraBrimGeo = new THREE.CylinderGeometry(0.44, 0.45, 0.03, 12);
 
     const mat = (rough = 0.7) => new THREE.MeshStandardMaterial({ roughness: rough });
     const heads = new THREE.InstancedMesh(headGeo, mat(0.6), N);
@@ -607,11 +619,14 @@ export class Crowd {
     const legs = new THREE.InstancedMesh(legGeo, mat(), N * 2);
     const shoes = new THREE.InstancedMesh(shoeGeo, mat(0.5), N * 2);
 
-    // outfit variants: 0 = none, 1 = cap, 2 = bucket hat + shades on top, 3 = pompadour + shades
+    // outfit variants: 0 = none, 1 = cap, 2 = bucket hat + shades, 3 = pompadour + shades,
+    // 4 = businessman (suit + tie + slick hair), 5 = dapper gent (blazer + bow tie + fedora + shades)
     const outfit = new Uint8Array(N);
+    const hasShades = new Uint8Array(N);
     for (let i = 0; i < N; i++) {
       const v = r();
-      outfit[i] = v < 0.28 ? 0 : v < 0.55 ? 1 : v < 0.78 ? 2 : 3;
+      outfit[i] = v < 0.24 ? 0 : v < 0.46 ? 1 : v < 0.64 ? 2 : v < 0.8 ? 3 : v < 0.91 ? 4 : 5;
+      hasShades[i] = outfit[i] === 2 || outfit[i] === 3 || outfit[i] === 5 || (outfit[i] === 4 && r() < 0.4) ? 1 : 0;
     }
     const idxOf = (k: number) => {
       const out: number[] = [];
@@ -621,16 +636,30 @@ export class Crowd {
     const capIdx = idxOf(1);
     const bucketIdx = idxOf(2);
     const pompIdx = idxOf(3);
+    const suitIdx = idxOf(4);
+    const dapperIdx = idxOf(5);
+    let shadesN = 0;
+    for (let i = 0; i < N; i++) shadesN += hasShades[i];
     const capDomes = new THREE.InstancedMesh(capDomeGeo, mat(), Math.max(1, capIdx.length));
     const capVisors = new THREE.InstancedMesh(capVisorGeo, mat(), Math.max(1, capIdx.length));
     const bucketTops = new THREE.InstancedMesh(bucketTopGeo, mat(0.85), Math.max(1, bucketIdx.length));
     const bucketBrims = new THREE.InstancedMesh(bucketBrimGeo, mat(0.85), Math.max(1, bucketIdx.length));
-    const bucketShades = new THREE.InstancedMesh(glassesGeo, new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.3, color: dark }), Math.max(1, bucketIdx.length));
     const pomps = new THREE.InstancedMesh(pompGeo, mat(0.55), Math.max(1, pompIdx.length));
-    const faceShades = new THREE.InstancedMesh(glassesGeo, new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.3, color: dark }), Math.max(1, pompIdx.length));
+    // every pair of sunglasses sits on the face (over the eyes) — never parked on a hat
+    const faceShades = new THREE.InstancedMesh(glassesGeo, new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.3, color: dark }), Math.max(1, shadesN));
+    const shirts4 = new THREE.InstancedMesh(shirtGeo, mat(0.6), Math.max(1, suitIdx.length + dapperIdx.length));
+    const ties = new THREE.InstancedMesh(tieGeo, mat(0.6), Math.max(1, suitIdx.length));
+    const slickHairs = new THREE.InstancedMesh(slickHairGeo, mat(0.45), Math.max(1, suitIdx.length));
+    const bowTies = new THREE.InstancedMesh(bowTieGeo, mat(0.6), Math.max(1, dapperIdx.length));
+    const fedoraTops = new THREE.InstancedMesh(fedoraTopGeo, mat(0.8), Math.max(1, dapperIdx.length));
+    const fedoraBrims = new THREE.InstancedMesh(fedoraBrimGeo, mat(0.8), Math.max(1, dapperIdx.length));
     capDomes.count = capVisors.count = capIdx.length;
-    bucketTops.count = bucketBrims.count = bucketShades.count = bucketIdx.length;
-    pomps.count = faceShades.count = pompIdx.length;
+    bucketTops.count = bucketBrims.count = bucketIdx.length;
+    pomps.count = pompIdx.length;
+    faceShades.count = shadesN;
+    shirts4.count = suitIdx.length + dapperIdx.length;
+    ties.count = slickHairs.count = suitIdx.length;
+    bowTies.count = fedoraTops.count = fedoraBrims.count = dapperIdx.length;
 
     const flagIdx: number[] = [];
     spots.forEach((s, i) => s.flag && flagIdx.push(i));
@@ -702,15 +731,29 @@ export class Crowd {
     let capK = 0;
     let bucketK = 0;
     let pompK = 0;
+    let shadesK = 0;
+    let suitK = 0;
+    let dapperK = 0;
+    let shirtK = 0;
     spots.forEach((s, i) => {
       yaw[i] = facing(s.x, s.z) + (r() - 0.5) * 0.5;
       baseY[i] = s.y;
-      raise[i] = r() < 0.3 ? 1 : 0;
+      const formal = outfit[i] === 4 || outfit[i] === 5;
+      raise[i] = r() < (formal ? 0.08 : 0.3) ? 1 : 0; // suits mostly keep their arms down
       armSide[i] = r() < 0.5 ? -1 : 1;
-      const shirt = shirts[Math.floor(r() * shirts.length)];
+      let shirt = shirts[Math.floor(r() * shirts.length)];
       const skin = skins[Math.floor(r() * skins.length)];
-      const pants = pantsCols[Math.floor(r() * pantsCols.length)];
-      const shoe = shoeCols[Math.floor(r() * shoeCols.length)];
+      let pants = pantsCols[Math.floor(r() * pantsCols.length)];
+      let shoe = shoeCols[Math.floor(r() * shoeCols.length)];
+      if (outfit[i] === 4) {
+        shirt = suitCols[Math.floor(r() * suitCols.length)];
+        pants = shirt; // matching trousers
+        shoe = dressShoeCols[Math.floor(r() * dressShoeCols.length)];
+      } else if (outfit[i] === 5) {
+        shirt = blazerCols[Math.floor(r() * blazerCols.length)];
+        pants = r() < 0.5 ? suitCols[Math.floor(r() * suitCols.length)] : new THREE.Color('#e9e2d0');
+        shoe = dressShoeCols[Math.floor(r() * dressShoeCols.length)];
+      }
 
       // legs + shoes (short, slightly apart, one foot a bit forward like the Stumble pose)
       for (const side of [-1, 1]) {
@@ -753,15 +796,39 @@ export class Crowd {
         bucketTops.setColorAt(bucketK, hc);
         place(bucketBrims, bucketK, i, 0, 0, 1.21);
         bucketBrims.setColorAt(bucketK, hc);
-        // sunglasses parked on top of the hat
-        place(bucketShades, bucketK, i, 0.22, 0, 1.33);
         bucketK++;
       } else if (outfit[i] === 3) {
         pomps.setColorAt(pompK, hairCols[Math.floor(r() * hairCols.length)]);
         place(pomps, pompK, i, 0.04, 0, 1.3);
-        // sunglasses on the face (cover the eyes)
-        place(faceShades, pompK, i, 0.255, 0, 1.01);
         pompK++;
+      } else if (outfit[i] === 4) {
+        // businessman: white shirt front + tie on the suit, slicked dark hair
+        place(shirts4, shirtK, i, 0.185, 0, 0.58);
+        shirts4.setColorAt(shirtK, white);
+        shirtK++;
+        place(ties, suitK, i, 0.205, 0, 0.56);
+        ties.setColorAt(suitK, tieCols[Math.floor(r() * tieCols.length)]);
+        place(slickHairs, suitK, i, -0.01, 0, 1.255);
+        slickHairs.setColorAt(suitK, hairCols[Math.floor(r() * 2)]);
+        suitK++;
+      } else if (outfit[i] === 5) {
+        // dapper gent: blazer, white shirt, bow tie, fedora
+        place(shirts4, shirtK, i, 0.185, 0, 0.58);
+        shirts4.setColorAt(shirtK, white);
+        shirtK++;
+        place(bowTies, dapperK, i, 0.2, 0, 0.69);
+        bowTies.setColorAt(dapperK, r() < 0.5 ? dark : tieCols[Math.floor(r() * tieCols.length)]);
+        const fc = fedoraCols[Math.floor(r() * fedoraCols.length)];
+        place(fedoraTops, dapperK, i, 0, 0, 1.33);
+        fedoraTops.setColorAt(dapperK, fc);
+        place(fedoraBrims, dapperK, i, 0.02, 0, 1.225);
+        fedoraBrims.setColorAt(dapperK, fc);
+        dapperK++;
+      }
+      if (hasShades[i]) {
+        // sunglasses worn over the eyes
+        place(faceShades, shadesK, i, 0.255, 0, 1.01);
+        shadesK++;
       }
     });
     flagIdx.forEach((si, f) => {
@@ -774,7 +841,7 @@ export class Crowd {
     });
     // crowd shadows only pay off for small (close) groups; a 3000-fan grandstand would double the shadow pass
     heads.castShadow = torsos.castShadow = N <= 1200;
-    const all = [heads, torsos, eyes, armsL, armsR, handsL, handsR, legs, shoes, capDomes, capVisors, bucketTops, bucketBrims, bucketShades, pomps, faceShades, flags];
+    const all = [heads, torsos, eyes, armsL, armsR, handsL, handsR, legs, shoes, capDomes, capVisors, bucketTops, bucketBrims, pomps, faceShades, shirts4, ties, slickHairs, bowTies, fedoraTops, fedoraBrims, flags];
     for (const im of all) im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(...all);
 

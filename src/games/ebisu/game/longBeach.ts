@@ -6,6 +6,7 @@ import type { Crowd } from './world';
 import { buildProStand } from './proVenue';
 import { makeSponsorStrip } from './proBarriers';
 import { buildSkyline } from './skyline';
+import { buildStreetLife, CarPool, LampPool, CAR_COLORS } from './streetLife';
 
 /**
  * Long Beach street-circuit venue (Formula Drift Long Beach look): flat harbour-city ground, continuous concrete
@@ -302,7 +303,54 @@ export function buildLongBeachVenue(scene: THREE.Scene, track: Track, zones: Dri
   /* ---------- Grandstands: aluminium bleachers with blue/white striped canopies ---------- */
   const canopy = { a: '#1e63d6', b: '#f7f9fc' };
   const bleacherCols = ['#c9ced6', '#aeb6c2', '#c9ced6', '#1e63d6'];
-  const placeStand = (atMetres: number, side: 1 | -1, length: number, tiers: number, name: string | undefined, gap = 5.5) => {
+  /** Stand footprint (local: depth along -x, length along z) sampled every ~3 m must stay outside the walls. */
+  const standFits = (atMetres: number, side: 1 | -1, length: number, tiers: number, gap: number) => {
+    const s = S[idxAt(atMetres)];
+    const depth = tiers * 2.4;
+    const off = (WALL_DIST + gap + tiers * 1.2) * side;
+    const px = s.x + s.rx * off;
+    const pz = s.z + s.rz * off;
+    const yawA = s.angle + (side > 0 ? Math.PI : 0);
+    const cs = Math.cos(yawA);
+    const sn = Math.sin(yawA);
+    const nx = Math.max(2, Math.ceil((depth + 4) / 3));
+    const nz = Math.max(2, Math.ceil((length + 4) / 3));
+    for (let i = 0; i <= nx; i++) {
+      const lx = -depth - 1.5 + ((depth + 3.5) * i) / nx;
+      for (let j = 0; j <= nz; j++) {
+        const lz = -length / 2 - 1.5 + ((length + 3) * j) / nz;
+        const wx = px + lx * cs + lz * sn;
+        const wz = pz - lx * sn + lz * cs;
+        if (track.distanceToTrack(wx, wz) < WALL_DIST + 0.6) return false;
+      }
+    }
+    return true;
+  };
+  const standSpans: { from: number; to: number }[] = []; // outside-band stretches taken by grandstands
+  const placeStand = (atMetres: number, side: 1 | -1, length: number, tiers: number, name: string | undefined, gap = 5.5): THREE.Group | null => {
+    // never let a grandstand poke through the walls onto the asphalt: shrink / push back / slide until it fits
+    let fit: { at: number; len: number; gap: number } | null = null;
+    outer: for (const shift of [0, -12, 12, -24, 24]) {
+      for (const [lenF, gapAdd] of [
+        [1, 0],
+        [1, 6],
+        [0.7, 0],
+        [0.7, 6],
+        [0.5, 0],
+        [0.5, 8],
+      ]) {
+        const len = Math.max(18, length * lenF);
+        if (standFits(atMetres + shift, side, len, tiers, gap + gapAdd)) {
+          fit = { at: atMetres + shift, len, gap: gap + gapAdd };
+          break outer;
+        }
+      }
+    }
+    if (!fit) return null;
+    atMetres = fit.at;
+    length = fit.len;
+    gap = fit.gap;
+    if (side < 0) standSpans.push({ from: atMetres - length / 2 - 10, to: atMetres + length / 2 + 10 });
     const s = S[idxAt(atMetres)];
     const stand = buildProStand(length, tiers, bleacherCols, rand, { roof: false, canopy, name, bleacher: true });
     const off = (WALL_DIST + gap + tiers * 1.2) * side;
@@ -403,6 +451,79 @@ export function buildLongBeachVenue(scene: THREE.Scene, track: Track, zones: Dri
   addPalmRow(-10, 120, -1, 7, 28);
   addPalmRow(track.length * 0.46, track.length * 0.62, 1, 8, 16);
   addPalmRow(track.length * 0.7, track.length * 0.95, -1, 9, 18);
+  /* ---------- Street life: boulevard ring, traffic, parked cars, lamps, vendors, pedestrians ---------- */
+  const cars = new CarPool();
+  const lamps = new LampPool();
+  const landmarkClear = (x: number, z: number) => Math.hypot(x - (b.maxX + 60), z - (b.maxZ + 95)) < 40 || Math.hypot(x - (b.maxX + 130), z - (b.maxZ + 60)) < 30 || z > SHORE_Z - 8;
+  buildStreetLife(scene, track, {
+    rand,
+    groundY,
+    crowd,
+    animated,
+    cars,
+    lamps,
+    occupied: standSpans,
+    tent,
+    palm: (x, z) => palmSpots.push({ x, z, h: 9 + rand() * 4 }),
+    blocked: landmarkClear,
+  });
+
+  /* ---------- Waterfront park + event parking behind the main grandstand (north, between boulevard and quay) ---------- */
+  {
+    const z0 = b.maxZ + 69;
+    const z1 = SHORE_Z - 7;
+    const x0 = b.minX - 130;
+    const x1 = b.maxX + 22;
+    const lawn = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), new THREE.MeshStandardMaterial({ color: '#7aa962', roughness: 1 }));
+    lawn.rotation.x = -Math.PI / 2;
+    lawn.position.set((x0 + x1) / 2, groundY + 0.012, (z0 + z1) / 2);
+    lawn.receiveShadow = true;
+    scene.add(lawn);
+    // promenade along the water + two paths down to the boulevard
+    const pathMat = new THREE.MeshStandardMaterial({ color: '#d6d2c6', roughness: 1 });
+    const prom = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, 7), pathMat);
+    prom.rotation.x = -Math.PI / 2;
+    prom.position.set((x0 + x1) / 2, groundY + 0.018, z1 - 3.5);
+    scene.add(prom);
+    for (const px of [cx - 40, cx + 90]) {
+      const path = new THREE.Mesh(new THREE.PlaneGeometry(5, z1 - z0), pathMat);
+      path.rotation.x = -Math.PI / 2;
+      path.position.set(px, groundY + 0.018, (z0 + z1) / 2);
+      scene.add(path);
+    }
+    // event parking lot on the west half of the park
+    const lotW = 120;
+    const lotD = 48;
+    const lx = x0 + 90;
+    const lz = z0 + 30;
+    const lot = new THREE.Mesh(new THREE.PlaneGeometry(lotW, lotD), new THREE.MeshStandardMaterial({ color: '#45484e', roughness: 1 }));
+    lot.rotation.x = -Math.PI / 2;
+    lot.position.set(lx, groundY + 0.016, lz);
+    scene.add(lot);
+    for (let row = 0; row < 3; row++) {
+      const z = lz - lotD / 2 + 8 + row * 16;
+      for (let x = lx - lotW / 2 + 4; x < lx + lotW / 2 - 4; x += 3.1) {
+        if (rand() < 0.22) continue;
+        cars.add(x, z, (row % 2 ? 0 : Math.PI) + (rand() - 0.5) * 0.05, CAR_COLORS[Math.floor(rand() * CAR_COLORS.length)]);
+      }
+    }
+    for (let x = lx - lotW / 2 + 10; x < lx + lotW / 2; x += 28) lamps.add(x, lz + lotD / 2 + 1.5, Math.PI / 2);
+    // palms + people strolling on the lawn (never inside the parking lot or the landmarks)
+    const inLot = (x: number, z: number) => Math.abs(x - lx) < lotW / 2 + 3 && Math.abs(z - lz) < lotD / 2 + 3;
+    for (let k = 0; k < 110; k++) {
+      const x = x0 + rand() * (x1 - x0);
+      const z = z0 + 5 + rand() * (z1 - z0 - 12);
+      if (landmarkClear(x, z) || inLot(x, z)) continue;
+      palmSpots.push({ x, z, h: 8 + rand() * 7 });
+    }
+    for (let k = 0; k < 90; k++) {
+      const x = x0 + rand() * (x1 - x0);
+      const z = z0 + 2 + rand() * (z1 - z0 - 4);
+      if (landmarkClear(x, z) || inLot(x, z)) continue;
+      crowd.add(x, groundY, z, { jumpChance: 0.02, flagChance: 0.02 });
+    }
+  }
+
   // scattered palms around the venue
   for (let k = 0; k < 70; k++) {
     const a = rand() * Math.PI * 2;
@@ -435,10 +556,15 @@ export function buildLongBeachVenue(scene: THREE.Scene, track: Track, zones: Dri
     groundY,
     cx,
     cz,
-    blocked: (x, z) => insideTrackBox(x, z, 58) || Math.hypot(x - cx, z - cz) > 540,
+    blocked: (x, z) => insideTrackBox(x, z, 64) || Math.hypot(x - cx, z - cz) > 540 || landmarkClear(x, z),
     core: { x: cx + 20, z: b.minZ - 250 },
-    allow: (x, z) => z < b.minZ - 60 || ((x < b.minX - 70 || x > b.maxX + 70) && z < b.maxZ + 10),
+    allow: (x, z) => z < b.minZ - 66 || ((x < b.minX - 76 || x > b.maxX + 76) && z < b.maxZ + 10),
+    car: (x, z, yaw) => cars.add(x, z, yaw, CAR_COLORS[Math.floor(rand() * CAR_COLORS.length)]),
+    lamp: (x, z, yaw) => lamps.add(x, z, yaw),
+    person: (x, z) => crowd.add(x, groundY, z, { jumpChance: 0.02, flagChance: 0.01 }),
   });
+  cars.build(scene, groundY);
+  lamps.build(scene, groundY);
   // landmark: the aquarium (blue wave-glass drum + dome) on the waterfront
   {
     const aq = new THREE.Group();

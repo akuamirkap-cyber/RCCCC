@@ -24,6 +24,10 @@ export interface SkylineOptions {
   core: { x: number; z: number };
   /** Blocks are only placed where this returns true (keeps the harbour side free). */
   allow: (x: number, z: number) => boolean;
+  /** Street furniture collectors (parked cars / lamps / pedestrians on the city streets). */
+  car?: (x: number, z: number, yaw: number) => void;
+  lamp?: (x: number, z: number, yaw: number) => void;
+  person?: (x: number, z: number) => void;
 }
 
 /* ------------------------------------------------------------------ */
@@ -576,6 +580,7 @@ export function buildSkyline(scene: THREE.Scene, o: SkylineOptions): void {
   const toWorld = (gx: number, gz: number) => ({ x: o.cx + gx * cs - gz * sn, z: o.cz + gx * sn + gz * cs });
   const coreDist = (x: number, z: number) => Math.hypot(x - o.core.x, z - o.core.z);
 
+  const cells = new Map<string, { i: number; j: number; x: number; z: number }>();
   for (let i = -10; i <= 10; i++) {
     for (let j = -10; j <= 10; j++) {
       const c = toWorld(i * PITCH, j * PITCH);
@@ -597,6 +602,7 @@ export function buildSkyline(scene: THREE.Scene, o: SkylineOptions): void {
         }
       }
       if (!clear) continue;
+      cells.set(`${i},${j}`, { i, j, x: c.x, z: c.z });
       const dist = coreDist(c.x, c.z);
       // height profile: tall core, falling off with distance, with noise and a few outliers
       const f = THREE.MathUtils.clamp(1 - dist / 460, 0, 1);
@@ -637,6 +643,94 @@ export function buildSkyline(scene: THREE.Scene, o: SkylineOptions): void {
       }
       for (const L of lots) place(L);
     }
+  }
+
+  /* ---------- streets: asphalt around every block, sidewalks, lane dashes, parked cars, lamps, people ---------- */
+  {
+    const streetBuf = new QuadBuffer();
+    const walkBuf = new QuadBuffer();
+    const dashBuf = new QuadBuffer();
+    const grey = new THREE.Color('#ffffff');
+    const flat = (buf: QuadBuffer, x: number, z: number, w: number, d: number, y: number) => {
+      const hw = w / 2;
+      const hd = d / 2;
+      const c = (lx: number, lz: number, out: THREE.Vector3) => out.set(x + lx * cs - lz * sn, y, z + lx * sn + lz * cs);
+      c(-hw, hd, _a);
+      c(hw, hd, _b);
+      c(hw, -hd, _c);
+      c(-hw, -hd, _d);
+      buf.quad(_a, _b, _c, _d, UP, 0, 0, 1, 1, grey, grey);
+    };
+    const dashes = (gx0: number, gz0: number, gx1: number, gz1: number) => {
+      // dashed centre line between two grid points (in grid coords)
+      const len = Math.hypot(gx1 - gx0, gz1 - gz0);
+      const ux = (gx1 - gx0) / len;
+      const uz = (gz1 - gz0) / len;
+      for (let s = 2; s + 3 < len; s += 9) {
+        const gx = gx0 + ux * (s + 1.5);
+        const gz = gz0 + uz * (s + 1.5);
+        const p = toWorld(gx, gz);
+        flat(dashBuf, p.x, p.z, Math.abs(ux) > 0.5 ? 3 : 0.22, Math.abs(ux) > 0.5 ? 0.22 : 3, groundY + 0.024);
+      }
+    };
+    for (const cell of cells.values()) {
+      const gx = cell.i * PITCH;
+      const gz = cell.j * PITCH;
+      flat(streetBuf, cell.x, cell.z, PITCH, PITCH, groundY + 0.01);
+      flat(walkBuf, cell.x, cell.z, BLOCK + 5, BLOCK + 5, groundY + 0.018);
+      // centre lines of the streets on the +x / +z sides (and -x / -z when there is no neighbour to draw them)
+      const h = PITCH / 2;
+      dashes(gx + h, gz - h, gx + h, gz + h);
+      dashes(gx - h, gz + h, gx + h, gz + h);
+      if (!cells.has(`${cell.i - 1},${cell.j}`)) dashes(gx - h, gz - h, gx - h, gz + h);
+      if (!cells.has(`${cell.i},${cell.j - 1}`)) dashes(gx - h, gz - h, gx + h, gz - h);
+      // parked cars along the kerbs, lamps on two corners, a few pedestrians
+      const kerb = BLOCK / 2 + 2.5 + 1.6;
+      // headings: grid z axis → yaw -theta, grid x axis → yaw π/2 - theta (car local +z = forward)
+      for (const [ex, ez, yawCar] of [
+        [kerb, 0, -theta],
+        [-kerb, 0, -theta + Math.PI],
+        [0, kerb, Math.PI / 2 - theta + Math.PI],
+        [0, -kerb, Math.PI / 2 - theta],
+      ]) {
+        for (let s = -BLOCK / 2 + 3; s < BLOCK / 2 - 3; s += 7) {
+          if (rand() < 0.5) continue;
+          const lx = ex !== 0 ? ex : s;
+          const lz = ez !== 0 ? ez : s;
+          const p = toWorld(gx + lx, gz + lz);
+          o.car?.(p.x, p.z, yawCar + (rand() - 0.5) * 0.04);
+        }
+      }
+      if (o.lamp) {
+        const k = BLOCK / 2 + 2.5 + 0.8;
+        const p1 = toWorld(gx + k, gz + k);
+        const p2 = toWorld(gx - k, gz - k);
+        o.lamp(p1.x, p1.z, -theta); // arm (local +x) out over the +x street
+        o.lamp(p2.x, p2.z, -theta + Math.PI);
+      }
+      if (o.person) {
+        const np = 1 + Math.floor(rand() * 3);
+        for (let k = 0; k < np; k++) {
+          const edge = Math.floor(rand() * 4);
+          const s = (rand() - 0.5) * BLOCK;
+          const e = BLOCK / 2 + 1 + rand() * 1.4;
+          const lx = edge === 0 ? e : edge === 1 ? -e : s;
+          const lz = edge === 2 ? e : edge === 3 ? -e : s;
+          const p = toWorld(gx + lx, gz + lz);
+          o.person(p.x, p.z);
+        }
+      }
+    }
+    const sg = streetBuf.build();
+    if (sg) {
+      const m = new THREE.Mesh(sg, new THREE.MeshStandardMaterial({ color: '#45484e', roughness: 1 }));
+      m.receiveShadow = true;
+      scene.add(m);
+    }
+    const wg = walkBuf.build();
+    if (wg) scene.add(new THREE.Mesh(wg, new THREE.MeshStandardMaterial({ color: '#cdd0d4', roughness: 1 })));
+    const dg = dashBuf.build();
+    if (dg) scene.add(new THREE.Mesh(dg, new THREE.MeshStandardMaterial({ color: '#e9e6d8', roughness: 0.8 })));
   }
 
   // one landmark: the tallest tower exactly at the core (if the core is free)
