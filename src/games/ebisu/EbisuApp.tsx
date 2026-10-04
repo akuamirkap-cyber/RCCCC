@@ -298,6 +298,9 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
         case 'KeyW':
           g.input.gas = down;
           break;
+        case 'KeyR':
+          if (down && panelRef.current === 'none') g.resetToTrack();
+          break;
         case 'KeyC':
           if (down && panelRef.current === 'none' && (phaseRef.current === 'racing' || phaseRef.current === 'countdown')) cycleCamera();
           break;
@@ -467,6 +470,10 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
     if (g) g.input.boost = down;
   }, []);
 
+  const resetToTrack = useCallback(() => {
+    gameRef.current?.resetToTrack();
+  }, []);
+
   const gas = useCallback((down: boolean) => {
     const g = gameRef.current;
     if (g) g.input.gas = down;
@@ -483,6 +490,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
         onSteer={steer}
         onHandbrake={handbrake}
         onGas={gas}
+        onReset={resetToTrack}
         onBoost={boost}
         onPause={() => togglePause(true)}
         onToggleMute={toggleMute}

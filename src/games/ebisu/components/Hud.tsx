@@ -254,6 +254,8 @@ interface HudProps {
   onPause: () => void;
   onToggleMute: () => void;
   onCycleCamera: () => void;
+  /** R — put the car back on the track centerline. */
+  onReset?: () => void;
   onCycleEngine?: () => void;
   muted: boolean;
   isTouch: boolean;
@@ -263,7 +265,7 @@ interface HudProps {
 
 const CAMERA_ICON: Record<HudState['camera'], string> = { rally: '🎨', chase: '🎬', cockpit: '🪟', far: '🚁' };
 
-export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onGas, onBoost, onPause, onToggleMute, onCycleCamera, onCycleEngine, muted, isTouch: isTouchDevice, layout = 'pc' }: HudProps) {
+export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onGas, onBoost, onPause, onToggleMute, onCycleCamera, onReset, onCycleEngine, muted, isTouch: isTouchDevice, layout = 'pc' }: HudProps) {
   const active = hud.phase === 'racing' || hud.phase === 'countdown' || hud.phase === 'finished';
   const racing = hud.phase === 'racing';
   const mobile = layout === 'mobile';
@@ -403,6 +405,12 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onGas, onBoost
                   >
                     <span className={cn('h-1.5 w-1.5 rounded-full', hud.engine === 'sakura_rc' ? 'bg-pink-400' : hud.engine === 'slip' ? 'bg-[#37e4ff]' : 'bg-white')} />
                     <span>{hud.engine === 'sakura_rc' ? 'Sakura RC' : hud.engine === 'slip' ? 'Slip' : 'Classic'}</span>
+                  </button>
+                )}
+                {onReset && racing && (
+                  <button type="button" onClick={onReset} className="eb-chip eb-chip--ghost pointer-events-auto cursor-pointer" aria-label="Reset to track" title="Kembali ke jalur (R)">
+                    <span>↺</span>
+                    <span>{isTouch ? 'Reset' : 'Reset · R'}</span>
                   </button>
                 )}
                 <button type="button" onClick={onCycleCamera} className="eb-chip eb-chip--ghost eb-chip--icon pointer-events-auto cursor-pointer" aria-label="Change camera" title="Change camera (C)">

@@ -488,3 +488,235 @@
 .eb-board__row--fin .eb-board__gap { color: var(--eb-green); }
 .eb-hud--mobile .eb-board { min-width: 11.5rem; }
 .eb-hud--mobile .eb-board__row { font-size: 0.78rem; padding: 0.22rem 0.6rem; }
+
+/* ============================================================
+   DRIFT KING — start menu (tile layout, sporty Exo 2 face)
+   ============================================================ */
+.dk-menu {
+  --dk-font: 'Exo 2', 'Barlow Condensed', 'Oswald', system-ui, sans-serif;
+  font-family: var(--dk-font);
+  background: linear-gradient(180deg, rgba(20, 32, 52, 0.18) 0%, rgba(20, 32, 52, 0.08) 60%, rgba(20, 32, 52, 0.3) 100%);
+}
+.dk-menu__panel {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: min(46rem, 58vw);
+  background: linear-gradient(100deg, rgba(58, 74, 96, 0.93) 0%, rgba(58, 74, 96, 0.9) 55%, rgba(72, 118, 214, 0.78) 56%, rgba(72, 118, 214, 0.55) 100%);
+  clip-path: polygon(0 0, 100% 0, 72% 100%, 0 100%);
+  pointer-events: none;
+}
+.dk-title {
+  position: absolute;
+  right: 2rem;
+  top: 1.5rem;
+  text-align: right;
+  pointer-events: none;
+}
+.dk-title__main {
+  font-weight: 900;
+  font-style: italic;
+  font-size: clamp(2.6rem, 7vw, 6.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.18), 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.dk-title__accent {
+  background: linear-gradient(180deg, #ffd166 0%, #ff8a2a 55%, #ff4d00 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(120, 40, 0, 0.35));
+}
+.dk-title__sub {
+  margin-top: 0.4rem;
+  font-weight: 700;
+  font-style: italic;
+  font-size: clamp(0.6rem, 1.3vw, 1rem);
+  letter-spacing: 0.42em;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+.dk-tiles {
+  position: absolute;
+  left: clamp(0.75rem, 2.4vw, 2.25rem);
+  top: clamp(3.4rem, 9vh, 5.5rem);
+  bottom: 4.6rem;
+  width: min(26rem, calc(100vw - 1.5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.dk-tiles__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  flex: 1 1 0;
+  min-height: 7rem;
+}
+.dk-tile {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.15rem;
+  padding: 0.9rem 1rem;
+  border: 0;
+  border-radius: 0.35rem;
+  color: #fff;
+  text-align: left;
+  font-family: var(--dk-font);
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.dk-tile:hover { transform: translateY(-2px) scale(1.01); filter: brightness(1.08); }
+.dk-tile:active { transform: scale(0.985); }
+.dk-tile--blue { background: linear-gradient(135deg, #5b8cf0 0%, #4f80e8 100%); }
+.dk-tile--teal { background: linear-gradient(135deg, #7be0cf 0%, #5fd0bf 100%); }
+.dk-tile--purple { background: linear-gradient(135deg, #9b7bf0 0%, #8c69e6 100%); }
+.dk-tile--violet { background: linear-gradient(135deg, #8f6fe6 0%, #7f5ed9 100%); }
+.dk-tile--hero {
+  flex: 1.5 1 0;
+  min-height: 9.5rem;
+  padding: 1rem 1.15rem;
+  justify-content: space-between;
+}
+.dk-tile--wide {
+  flex: 0.9 1 0;
+  min-height: 4.6rem;
+  justify-content: center;
+  padding-right: 5.5rem;
+}
+.dk-tile__checker {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 42%;
+  background-color: rgba(255, 255, 255, 0.18);
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.35) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.35) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.35) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.35) 75%);
+  background-size: 2.2rem 2.2rem;
+  background-position: 0 0, 1.1rem 1.1rem;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%);
+  mask-image: linear-gradient(90deg, transparent, #000 35%);
+  opacity: 0.9;
+}
+.dk-tile__label { font-size: 1.05rem; letter-spacing: 0.08em; opacity: 0.95; position: relative; }
+.dk-tile__big {
+  position: relative;
+  font-size: clamp(1.7rem, 3.2vw, 2.5rem);
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.18);
+}
+.dk-tile__name { font-size: clamp(1.05rem, 1.8vw, 1.45rem); font-weight: 900; line-height: 1.05; position: relative; }
+.dk-tile__meta {
+  position: relative;
+  font-size: 0.66rem;
+  font-weight: 700;
+  font-style: normal;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.85);
+}
+.dk-tile__icon { font-size: 2.2rem; line-height: 1; margin-bottom: auto; filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25)); }
+.dk-tile__glyph {
+  position: absolute;
+  right: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 2.4rem;
+  opacity: 0.95;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25));
+}
+.dk-stats { display: flex; gap: 1.25rem; margin-top: 0.2rem; }
+.dk-stats > div { display: flex; flex-direction: column; }
+.dk-stats__k { font-size: 0.58rem; font-style: normal; letter-spacing: 0.16em; color: rgba(255, 255, 255, 0.8); }
+.dk-stats__v { font-size: 1.15rem; font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.dk-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3.4rem;
+  display: flex;
+  align-items: stretch;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0.96) 100%);
+  color: #182233;
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+}
+.dk-bar__stripes {
+  width: 7rem;
+  flex: none;
+  background: repeating-linear-gradient(115deg, #3a4a60 0 0.7rem, transparent 0.7rem 1.5rem);
+  -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
+  mask-image: linear-gradient(90deg, #000 60%, transparent);
+  opacity: 0.85;
+}
+.dk-bar__items {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1.4rem;
+  padding: 0 1.5rem 0 0.5rem;
+  min-width: 0;
+}
+.dk-bar__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  background: transparent;
+  color: #182233;
+  font-family: var(--dk-font);
+  font-weight: 800;
+  font-style: italic;
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.3rem;
+  transition: background 0.12s ease;
+}
+.dk-bar__btn:hover { background: rgba(24, 34, 51, 0.08); }
+.dk-bar__hint {
+  margin-right: auto;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #4b5a72;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.dk-bar__hint b { color: #e2550f; }
+@media (max-width: 760px), (max-height: 520px) {
+  .dk-menu__panel { width: 100%; clip-path: none; background: linear-gradient(180deg, rgba(58, 74, 96, 0.82), rgba(72, 118, 214, 0.5)); }
+  .dk-title { right: auto; left: 1rem; top: 3.2rem; text-align: left; }
+  .dk-title__main { font-size: 2.2rem; }
+  .dk-title__sub { font-size: 0.55rem; letter-spacing: 0.3em; }
+  .dk-tiles { top: 7.4rem; bottom: 3.6rem; width: calc(100vw - 1.5rem); gap: 0.45rem; }
+  .dk-tiles__row { min-height: 5.2rem; }
+  .dk-tile--hero { min-height: 6rem; }
+  .dk-tile--wide { min-height: 3.4rem; }
+  .dk-tile__icon { font-size: 1.5rem; }
+  .dk-bar { height: 2.8rem; }
+  .dk-bar__hint { display: none; }
+  .dk-bar__stripes { width: 3.5rem; }
+}
+@media (max-height: 520px) and (min-width: 761px) {
+  .dk-tiles { top: 3rem; bottom: 3.2rem; width: min(30rem, 52vw); gap: 0.4rem; }
+  .dk-tile--hero { min-height: 5rem; }
+  .dk-tile__icon { font-size: 1.3rem; }
+  .dk-bar { height: 2.8rem; }
+}

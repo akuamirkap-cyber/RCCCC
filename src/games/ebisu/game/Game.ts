@@ -724,6 +724,49 @@ export class Game {
     this.emitHud(true);
   }
 
+  /** R key / reset button: put the player back on the centerline of the nearest track sample, facing forward. */
+  resetToTrack() {
+    if (this.phase !== 'racing' || this.paused) return;
+    const p = this.player;
+    if (p.finished) return;
+    const v = p.veh;
+    v.x = p.x;
+    v.z = p.z;
+    resetVehicleOnTrack(v, this.track, 0, 5);
+    v.velocityAngle = v.heading;
+    v.frontSteerAngle = 0;
+    v.fwd = 5;
+    v.lat = 0;
+    v.speed = 5;
+    // mirror into the legacy/classic player state
+    p.x = v.x;
+    p.z = v.z;
+    p.angle = v.heading;
+    p.vx = v.vx;
+    p.vz = v.vz;
+    p.vf = 5;
+    p.vl = 0;
+    p.speed = 5;
+    p.steer = 0;
+    p.yawRate = 0;
+    p.roll = 0;
+    p.offTrack = false;
+    p.wrongWayTime = 0;
+    p.lastIdx = v.idx;
+    if (p.drifting) {
+      p.drifting = false;
+      p.driftTime = 0;
+      p.driftPoints = 0;
+      p.combo = 1;
+    }
+    p.smokeIntensity = 0;
+    this.playerModel.group.position.set(p.x, 0, p.z);
+    this.playerModel.group.rotation.y = p.angle;
+    this.playerModel.body.rotation.set(0, 0, 0);
+    this.camRallyYaw = p.angle;
+    this.cb.onPopup('RESET', 'info');
+  }
+
   backToMenu() {
     this.paused = false;
     this.resetGrid();
