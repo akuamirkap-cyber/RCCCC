@@ -64,7 +64,7 @@ export const DEFAULT_PREFS: VisualPrefs = {
   camera: 'chase',
   carStyle: 'toon',
   lighting: 'hdri',
-  smoke: { ...SMOKE_PRESETS[1].smoke },
+  smoke: { ...SMOKE_PRESETS[0].smoke }, // Subtle — thin, realistic tyre smoke
 };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -95,7 +95,8 @@ export function loadPrefs(): VisualPrefs {
         camera: CAMERA_MODES.some((c) => c.id === p.camera) ? (p.camera as CameraMode) : DEFAULT_PREFS.camera,
         carStyle: CAR_STYLES.some((c) => c.id === p.carStyle) ? (p.carStyle as CarStyle) : DEFAULT_PREFS.carStyle,
         lighting: LIGHTING_MODES.some((c) => c.id === p.lighting) ? (p.lighting as LightingMode) : DEFAULT_PREFS.lighting,
-        smoke: clampSmoke(p.smoke),
+        // migration: the old default was the Normal preset → move those users to the new Subtle default
+        smoke: matchSmokePreset(clampSmoke(p.smoke))?.id === 'normal' ? { ...SMOKE_PRESETS[0].smoke } : clampSmoke(p.smoke),
       };
     }
   } catch {
