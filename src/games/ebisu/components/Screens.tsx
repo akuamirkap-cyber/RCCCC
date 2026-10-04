@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { RaceResult } from '../game/Game';
 import {
   DIFFICULTIES,
@@ -152,6 +153,31 @@ interface StartProps {
   onToggleBackdrop?: () => void;
 }
 
+/** Checkered flag strip on the START RACE tile — driven by requestAnimationFrame (independent of CSS animation support). */
+function CheckerFlag() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let raf = 0;
+    const t0 = performance.now();
+    const loop = (now: number) => {
+      const t = (now - t0) / 1000;
+      const px = -((t * 36) % 32); // 36 px/s to the LEFT, wrapping every 32 px (one pattern tile → seamless)
+      const wave = Math.sin(t * 5) * 2.5;
+      el.style.transform = `translateX(${px.toFixed(2)}px) skewY(${wave.toFixed(2)}deg)`;
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return (
+    <div className="dk-tile__checker" aria-hidden>
+      <div ref={ref} className="dk-tile__checker-strip" />
+    </div>
+  );
+}
+
 function VisualChip({ prefs, onClick }: { prefs: VisualPrefs; onClick: () => void }) {
   const cam = CAMERA_MODES.find((c) => c.id === prefs.camera);
   const car = CAR_STYLES.find((c) => c.id === prefs.carStyle);
@@ -200,7 +226,7 @@ export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, 
       {/* tile column */}
       <div className="dk-tiles">
         <button type="button" onClick={onStart} className="dk-tile dk-tile--blue dk-tile--hero dk-anim-in" style={{ animationDelay: '0.05s' }} aria-label="Start race">
-          <div className="dk-tile__checker" />
+          <CheckerFlag />
           <div className="dk-tile__sheen" />
           <div className="dk-tile__label">RACE MODES</div>
           <div className="dk-tile__big">

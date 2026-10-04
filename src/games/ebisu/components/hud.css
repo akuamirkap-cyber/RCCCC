@@ -626,8 +626,7 @@
 .dk-tile--teal { --tile-a: #5fd9c4; --tile-b: #a4f3e4; --tile-c: #38bfae; --tile-edge: #1f9484; --tile-glow: rgba(95, 217, 196, 0.5); }
 .dk-tile--purple { --tile-a: #9a7cf0; --tile-b: #c6b0ff; --tile-c: #7f5ee6; --tile-edge: #5a3fc0; --tile-glow: rgba(154, 124, 240, 0.5); }
 .dk-tile--violet { --tile-a: #8d6ee8; --tile-b: #b89cff; --tile-c: #6f4fd9; --tile-edge: #4f36b3; --tile-glow: rgba(141, 110, 232, 0.5); }
-.dk-tiles__row .dk-tile { animation-delay: -2s; }
-.dk-tile--wide { animation-delay: -4s; }
+.dk-tile.dk-anim-in { animation: dk-in 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both, dk-tile-breathe 7s ease-in-out infinite; }
 /* floating bubbles drifting up the panel */
 .dk-bubbles { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .dk-bubbles i {
@@ -674,27 +673,20 @@
   opacity: 0.9;
   pointer-events: none;
 }
-.dk-tile__checker::before {
-  /* oversized checker strip that slides LEFT by exactly one pattern tile per cycle (seamless loop) */
-  content: '';
+.dk-tile__checker-strip {
+  /* oversized checker strip; a requestAnimationFrame loop (CheckerFlag in Screens.tsx) slides it LEFT 36 px/s */
   position: absolute;
   top: -10%;
   bottom: -10%;
   left: 0;
-  width: calc(100% + 4rem);
+  width: calc(100% + 64px);
   background-color: rgba(255, 255, 255, 0.12);
   background-image:
-    linear-gradient(45deg, rgba(255, 255, 255, 0.5) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.5) 75%),
-    linear-gradient(45deg, rgba(255, 255, 255, 0.5) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.5) 75%);
-  background-size: 2rem 2rem;
-  background-position: 0 0, 1rem 1rem;
+    linear-gradient(45deg, rgba(255, 255, 255, 0.55) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.55) 75%),
+    linear-gradient(45deg, rgba(255, 255, 255, 0.55) 25%, transparent 25%, transparent 75%, rgba(255, 255, 255, 0.55) 75%);
+  background-size: 32px 32px;
+  background-position: 0 0, 16px 16px;
   will-change: transform;
-  animation: dk-checker-wave 1.2s linear infinite;
-}
-@keyframes dk-checker-wave {
-  0% { transform: translateX(0) skewY(0deg); }
-  50% { transform: translateX(-1rem) skewY(-2deg); }
-  100% { transform: translateX(-2rem) skewY(0deg); }
 }
 /* light sweep across every tile */
 .dk-tile__sheen {

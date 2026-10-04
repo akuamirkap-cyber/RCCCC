@@ -93,9 +93,9 @@ const DISPLAY_KEY = 'ebisu.displayMode';
 const BACKDROP_KEY = 'ebisu.menuBackdrop';
 function loadBackdrop(): MenuBackdrop {
   try {
-    return localStorage.getItem(BACKDROP_KEY) === 'scenic' ? 'scenic' : 'wall';
+    return localStorage.getItem(BACKDROP_KEY) === 'wall' ? 'wall' : 'scenic'; // default: circuit scenery; garage is the option
   } catch {
-    return 'wall';
+    return 'scenic';
   }
 }
 function loadDisplayMode(): DisplayMode {

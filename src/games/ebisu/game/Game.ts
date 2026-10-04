@@ -249,7 +249,7 @@ export class Game {
   private fx: CinematicFx | null = null;
   private petals: SakuraPetals;
   private garage = new Garage();
-  private menuBackdrop: MenuBackdrop = 'wall';
+  private menuBackdrop: MenuBackdrop = 'scenic';
   private playerModel: CarModel;
   private player!: PlayerState;
   private ais: AICar[] = [];
