@@ -972,3 +972,92 @@
 .dk-panel button.rounded-full.from-orange-400 { padding-block: 0.5rem; }
 .dk-panel .h-10.w-10 { height: 2.1rem; width: 2.1rem; }
 .dk-panel .anim-slide-up { animation: dk-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* ============================================================
+   Shared with Sakura RC HUD (same Ebisu language)
+   ============================================================ */
+.eb-steer-btn {
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 999px;
+  border: 3px solid rgba(255, 255, 255, 0.7);
+  background: rgba(9, 11, 18, 0.5);
+  color: #fff;
+  font-size: 1.4rem;
+  font-weight: 800;
+  box-shadow: 0 0 0 6px rgba(9, 11, 18, 0.45), 0 10px 24px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: transform 0.08s ease, background 0.1s ease;
+  user-select: none;
+}
+.eb-steer-btn--on { background: var(--eb-cyan, #37e4ff); color: #0b0d14; transform: scale(0.95); }
+.eb-turbo-btn {
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0) 55%),
+    linear-gradient(180deg, #c48cff, #7a3cff);
+  box-shadow: 0 0 0 6px rgba(9, 11, 18, 0.55), 0 0 40px rgba(180, 124, 255, 0.5), 0 14px 30px rgba(0, 0, 0, 0.4);
+}
+.eb-turbo-btn:active { box-shadow: 0 0 0 6px rgba(9, 11, 18, 0.55), 0 0 60px rgba(180, 124, 255, 0.85), 0 8px 20px rgba(0, 0, 0, 0.4); }
+.eb-seg {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.15rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.eb-seg__btn {
+  flex: 1;
+  height: 1.75rem;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.75);
+  font-family: 'Barlow Condensed', 'Oswald', system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.eb-seg__btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+.eb-seg__btn--on { font-weight: 900; }
+.eb-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2rem;
+  padding: 0 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+  font-family: 'Barlow Condensed', 'Oswald', system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.eb-menu-btn:hover { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.3); color: #fff; }
+.eb-menu-btn--on { background: rgba(255, 183, 3, 0.16); border-color: rgba(255, 183, 3, 0.6); color: #ffd166; }
+.eb-select {
+  width: 100%;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-family: 'Barlow Condensed', 'Oswald', system-ui, sans-serif;
+  font-weight: 800;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.eb-select:focus { outline: none; border-color: rgba(55, 228, 255, 0.6); }
