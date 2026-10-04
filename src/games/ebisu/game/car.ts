@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { softCircleTexture } from './effects';
 import type { CarStyle } from './prefs';
-import { createBMWCarMesh } from '@/utils/bmwCar';
+import { createBMWCarMesh, loadBMWAdjustment } from '@/utils/bmwCar';
 
 export interface CarDims {
   halfWidth: number; // wheel x offset
@@ -12,6 +12,7 @@ export interface CarDims {
   eyeY: number; // cockpit camera height
   eyeZ: number; // cockpit camera z (positive = forward)
   rearZ: number; // z of the rear bumper
+  tyreWidth?: number; // visual tyre width (defaults per style)
 }
 
 export const CAR_DIMS: Record<CarStyle, CarDims> = {
@@ -351,12 +352,33 @@ export interface CreateCarOptions {
   nativePaint?: boolean;
 }
 
+/**
+ * Wheel/stance dimensions for the BMW GLB follow the user's Ebisu body tune (length / width),
+ * so the wheels sit flush with the (wide-body) fenders instead of being buried inside the shell.
+ */
+function standardDimsFromTune(): CarDims {
+  const base = CAR_DIMS.standard;
+  const adj = loadBMWAdjustment('ebisu');
+  const width = THREE.MathUtils.clamp(adj.width, 1.5, 3.6);
+  const length = THREE.MathUtils.clamp(adj.length, 3.2, 7.6);
+  const tyreW = THREE.MathUtils.clamp(0.3 + (width - 1.95) * 0.18, 0.32, 0.46);
+  return {
+    ...base,
+    tyreWidth: tyreW,
+    halfWidth: width / 2 - tyreW / 2 + 0.04, // tyre face pokes 4 cm past the fender — wide-body stance
+    wheelBase: length * 0.32,
+    wheelRadius: THREE.MathUtils.clamp(0.4 * (length / 4.2), 0.38, 0.5),
+    length,
+    rearZ: -length / 2 - 0.04,
+  };
+}
+
 export function createCar(color: number, style: CarStyle = 'standard', opts: CreateCarOptions = {}): CarModel {
   const bodyTint = opts.nativePaint ? undefined : color;
   const group = new THREE.Group();
   const body = new THREE.Group();
   group.add(body);
-  const dims = CAR_DIMS[style];
+  const dims = style === 'standard' ? standardDimsFromTune() : CAR_DIMS[style];
   const brakeMat = new THREE.MeshStandardMaterial({ color: 0x6b0d0d, emissive: 0xff2a2a, emissiveIntensity: 0.45 });
   const glowMat = new THREE.SpriteMaterial({
     map: softCircleTexture(),
@@ -430,7 +452,7 @@ export function createCar(color: number, style: CarStyle = 'standard', opts: Cre
     }
   }
 
-  const { wheels, front } = addWheels(group, dims, style === 'toon' ? 0.46 : 0.36);
+  const { wheels, front } = addWheels(group, dims, dims.tyreWidth ?? (style === 'toon' ? 0.46 : 0.36));
   addUnderbody(group, dims);
   return { style, dims, group, body, wheels, frontWheels: front, flames, brakeMat, brakeGlows, glowMat, cockpitHidden, cockpitOnly, steeringWheel };
 }
