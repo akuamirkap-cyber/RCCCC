@@ -2,6 +2,7 @@
 export type CameraMode = 'rally' | 'chase' | 'cockpit' | 'far';
 export type CarStyle = 'standard' | 'toon';
 export type LightingMode = 'hdri' | 'stylized';
+export type FxMode = 'cinematic' | 'off';
 
 export interface SmokeSettings {
   amount: number; // 0..2 — emission density multiplier
@@ -16,8 +17,14 @@ export interface VisualPrefs {
   camera: CameraMode;
   carStyle: CarStyle;
   lighting: LightingMode;
+  fx: FxMode;
   smoke: SmokeSettings;
 }
+
+export const FX_MODES: { id: FxMode; label: string; emoji: string; desc: string }[] = [
+  { id: 'cinematic', label: 'Cinematic', emoji: '🌤️', desc: 'Sun rays, soft bloom on lights & cones, drifting sakura petals' },
+  { id: 'off', label: 'Performance', emoji: '⚡', desc: 'No post-processing — fastest, cleanest frame' },
+];
 
 export const LIGHTING_MODES: { id: LightingMode; label: string; emoji: string; desc: string }[] = [
   { id: 'hdri', label: 'HDRI Realistic', emoji: '🌅', desc: 'Image-based lighting from a real sunrise HDRI, long shadows, haze & lens flare' },
@@ -64,6 +71,7 @@ export const DEFAULT_PREFS: VisualPrefs = {
   camera: 'chase',
   carStyle: 'toon',
   lighting: 'hdri',
+  fx: 'cinematic',
   smoke: { ...SMOKE_PRESETS[0].smoke }, // Subtle — thin, realistic tyre smoke
 };
 
@@ -95,6 +103,7 @@ export function loadPrefs(): VisualPrefs {
         camera: CAMERA_MODES.some((c) => c.id === p.camera) ? (p.camera as CameraMode) : DEFAULT_PREFS.camera,
         carStyle: CAR_STYLES.some((c) => c.id === p.carStyle) ? (p.carStyle as CarStyle) : DEFAULT_PREFS.carStyle,
         lighting: LIGHTING_MODES.some((c) => c.id === p.lighting) ? (p.lighting as LightingMode) : DEFAULT_PREFS.lighting,
+        fx: FX_MODES.some((c) => c.id === p.fx) ? (p.fx as FxMode) : DEFAULT_PREFS.fx,
         // migration: the old default was the Normal preset → move those users to the new Subtle default
         smoke: matchSmokePreset(clampSmoke(p.smoke))?.id === 'normal' ? { ...SMOKE_PRESETS[0].smoke } : clampSmoke(p.smoke),
       };

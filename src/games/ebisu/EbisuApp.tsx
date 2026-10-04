@@ -14,7 +14,7 @@ import {
   type SlipTuning,
   type SakuraTuning,
 } from './game/tuning';
-import { loadPrefs, savePrefs, type CameraMode, type CarStyle, type LightingMode, type SmokeSettings, type VisualPrefs } from './game/prefs';
+import { loadPrefs, savePrefs, type CameraMode, type CarStyle, type FxMode, type LightingMode, type SmokeSettings, type VisualPrefs } from './game/prefs';
 import { Hud, type MinimapData, type Popup } from './components/Hud';
 import './components/hud.css';
 import { cn } from './utils/cn';
@@ -431,6 +431,13 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
     },
     [updatePrefs],
   );
+  const applyFx = useCallback(
+    (m: FxMode) => {
+      gameRef.current?.setFx(m);
+      updatePrefs({ fx: m });
+    },
+    [updatePrefs],
+  );
   const applySmoke = useCallback(
     (s: SmokeSettings) => {
       gameRef.current?.setSmoke(s);
@@ -545,7 +552,7 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
       )}
 
       {panel === 'visual' && (
-        <VisualPanel prefs={prefs} onCamera={applyCamera} onCarStyle={applyCarStyle} onLighting={applyLighting} onSmoke={applySmoke} onClose={() => setPanel('none')} />
+        <VisualPanel prefs={prefs} onCamera={applyCamera} onCarStyle={applyCarStyle} onLighting={applyLighting} onFx={applyFx} onSmoke={applySmoke} onClose={() => setPanel('none')} />
       )}
 
       {/* Floating Top Buttons: PILIH GAME & ADJUST BODY BMW */}

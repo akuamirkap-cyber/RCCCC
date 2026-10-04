@@ -18,7 +18,7 @@ export interface WorldRefs {
 export const SUN_OFFSET = new THREE.Vector3(65, 58, 38);
 const SUN_DIR = SUN_OFFSET.clone().normalize();
 const FOG_COLOR = '#d9e1f2';
-const GROUND_Y = -0.08;
+export const GROUND_Y = -0.08;
 const TERRAIN_SIZE = 2400;
 const TERRAIN_SEGS = 200;
 const UP = new THREE.Vector3(0, 1, 0);

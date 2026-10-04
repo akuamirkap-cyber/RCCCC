@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST } from './track';
-import { buildWorld, type WorldRefs } from './world';
+import { buildWorld, GROUND_Y, type WorldRefs } from './world';
+import { CinematicFx, SakuraPetals } from './cinematic';
 import { LightingController } from './lighting';
 import { createCar, disposeCar, setBrakeLights, type CarModel } from './car';
 import { SkidMarks, Smoke, type WheelAnchor } from './effects';
@@ -22,7 +23,7 @@ import {
   type SakuraTuning,
 } from './tuning';
 import { computeDriftZones, nextZoneDistances, zoneLookup, zoneStars, type DriftZone } from './zones';
-import { DEFAULT_PREFS, type CameraMode, type CarStyle, type LightingMode, type SmokeSettings, type VisualPrefs } from './prefs';
+import { DEFAULT_PREFS, type CameraMode, type CarStyle, type FxMode, type LightingMode, type SmokeSettings, type VisualPrefs } from './prefs';
 import {
   RAD2DEG,
   botInput,
@@ -241,6 +242,8 @@ export class Game {
   private sun: THREE.DirectionalLight;
   private world: WorldRefs;
   private lighting: LightingController;
+  private fx: CinematicFx | null = null;
+  private petals: SakuraPetals;
   private playerModel: CarModel;
   private player!: PlayerState;
   private ais: AICar[] = [];
@@ -309,6 +312,12 @@ export class Game {
     }
     this.lighting = new LightingController(this.scene, this.renderer, this.world.lighting);
     this.lighting.setMode(this.prefs.lighting);
+    this.petals = new SakuraPetals(isMobile ? 160 : 420);
+    this.scene.add(this.petals.mesh);
+    if (!isMobile) {
+      const sz = this.renderer.getSize(new THREE.Vector2());
+      this.fx = new CinematicFx(this.renderer, this.scene, this.camera, Math.max(1, sz.x), Math.max(1, sz.y));
+    }
     this.scene.add(this.skid.mesh);
     this.scene.add(this.smoke.group);
 
@@ -477,6 +486,10 @@ export class Game {
     this.smoke.setTuning(s);
   }
 
+  setFx(mode: FxMode) {
+    this.prefs.fx = mode;
+  }
+
   setLighting(mode: LightingMode) {
     if (this.prefs.lighting === mode) return;
     this.prefs.lighting = mode;
@@ -607,6 +620,7 @@ export class Game {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.fx?.setSize(w, h);
   }
 
   private gridSlot(slot: number) {
@@ -719,6 +733,8 @@ export class Game {
 
   dispose() {
     this.lighting.dispose();
+    this.fx?.dispose();
+    this.petals.dispose();
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.resizeObs?.disconnect();
@@ -735,7 +751,13 @@ export class Game {
       this.update(dt);
     }
     this.world.update(dt); // ambient scenery keeps moving even while paused
-    this.renderer.render(this.scene, this.camera);
+    this.petals.update(dt, this.player.x, this.player.z, GROUND_Y);
+    if (this.fx && this.prefs.fx === 'cinematic') {
+      this.fx.updateSun(this.lighting.sunOffset);
+      this.fx.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   };
 
   private update(dt: number) {
