@@ -82,7 +82,8 @@ export function SakuraDriftApp({
   );
   const [sessionResult, setSessionResult] = useState<SessionResult | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [hasStarted, setHasStarted] = useState<boolean>(false);
+  // launched from DRIFT KING (autoStart): never flash Sakura's own menu — the DRIFT KING menu IS the main menu
+  const [hasStarted, setHasStarted] = useState<boolean>(autoStart);
   const [isDocsOpen, setIsDocsOpen] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
@@ -227,6 +228,11 @@ export function SakuraDriftApp({
   }, [hasStarted, sessionResult, isPitBenchOpen, isDocsOpen]);
 
   const handleBackToMenu = () => {
+    // Launched from the DRIFT KING menu → "menu" means that menu (Ebisu showroom camera + car), not Sakura's own.
+    if (autoStart && onSwitchGame) {
+      onSwitchGame();
+      return;
+    }
     setHasStarted(false);
     setSessionResult(null);
   };
@@ -355,7 +361,7 @@ export function SakuraDriftApp({
         onBackToMenu={handleBackToMenu}
         onOpenBMWAdjust={() => setShowBMWAdjust(true)}
         onOpenDocs={() => setIsDocsOpen(true)}
-        onSwitchGame={onSwitchGame}
+        onSwitchGame={autoStart ? undefined : onSwitchGame}
       />
       )}
 
