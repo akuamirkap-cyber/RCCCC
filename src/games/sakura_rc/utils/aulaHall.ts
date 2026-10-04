@@ -46,9 +46,12 @@ export function computeHallFrame(controlPoints: [number, number][]): HallFrame {
     if (z < minZ) minZ = z;
     if (z > maxZ) maxZ = z;
   }
+  // Default hall is 256 x 168; larger layouts (e.g. the Ebisu circuit, 215 x 172 m) grow the hall so the
+  // track + run-off never touches the walls. Keep at least 36 m of apron on each side.
+  const MARGIN = 36;
   return {
-    width: 256,
-    depth: 168,
+    width: Math.max(256, maxX - minX + MARGIN * 2),
+    depth: Math.max(168, maxZ - minZ + MARGIN * 2),
     height: 26,
     cx: (minX + maxX) / 2,
     cz: (minZ + maxZ) / 2,

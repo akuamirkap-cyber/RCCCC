@@ -9,7 +9,7 @@ export const SAMPLE_COUNT = 600;
 
 // Ebisu-inspired technical drift layout in the XZ plane (closed loop). Start/finish is at the first point.
 // Start straight → fast T1 sweeper → tight hairpin → esses → back hairpin → final banked sweeper.
-const CONTROL_POINTS: [number, number][] = [
+export const EBISU_CONTROL_POINTS: [number, number][] = [
   [0, 0],
   [55, 0],
   [95, 6],
@@ -54,7 +54,7 @@ export class Track {
   readonly curve: THREE.CatmullRomCurve3;
 
   constructor() {
-    const pts = CONTROL_POINTS.map(([x, z]) => new THREE.Vector3(x, 0, z));
+    const pts = EBISU_CONTROL_POINTS.map(([x, z]) => new THREE.Vector3(x, 0, z));
     this.curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal', 0.5);
     const n = SAMPLE_COUNT;
     const spaced = this.curve.getSpacedPoints(n);
