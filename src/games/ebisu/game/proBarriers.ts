@@ -200,32 +200,35 @@ export function buildCornerBlocks(scene: THREE.Scene, track: Track, zones: Drift
   scene.add(blocks, caps, straps);
 }
 
-/** Hyper-visual traffic cone: glossy orange body, glowing retro-reflective bands, rubber base. */
+/** Hypercasual traffic cone: chunky, rounded (no sharp tip), glossy orange, glowing bands, fat rubber base. */
 export function makeTrafficCone(): { geometry: THREE.BufferGeometry; materials: THREE.Material[] } {
   const parts: THREE.BufferGeometry[] = [];
   const toNI = (g: THREE.BufferGeometry) => (g.index ? g.toNonIndexed() : g);
-  const base = toNI(new RoundedBoxGeometry(0.44, 0.05, 0.44, 2, 0.015));
-  base.translate(0, 0.025, 0);
+  const base = toNI(new RoundedBoxGeometry(0.56, 0.08, 0.56, 3, 0.035));
+  base.translate(0, 0.04, 0);
   parts.push(base); // group 0 → rubber
-  const H0 = 0.05;
-  const H1 = 0.8;
-  const rAt = (y: number) => 0.175 - (y - H0) * ((0.175 - 0.028) / (H1 - H0));
-  const seg = (y0: number, y1: number, bulge: number, closedTop: boolean) => {
-    const g = new THREE.CylinderGeometry(rAt(y1) + bulge, rAt(y0) + bulge, y1 - y0, 18, 1, !closedTop);
+  const H0 = 0.08;
+  const H1 = 0.66;
+  const R0 = 0.21;
+  const R1 = 0.1;
+  const rAt = (y: number) => R0 - (y - H0) * ((R0 - R1) / (H1 - H0));
+  const seg = (y0: number, y1: number, bulge: number) => {
+    const g = new THREE.CylinderGeometry(rAt(y1) + bulge, rAt(y0) + bulge, y1 - y0, 22, 1, true);
     g.translate(0, (y0 + y1) / 2, 0);
     return toNI(g);
   };
-  // orange body pieces (group 1)
-  const orange = mergeGeometries([seg(H0, 0.22, 0, false), seg(0.33, 0.47, 0, false), seg(0.58, H1, 0, true)], false)!;
-  parts.push(orange);
-  // reflective bands (group 2)
-  const bands = mergeGeometries([seg(0.22, 0.33, 0.008, false), seg(0.47, 0.58, 0.008, false)], false)!;
-  parts.push(bands);
+  // rounded dome on top instead of a point
+  const dome = new THREE.SphereGeometry(R1, 22, 12, 0, Math.PI * 2, 0, Math.PI / 2);
+  dome.translate(0, H1, 0);
+  const orange = mergeGeometries([seg(H0, 0.24, 0), seg(0.34, 0.46, 0), seg(0.56, H1, 0), toNI(dome)], false)!;
+  parts.push(orange); // group 1 → orange
+  const bands = mergeGeometries([seg(0.24, 0.34, 0.012), seg(0.46, 0.56, 0.012)], false)!;
+  parts.push(bands); // group 2 → reflective
   const geometry = mergeGeometries(parts, true)!;
   const materials = [
     new THREE.MeshStandardMaterial({ color: '#111216', roughness: 0.95 }),
-    new THREE.MeshStandardMaterial({ color: '#ff6a00', emissive: '#ff3d00', emissiveIntensity: 0.22, roughness: 0.3, metalness: 0.05, envMapIntensity: 1.0 }),
-    new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.55, roughness: 0.2, metalness: 0.3, envMapIntensity: 1.4 }),
+    new THREE.MeshStandardMaterial({ color: '#ff7a1a', emissive: '#ff4a00', emissiveIntensity: 0.3, roughness: 0.28, metalness: 0.0, envMapIntensity: 1.0 }),
+    new THREE.MeshStandardMaterial({ color: '#ffffff', emissive: '#ffffff', emissiveIntensity: 0.6, roughness: 0.2, metalness: 0.3, envMapIntensity: 1.4 }),
   ];
   return { geometry, materials };
 }
@@ -331,7 +334,7 @@ export function buildSponsorBoards(scene: THREE.Scene, track: Track, zones: Drif
   for (const z of zones) for (let k = 0; k < z.len; k++) inZone[(z.start + k) % n] = 1;
 
   const railMat = new THREE.MeshStandardMaterial({ color: '#1b1e25', roughness: 0.6, metalness: 0.4 });
-  const postGeo = new THREE.BoxGeometry(0.1, 1.3, 0.1);
+  const postGeo = new THREE.BoxGeometry(0.14, 2.5, 0.14);
   const postSpots: { x: number; z: number; y: number }[] = [];
   let brandOffset = 0;
 
@@ -340,14 +343,14 @@ export function buildSponsorBoards(scene: THREE.Scene, track: Track, zones: Drif
     tex.anisotropy = o.aniso;
     brandOffset += 5;
     const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.75, side: THREE.DoubleSide });
-    const wall = new THREE.Mesh(buildRangeWall(track, start, len, offset, y0, y1, 8), mat);
+    const wall = new THREE.Mesh(buildRangeWall(track, start, len, offset, y0, y1, 16), mat);
     wall.castShadow = true;
     wall.receiveShadow = true;
     scene.add(wall);
     // top rail
-    const rail = new THREE.Mesh(buildRangeWall(track, start, len, offset, y1, y1 + 0.07, 8), railMat);
+    const rail = new THREE.Mesh(buildRangeWall(track, start, len, offset, y1, y1 + 0.1, 16), railMat);
     scene.add(rail);
-    for (let k = 0; k <= len; k += 6) {
+    for (let k = 0; k <= len; k += 13) {
       const sm = s[(start + k) % n];
       postSpots.push({ x: sm.x + sm.rx * offset, z: sm.z + sm.rz * offset, y: (y0 + y1) / 2 });
     }
@@ -363,7 +366,7 @@ export function buildSponsorBoards(scene: THREE.Scene, track: Track, zones: Drif
     if (!straight && runStart >= 0) {
       const len = i - runStart;
       if (len >= 20) {
-        for (const side of [1, -1] as const) placeWall(runStart + 2, len - 4, (WALL_DIST + 1.3) * side, Y + 0.05, Y + 1.3);
+        for (const side of [1, -1] as const) placeWall(runStart + 2, len - 4, (WALL_DIST + 1.3) * side, Y + 0.05, Y + 2.55);
       }
       runStart = -1;
     }
@@ -371,7 +374,7 @@ export function buildSponsorBoards(scene: THREE.Scene, track: Track, zones: Drif
   // corner boards on the outside of every zone (fence line)
   for (const z of zones) {
     const side = -z.dir;
-    placeWall(z.start, z.len, (WALL_DIST + 1.95) * side, Y, Y + 1.1);
+    placeWall(z.start, z.len, (WALL_DIST + 1.95) * side, Y, Y + 2.2);
   }
 
   if (postSpots.length) {

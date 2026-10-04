@@ -42,18 +42,18 @@ const STYLIZED = {
 };
 
 const REAL = {
-  hemiSky: 0xd8e6f8,
-  hemiGround: 0x6f7f58,
-  hemiI: 0.3,
-  sunColor: 0xfff6ea, // neutral midday sun
-  sunI: 3.0,
-  fillI: 0.12,
-  exposure: 1.0,
-  envI: 1.0,
-  fogColor: '#dfe8f3', // cool daylight haze
-  fogNear: 170,
-  fogFar: 1000,
-  elevationDeg: 46, // high sun = short neutral shadows
+  hemiSky: 0xe3efff,
+  hemiGround: 0x7d8f62,
+  hemiI: 0.55,
+  sunColor: 0xfffaf2, // bright neutral midday sun
+  sunI: 3.3,
+  fillI: 0.18,
+  exposure: 1.2,
+  envI: 1.15,
+  fogColor: '#e8f0fa', // light, airy daylight haze
+  fogNear: 220,
+  fogFar: 1100,
+  elevationDeg: 50, // high sun = short neutral shadows, bright ground
 };
 
 function flareTexture(kind: 'glow' | 'ring'): THREE.CanvasTexture {
@@ -159,9 +159,9 @@ export class LightingController {
     if (!this.physSky) {
       const sky = new Sky();
       const u = sky.material.uniforms;
-      u.turbidity.value = 3.5;
-      u.rayleigh.value = 1.4;
-      u.mieCoefficient.value = 0.005;
+      u.turbidity.value = 2.4; // crisp clear day
+      u.rayleigh.value = 1.1; // saturated blue zenith
+      u.mieCoefficient.value = 0.004;
       u.mieDirectionalG.value = 0.8;
       u.sunPosition.value.copy(sunDir);
       // visible dome: a sphere sharing the Sky shader (its vertex shader pins depth to the far plane)
@@ -192,7 +192,7 @@ export class LightingController {
   private useHdr() {
     if (this.physSky) this.physSky.visible = false;
     this.scene.background = this.hdrTex!;
-    this.scene.backgroundIntensity = 1.0;
+    this.scene.backgroundIntensity = 1.15;
     this.scene.backgroundBlurriness = 0;
     this.scene.environment = this.hdrEnv!;
     this.scene.environmentIntensity = REAL.envI;

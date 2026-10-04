@@ -1222,8 +1222,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   const fenceMat = new THREE.MeshStandardMaterial({ map: fenceTex, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.4 });
   const fencePostSpots: { x: number; z: number }[] = [];
   const umbrellaSpots: { x: number; z: number; color: THREE.Color }[] = [];
-  const umbrellaColors = ['#ff5a1f', '#ffd166', '#06d6a0', '#ef476f', '#2f80ff', '#ffffff'].map((c) => new THREE.Color(c));
-  const miniStandZones = [...zones].sort((a, b) => b.mult - a.mult).slice(0, 2);
+  const miniStandZones = [...zones]; // every corner gets a covered grandstand — all fans are seated
   const miniStandCenters: { x: number; z: number }[] = [];
 
   for (const z of zones) {
@@ -1235,28 +1234,9 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
       const s = samples[(z.start + k) % n];
       fencePostSpots.push({ x: s.x + s.rx * (WALL_DIST + 2.0) * side, z: s.z + s.rz * (WALL_DIST + 2.0) * side });
     }
-    for (let k = 0; k < z.len; k += 2) {
-      const i = (z.start + k) % n;
-      const s = samples[i];
-      if (Math.abs(s.curv) < 0.008) continue;
-      for (let row = 0; row < 3; row++) {
-        if (rand() < 0.15) continue;
-        const off = (WALL_DIST + 3.2 + row * 1.15 + (rand() - 0.5) * 0.5) * side;
-        const along = (rand() - 0.5) * 1.6;
-        crowd.add(s.x + s.rx * off + s.tx * along, GROUND_Y, s.z + s.rz * off + s.tz * along, { jumpChance: 0.4, flagChance: 0.12 });
-      }
-    }
-    for (let k = 5; k < z.len - 4; k += 11) {
-      const i = (z.start + k) % n;
-      const s = samples[i];
-      if (Math.abs(s.curv) < 0.008) continue;
-      if (hasStand && circDist(i, z.apex, n) < 13) continue;
-      const off = (WALL_DIST + 7.3) * side;
-      umbrellaSpots.push({ x: s.x + s.rx * off, z: s.z + s.rz * off, color: umbrellaColors[Math.floor(rand() * umbrellaColors.length)] });
-    }
     if (hasStand) {
       const s = samples[z.apex];
-      const stand = buildProStand(24, 4, ['#ff5a1f', '#ffd166', '#2f80ff'], rand, { roof: true, name: z.name.toUpperCase() });
+      const stand = buildProStand(30, 5, ['#ff5a1f', '#ffd166', '#2f80ff', '#f5f5f5'], rand, { roof: true, name: z.name.toUpperCase() });
       const off = (WALL_DIST + 9.0) * side;
       stand.group.position.set(s.x + s.rx * off, GROUND_Y, s.z + s.rz * off);
       stand.group.rotation.y = s.angle + (side === -1 ? 0 : Math.PI);
@@ -1283,15 +1263,29 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
       runStart = -1;
     }
   }
+  // straight-side grandstands (behind the hoardings and the light/flag poles) — no standing fans anywhere
+  const straightPalettes = [
+    ['#1d4ed8', '#f5f5f5', '#ffd166'],
+    ['#c8102e', '#f5f5f5', '#111318'],
+    ['#0f766e', '#f5f5f5', '#ff5a1f'],
+  ];
   runs.forEach((run, ri) => {
     const side = ri % 2 === 0 ? 1 : -1;
-    for (let k = 3; k < run.len - 3; k += 3) {
-      const s = samples[run.a + k];
-      for (let row = 0; row < 2; row++) {
-        if (rand() > 0.55) continue;
-        const off = (WALL_DIST + 2.4 + row * 1.15 + (rand() - 0.5) * 0.5) * side;
-        crowd.add(s.x + s.rx * off + s.tx * (rand() - 0.5) * 1.5, GROUND_Y, s.z + s.rz * off + s.tz * (rand() - 0.5) * 1.5, { jumpChance: 0.3 });
-      }
+    const lengthM = Math.min(44, run.len * track.spacing - 10);
+    if (lengthM < 16) return;
+    const s = samples[(run.a + Math.floor(run.len / 2)) % n];
+    const stand = buildProStand(lengthM, 5, straightPalettes[ri % straightPalettes.length], rand, { roof: true, name: 'EBISU  ·  DRIFT KING', floodlights: ri % 2 === 0 });
+    const off = (WALL_DIST + 11.5) * side;
+    stand.group.position.set(s.x + s.rx * off, GROUND_Y, s.z + s.rz * off);
+    stand.group.rotation.y = s.angle + (side === -1 ? 0 : Math.PI);
+    scene.add(stand.group);
+    stand.group.updateMatrixWorld(true);
+    for (const [lx, ly, lz] of stand.seats) {
+      stand.group.localToWorld(tmpV.set(lx, ly, lz));
+      crowd.add(tmpV.x, tmpV.y, tmpV.z, { wave: lz + 17, jumpChance: 0.25, flagChance: 0.12 });
+    }
+    for (let d = -lengthM / 2; d <= lengthM / 2; d += 12) {
+      miniStandCenters.push({ x: stand.group.position.x + s.tx * d, z: stand.group.position.z + s.tz * d });
     }
   });
 

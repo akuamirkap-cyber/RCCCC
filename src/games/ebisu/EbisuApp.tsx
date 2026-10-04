@@ -460,16 +460,6 @@ export default function EbisuApp({ onSwitchGame }: { onSwitchGame?: () => void }
     <div className="relative h-full w-full overflow-hidden bg-sky-300">
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full touch-none" />
 
-      {/* Cinematic grade: vignette + warm highlights / cool shadows (below the HUD) */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background:
-            'radial-gradient(ellipse at center, rgba(0,0,0,0) 52%, rgba(24,32,64,0.28) 100%),' +
-            'linear-gradient(180deg, rgba(255,170,110,0.08) 0%, rgba(255,170,110,0) 32%, rgba(30,60,140,0.10) 100%)',
-        }}
-      />
-
       <Hud
         hud={hud}
         minimap={minimap}

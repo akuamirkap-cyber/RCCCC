@@ -333,18 +333,6 @@ export function Hud({ hud, minimap, popups, onSteer, onHandbrake, onBoost, onPau
       {/* High-speed streaks above ~130 km/h (below boost intensity) */}
       {!hud.boosting && racing && hud.speed >= 130 && <div className="speed-lines anim-boost absolute inset-0 opacity-30" />}
 
-      {/* Off-track vignette */}
-      {hud.offTrack && racing && (
-        <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at center, rgba(0,0,0,0) 55%, rgba(60,30,0,0.4) 100%)' }} />
-      )}
-
-      {/* Subtle top/bottom legibility gradients */}
-      {active && (
-        <>
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-28" style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.28), rgba(0,0,0,0))' }} />
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-32" style={{ background: 'linear-gradient(0deg, rgba(0,0,0,0.3), rgba(0,0,0,0))' }} />
-        </>
-      )}
 
       {active && (
         <>
