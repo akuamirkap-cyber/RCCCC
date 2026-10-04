@@ -289,39 +289,61 @@ export default function EbisuApp({
     addPopup(cam === 'rally' ? 'ART OF RALLY CAM' : cam === 'chase' ? 'CHASE CAM' : cam === 'cockpit' ? 'COCKPIT CAM' : 'FAR CHASE CAM', 'info');
   }, [addPopup, updatePrefs]);
 
+  /** Builds the Ebisu game on demand (returns the existing one when already built). */
+  const ensureGameRef = useRef<() => Game | null>(() => null);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const game = new Game(
-      canvas,
-      {
-        onHud: setHud,
-        onPopup: addPopup,
-        onPhase: (p, r) => {
-          phaseRef.current = p;
-          setPhase(p);
-          setPausedBoth(false);
-          setPanel('none');
-          if (p !== 'finished') setShowResult(false);
-          if (p === 'finished' && r) handleResult(r);
+    let disposed = false;
+    const ensureGame = (): Game | null => {
+      if (gameRef.current) return gameRef.current;
+      if (disposed) return null;
+      const game = new Game(
+        canvas,
+        {
+          onHud: setHud,
+          onPopup: addPopup,
+          onPhase: (p, r) => {
+            phaseRef.current = p;
+            setPhase(p);
+            setPausedBoth(false);
+            setPanel('none');
+            if (p !== 'finished') setShowResult(false);
+            if (p === 'finished' && r) handleResult(r);
+          },
         },
-      },
-      prefsRef.current,
-      venue,
-    );
-    gameRef.current = game;
-    game.setSuspended(menuShowroom === 'sakura' && phaseRef.current === 'menu'); // Sakura showroom owns the screen in the menu
-    game.setMenuBackdrop(loadBackdrop());
-    game.setTuning(setupRef.current.tuning);
-    game.setSlipTuning(setupRef.current.slipTuning);
-    game.setSakuraTuning(setupRef.current.sakuraTuning);
-    game.setEngine(setupRef.current.engine);
-    game.setRaceSettings(setupRef.current.race);
-    setMinimap(game.getMinimap());
+        prefsRef.current,
+        venue,
+      );
+      gameRef.current = game;
+      game.setSuspended(menuShowroom === 'sakura' && phaseRef.current === 'menu'); // Sakura showroom owns the screen in the menu
+      game.setMenuBackdrop(loadBackdrop());
+      game.setTuning(setupRef.current.tuning);
+      game.setSlipTuning(setupRef.current.slipTuning);
+      game.setSakuraTuning(setupRef.current.sakuraTuning);
+      game.setEngine(setupRef.current.engine);
+      game.setRaceSettings(setupRef.current.race);
+      setMinimap(game.getMinimap());
+      return game;
+    };
+    ensureGameRef.current = ensureGame;
+    // When the Sakura RC scene hosts the DRIFT KING menu, the Ebisu world is only built the moment
+    // "EBISU DRIFT MODE" is started — boot then loads a single world instead of two.
+    if (menuShowroom !== 'sakura') ensureGame();
 
     const onKey = (e: KeyboardEvent, down: boolean) => {
       const g = gameRef.current;
-      if (!g) return;
+      if (!g) {
+        // Ebisu game not built yet (Sakura hosts the menu): only the menu shortcuts apply
+        if (!down) return;
+        if (e.code === 'Escape' || e.code === 'KeyP') {
+          if (panelRef.current !== 'none' && phaseRef.current === 'menu') setPanel('none');
+          return;
+        }
+        if (e.code === 'Enter' && panelRef.current === 'none' && phaseRef.current === 'menu' && playSakuraRef.current) playSakuraRef.current();
+        return;
+      }
       // let sliders handle their own arrow keys (Escape / P still work)
       const inField = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement;
       if (inField && e.code !== 'Escape' && e.code !== 'KeyP') return;
@@ -392,16 +414,21 @@ export default function EbisuApp({
       window.removeEventListener('keyup', ku);
       window.removeEventListener('blur', blur);
       document.removeEventListener('visibilitychange', onVisibility);
-      game.dispose();
+      disposed = true;
+      ensureGameRef.current = () => null;
+      gameRef.current?.dispose();
       gameRef.current = null;
     };
-  }, [addPopup, cycleCamera, handleResult, setPausedBoth, togglePause, venue]);
+  }, [addPopup, cycleCamera, handleResult, setPausedBoth, togglePause, venue, menuShowroom]);
 
   const start = () => {
     setPopups([]);
     setPanel('none');
     if (mobileUI) void enterLandscapeFullscreen();
-    gameRef.current?.startRace();
+    const g = ensureGameRef.current();
+    if (!g) return;
+    g.setSuspended(false);
+    g.startRace();
   };
 
   const toggleMute = () => {

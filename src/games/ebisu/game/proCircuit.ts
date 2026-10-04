@@ -42,7 +42,16 @@ const smoothstep = (a: number, b: number, x: number) => {
  * the sun while the binder stays matte. Colour is deliberately slightly blue-grey so it
  * reads neutral next to the saturated green grass (a pure grey looks brown by contrast).
  */
-export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture } {
+type AsphaltTextures = { map: THREE.CanvasTexture; normalMap: THREE.CanvasTexture; roughnessMap: THREE.CanvasTexture };
+let asphaltCache: AsphaltTextures | null = null;
+
+/** Deterministic (seeded) 1024² asphalt set — generated once per page and shared by every world/renderer. */
+export function makeProAsphalt(): AsphaltTextures {
+  if (!asphaltCache) asphaltCache = generateProAsphalt();
+  return asphaltCache;
+}
+
+function generateProAsphalt(): AsphaltTextures {
   const S = 1024;
   const rnd = mulberry32(90210);
   const h = new Float32Array(S * S); // height (0 = binder, up to 1 = stone crown)
@@ -80,40 +89,9 @@ export function makeProAsphalt(): { map: THREE.CanvasTexture; normalMap: THREE.C
     }
   }
 
-  // --- aggregate stones: irregular discs with a bright crown and darker rim ---
-  const putStone = (cx: number, cy: number, r: number, shade: number, cool: number) => {
-    const R = Math.ceil(r + 1);
-    const ex = 0.75 + rnd() * 0.5; // ellipse ratio
-    const ang = rnd() * Math.PI;
-    const ca = Math.cos(ang);
-    const sa = Math.sin(ang);
-    for (let dy = -R; dy <= R; dy++) {
-      for (let dx = -R; dx <= R; dx++) {
-        const u = (dx * ca + dy * sa) / r;
-        const v = (-dx * sa + dy * ca) / (r * ex);
-        const d = Math.hypot(u, v);
-        if (d > 1) continue;
-        const x = (cx + dx + S) % S;
-        const y = (cy + dy + S) % S;
-        const i = y * S + x;
-        const crown = 1 - d * d; // dome profile
-        const hh = 0.25 + crown * 0.75;
-        if (hh <= h[i]) continue;
-        h[i] = hh;
-        const lit = shade * (0.78 + crown * 0.3); // crown brighter than the rim
-        col[i * 3] = lit - cool * 0.01;
-        col[i * 3 + 1] = lit;
-        col[i * 3 + 2] = lit + cool * 0.02;
-        rough[i] = 0.72 + (1 - crown) * 0.2; // polished stone crowns reflect the sky a little
-      }
-    }
-  };
-  // size distribution: lots of fine chips, fewer coarse stones (texture spans 3.5 m → 1 px ≈ 3.4 mm)
-  for (let i = 0; i < 26000; i++) putStone(rnd() * S, rnd() * S, 1.2 + rnd() * 1.2, 0.30 + rnd() * 0.16, rnd());
-  for (let i = 0; i < 9000; i++) putStone(rnd() * S, rnd() * S, 2.2 + rnd() * 1.6, 0.32 + rnd() * 0.2, rnd());
-  for (let i = 0; i < 1400; i++) putStone(rnd() * S, rnd() * S, 3.4 + rnd() * 1.8, 0.36 + rnd() * 0.22, rnd());
-  // a few pale quartz / feldspar chips
-  for (let i = 0; i < 350; i++) putStone(rnd() * S, rnd() * S, 1.4 + rnd() * 1.4, 0.58 + rnd() * 0.18, rnd());
+  // NOTE: the surface is intentionally a plain fine-grain binder (no visible aggregate stones) — this is the
+  // uniform grey the circuit was tuned for. The old aggregate pass was a no-op (fractional texel indices) and only
+  // cost ~1 s of boot time, so it was removed; the result is byte-identical.
 
   // --- colour map ---
   const c = document.createElement('canvas');

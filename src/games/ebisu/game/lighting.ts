@@ -81,6 +81,12 @@ function flareTexture(kind: 'glow' | 'ring'): THREE.CanvasTexture {
   return t;
 }
 
+/* ---------- shared caches: the HDRI is downloaded/analysed once per page, PMREMs once per GL context ---------- */
+let hdrShared: Promise<THREE.DataTexture> | null = null;
+let hdrAnalysis: { sunDir: THREE.Vector3; fog: THREE.Color } | null = null;
+const hdrEnvByRenderer = new WeakMap<THREE.WebGLRenderer, THREE.Texture>();
+const physEnvByRenderer = new WeakMap<THREE.WebGLRenderer, THREE.Texture>();
+
 export class LightingController {
   /** Current sun offset relative to the player (Game positions the light each frame). */
   readonly sunOffset: THREE.Vector3;
@@ -172,14 +178,20 @@ export class LightingController {
       this.scene.add(dome);
       this.physSky = dome;
       // environment from the same atmosphere
-      const envScene = new THREE.Scene();
-      sky.scale.setScalar(2000);
-      envScene.add(sky);
-      const pmrem = new THREE.PMREMGenerator(this.renderer);
-      const rt = pmrem.fromScene(envScene, 0.02);
-      this.physEnv = rt.texture;
-      pmrem.dispose();
-      envScene.remove(sky);
+      const cachedEnv = physEnvByRenderer.get(this.renderer);
+      if (cachedEnv) {
+        this.physEnv = cachedEnv;
+      } else {
+        const envScene = new THREE.Scene();
+        sky.scale.setScalar(2000);
+        envScene.add(sky);
+        const pmrem = new THREE.PMREMGenerator(this.renderer);
+        const rt = pmrem.fromScene(envScene, 0.02);
+        this.physEnv = rt.texture;
+        pmrem.dispose();
+        envScene.remove(sky);
+        physEnvByRenderer.set(this.renderer, this.physEnv);
+      }
     }
     this.physSky.visible = true;
     this.scene.background = null;
@@ -204,31 +216,52 @@ export class LightingController {
 
   private loadHdr() {
     this.hdrState = 'loading';
-    const loader = new RGBELoader();
-    loader.setDataType(THREE.FloatType);
-    const timeout = window.setTimeout(() => {
-      if (this.hdrState === 'loading') this.hdrState = 'failed';
-    }, 20000);
-    loader.load(
-      HDRI_URL,
+    if (!hdrShared) {
+      hdrShared = new Promise<THREE.DataTexture>((resolve, reject) => {
+        const loader = new RGBELoader();
+        loader.setDataType(THREE.FloatType);
+        const timeout = window.setTimeout(() => reject(new Error('hdr timeout')), 20000);
+        loader.load(
+          HDRI_URL,
+          (tex) => {
+            window.clearTimeout(timeout);
+            tex.mapping = THREE.EquirectangularReflectionMapping;
+            resolve(tex);
+          },
+          undefined,
+          (e) => {
+            window.clearTimeout(timeout);
+            reject(e);
+          },
+        );
+      });
+      hdrShared.catch(() => {
+        hdrShared = null; // allow a retry on the next controller
+      });
+    }
+    hdrShared.then(
       (tex) => {
-        window.clearTimeout(timeout);
-        if (this.disposed || this.hdrState === 'failed') {
-          tex.dispose();
-          return;
+        if (this.disposed) return;
+        if (!hdrAnalysis) {
+          this.analyseHdr(tex);
+          if (this.hdrSunDir && this.hdrFog) hdrAnalysis = { sunDir: this.hdrSunDir.clone(), fog: this.hdrFog.clone() };
+        } else {
+          this.hdrSunDir = hdrAnalysis.sunDir.clone();
+          this.hdrFog = hdrAnalysis.fog.clone();
         }
-        tex.mapping = THREE.EquirectangularReflectionMapping;
-        this.analyseHdr(tex);
-        const pmrem = new THREE.PMREMGenerator(this.renderer);
-        this.hdrEnv = pmrem.fromEquirectangular(tex).texture;
-        pmrem.dispose();
+        let env = hdrEnvByRenderer.get(this.renderer);
+        if (!env) {
+          const pmrem = new THREE.PMREMGenerator(this.renderer);
+          env = pmrem.fromEquirectangular(tex).texture;
+          pmrem.dispose();
+          hdrEnvByRenderer.set(this.renderer, env);
+        }
+        this.hdrEnv = env;
         this.hdrTex = tex;
         this.hdrState = 'ready';
         if (this.mode === 'hdri') this.useHdr();
       },
-      undefined,
       () => {
-        window.clearTimeout(timeout);
         this.hdrState = 'failed';
       },
     );
@@ -300,9 +333,11 @@ export class LightingController {
 
   dispose() {
     this.disposed = true;
-    this.hdrTex?.dispose();
-    this.hdrEnv?.dispose();
-    this.physEnv?.dispose();
+    // HDR texture / env maps are shared across controllers (cached per page / per GL context) — keep them
     this.flare?.dispose();
+    if (this.physSky) {
+      this.physSky.parent?.remove(this.physSky);
+      this.physSky.geometry.dispose();
+    }
   }
 }

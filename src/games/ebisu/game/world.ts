@@ -579,20 +579,22 @@ export class Crowd {
     const dark = new THREE.Color('#15151a');
 
     // --- geometry (Stumble Guys proportions, 1 unit = 1 m at sc = 1) ---
-    const headGeo = new RoundedBoxGeometry(0.54, 0.5, 0.5, 4, 0.19);
-    const torsoGeo = new RoundedBoxGeometry(0.46, 0.4, 0.36, 3, 0.13);
-    const eyeGeo = new RoundedBoxGeometry(0.055, 0.12, 0.04, 2, 0.02);
-    const armGeo = new THREE.CapsuleGeometry(0.07, 0.17, 2, 7);
-    const handGeo = new THREE.SphereGeometry(0.08, 8, 6);
-    const legGeo = new THREE.CapsuleGeometry(0.085, 0.1, 2, 7);
-    const shoeGeo = new RoundedBoxGeometry(0.17, 0.11, 0.27, 2, 0.045);
-    const capDomeGeo = new THREE.SphereGeometry(0.3, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    // Low-poly on purpose: thousands of fans × ~15 parts each — every segment here is multiplied by the crowd size.
+    // Fans are always 10 m+ from the camera, so 2-segment rounded boxes read identically to 4-segment ones.
+    const headGeo = new RoundedBoxGeometry(0.54, 0.5, 0.5, 1, 0.19);
+    const torsoGeo = new RoundedBoxGeometry(0.46, 0.4, 0.36, 1, 0.13);
+    const eyeGeo = new THREE.BoxGeometry(0.055, 0.12, 0.04);
+    const armGeo = new THREE.CapsuleGeometry(0.07, 0.17, 1, 5);
+    const handGeo = new THREE.SphereGeometry(0.08, 5, 4);
+    const legGeo = new THREE.CapsuleGeometry(0.085, 0.1, 1, 5);
+    const shoeGeo = new THREE.BoxGeometry(0.17, 0.11, 0.27);
+    const capDomeGeo = new THREE.SphereGeometry(0.3, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
     capDomeGeo.scale(1, 0.62, 1);
-    const capVisorGeo = new RoundedBoxGeometry(0.32, 0.04, 0.24, 2, 0.015);
-    const bucketTopGeo = new THREE.CylinderGeometry(0.26, 0.31, 0.2, 14);
-    const bucketBrimGeo = new THREE.CylinderGeometry(0.38, 0.4, 0.035, 16);
-    const glassesGeo = new RoundedBoxGeometry(0.44, 0.1, 0.05, 2, 0.02);
-    const pompGeo = new RoundedBoxGeometry(0.5, 0.2, 0.46, 3, 0.07);
+    const capVisorGeo = new THREE.BoxGeometry(0.32, 0.04, 0.24);
+    const bucketTopGeo = new THREE.CylinderGeometry(0.26, 0.31, 0.2, 8);
+    const bucketBrimGeo = new THREE.CylinderGeometry(0.38, 0.4, 0.035, 10);
+    const glassesGeo = new THREE.BoxGeometry(0.44, 0.1, 0.05);
+    const pompGeo = new RoundedBoxGeometry(0.5, 0.2, 0.46, 1, 0.07);
 
     const mat = (rough = 0.7) => new THREE.MeshStandardMaterial({ roughness: rough });
     const heads = new THREE.InstancedMesh(headGeo, mat(0.6), N);
@@ -770,7 +772,8 @@ export class Crowd {
       flags.setMatrixAt(f, m4);
       flags.setColorAt(f, flagColors[Math.floor(r() * flagColors.length)]);
     });
-    heads.castShadow = torsos.castShadow = true;
+    // crowd shadows only pay off for small (close) groups; a 3000-fan grandstand would double the shadow pass
+    heads.castShadow = torsos.castShadow = N <= 1200;
     const all = [heads, torsos, eyes, armsL, armsR, handsL, handsR, legs, shoes, capDomes, capVisors, bucketTops, bucketBrims, bucketShades, pomps, faceShades, flags];
     for (const im of all) im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     scene.add(...all);

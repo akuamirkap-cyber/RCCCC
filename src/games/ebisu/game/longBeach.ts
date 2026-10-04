@@ -5,6 +5,7 @@ import type { DriftZone } from './zones';
 import type { Crowd } from './world';
 import { buildProStand } from './proVenue';
 import { makeSponsorStrip } from './proBarriers';
+import { buildSkyline } from './skyline';
 
 /**
  * Long Beach street-circuit venue (Formula Drift Long Beach look): flat harbour-city ground, continuous concrete
@@ -80,29 +81,6 @@ function concreteTexture(): THREE.CanvasTexture {
   ctx.moveTo(0.5, 0);
   ctx.lineTo(0.5, S);
   ctx.stroke();
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-function windowTexture(base: string, glass: string, cols = 4, rows = 4): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 128;
-  const ctx = c.getContext('2d')!;
-  ctx.fillStyle = base;
-  ctx.fillRect(0, 0, 128, 128);
-  const cw = 128 / cols;
-  const rh = 128 / rows;
-  for (let i = 0; i < cols; i++) {
-    for (let j = 0; j < rows; j++) {
-      ctx.fillStyle = glass;
-      ctx.fillRect(i * cw + cw * 0.18, j * rh + rh * 0.2, cw * 0.64, rh * 0.55);
-      ctx.fillStyle = 'rgba(255,255,255,0.22)';
-      ctx.fillRect(i * cw + cw * 0.18, j * rh + rh * 0.2, cw * 0.64, rh * 0.12);
-    }
-  }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
@@ -449,44 +427,18 @@ export function buildLongBeachVenue(scene: THREE.Scene, track: Track, zones: Dri
   crowns.castShadow = true;
   scene.add(trunks, crowns);
 
-  /* ---------- Downtown skyline (north + west) ---------- */
-  const facadeMats = [
-    new THREE.MeshStandardMaterial({ map: windowTexture('#dfe3e8', '#5b8ac9'), roughness: 0.6 }),
-    new THREE.MeshStandardMaterial({ map: windowTexture('#e8d9c8', '#4f6f9a'), roughness: 0.7 }),
-    new THREE.MeshStandardMaterial({ map: windowTexture('#f1c9c9', '#4a6a93'), roughness: 0.7 }),
-    new THREE.MeshStandardMaterial({ map: windowTexture('#9fb7d4', '#2f5f99', 6, 6), roughness: 0.35, metalness: 0.3 }),
-    new THREE.MeshStandardMaterial({ map: windowTexture('#f5f5f0', '#7aa0c8'), roughness: 0.6 }),
-  ];
-  const roofMat = new THREE.MeshStandardMaterial({ color: '#6b7280', roughness: 0.9 });
-  const building = (x: number, z: number, w: number, h: number, d: number, mi: number) => {
-    const geo = new THREE.BoxGeometry(w, h, d);
-    const uv = geo.attributes.uv as THREE.BufferAttribute;
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * Math.max(1, Math.round(w / 3.6)), uv.getY(i) * Math.max(1, Math.round(h / 3.6)));
-    const mats = [facadeMats[mi], facadeMats[mi], roofMat, roofMat, facadeMats[mi], facadeMats[mi]];
-    const m = new THREE.Mesh(geo, mats);
-    m.position.set(x, groundY + h / 2, z);
-    m.castShadow = h < 60;
-    scene.add(m);
-  };
-  // dense core across the course from the main grandstand (south), thinning toward the west and east
-  for (let k = 0; k < 110; k++) {
-    const a = Math.PI - 0.1 + rand() * (Math.PI + 0.2); // southern half (negative z) + a bit east/west
-    const r = 165 + rand() * 260;
-    const x = cx + Math.cos(a) * r;
-    const z = cz + Math.sin(a) * r * 0.85 - 40;
-    if (insideTrackBox(x, z, 60)) continue;
-    const core = Math.abs(a - Math.PI * 1.5) < 0.7;
-    const w = 16 + rand() * 24;
-    const d = 16 + rand() * 24;
-    const h = core ? 35 + rand() * 95 : 14 + rand() * 40;
-    building(x, z, w, h, d, Math.floor(rand() * facadeMats.length));
-  }
-  // low harbour buildings (convention centre style) on the west
-  for (let k = 0; k < 14; k++) {
-    const x = b.minX - 70 - rand() * 120;
-    const z = b.minZ + 20 + rand() * 120;
-    building(x, z, 30 + rand() * 40, 10 + rand() * 12, 24 + rand() * 30, 4);
-  }
+  /* ---------- Downtown skyline (south + east/west flanks) ---------- */
+  // Real street grid with lots, archetypes, rooftop clutter and per-building tints — see skyline.ts.
+  buildSkyline(scene, {
+    rand,
+    aniso,
+    groundY,
+    cx,
+    cz,
+    blocked: (x, z) => insideTrackBox(x, z, 58) || Math.hypot(x - cx, z - cz) > 540,
+    core: { x: cx + 20, z: b.minZ - 250 },
+    allow: (x, z) => z < b.minZ - 60 || ((x < b.minX - 70 || x > b.maxX + 70) && z < b.maxZ + 10),
+  });
   // landmark: the aquarium (blue wave-glass drum + dome) on the waterfront
   {
     const aq = new THREE.Group();

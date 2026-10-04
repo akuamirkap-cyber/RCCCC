@@ -59,6 +59,31 @@ import {
   frameAt,
 } from '../utils/botAi';
 
+/**
+ * Static outdoor world cache (Ebisu / Long Beach): building the venue (asphalt, crowd, skyline …) costs seconds, so it
+ * is built ONCE per venue per GL context into a Group and re-attached on every scene rebuild (restart, back to menu,
+ * circuit switch back). GPU resources belong to the renderer, hence the per-renderer map.
+ */
+type EbisuWorldEntry = { root: THREE.Group; refs: ReturnType<typeof buildEbisuWorld> };
+const ebisuWorldCache = new WeakMap<THREE.WebGLRenderer, Map<string, EbisuWorldEntry>>();
+
+/** Frees GPU resources of everything under `obj` (geometries, materials, their textures). */
+function disposeSubtree(obj: THREE.Object3D) {
+  obj.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+    for (const m of mats) {
+      const anyM = m as unknown as Record<string, unknown>;
+      for (const key of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'alphaMap', 'aoMap', 'envMap']) {
+        const tex = anyM[key] as THREE.Texture | undefined;
+        if (tex && tex.isTexture) tex.dispose();
+      }
+      m.dispose();
+    }
+  });
+}
+
 interface RCDriftCanvas3DProps {
   circuit: CircuitDef;
   tuning: TuningSetup;
@@ -198,6 +223,20 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
   suspendedRef.current = suspended;
   const showroomHost = menuShowroom && circuit.mapStyle === 'ebisu';
   const menuKey = showroomHost ? 'showroom' : String(isMenu);
+  // ONE WebGLRenderer for the component's lifetime: rebuilding the scene no longer creates a new GL context
+  // (no shader recompiles / texture re-uploads) — the biggest part of the old "reload" time.
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  useEffect(
+    () => () => {
+      const r = rendererRef.current;
+      rendererRef.current = null;
+      if (r) {
+        r.dispose();
+        r.domElement.parentElement?.removeChild(r.domElement);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     if (tuning.soundMode) {
@@ -305,19 +344,24 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       camera.lookAt(DIORAMA_CAR.x, 1.15, DIORAMA_CAR.z);
     }
 
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      powerPreference: 'high-performance',
-    });
+    const renderer =
+      rendererRef.current ??
+      (rendererRef.current = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance',
+      }));
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // 1.5× is visually indistinguishable from 2× on laptops but ~45 % fewer pixels to shade
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = useHarunaWorld ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = useHarunaWorld ? 0.95 : useEbisuWorld ? 1.22 : 1.0;
 
-    container.innerHTML = '';
-    container.appendChild(renderer.domElement);
+    if (renderer.domElement.parentElement !== container) {
+      container.innerHTML = '';
+      container.appendChild(renderer.domElement);
+    }
 
     // --- 2. HDR PROSEDURAL (equirect float 1024x512) + KEY LIGHT FOLLOW-PLAYER ---
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
@@ -448,10 +492,30 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     // sponsor hoardings, grandstands with seated crowd, cones, hills, lake, sky, HDRI lighting).
     let ebisuWorld: ReturnType<typeof buildEbisuWorld> | null = null;
     let ebisuLighting: EbisuLighting | null = null;
+    let ebisuWorldRoot: THREE.Group | null = null;
     if (useEbisuWorld) {
       const venue = circuit.venue ?? 'ebisu';
-      const ebisuTrack = new EbisuTrack(VENUE_POINTS[venue]);
-      ebisuWorld = buildEbisuWorld(scene, ebisuTrack, renderer, computeEbisuZones(ebisuTrack, 4, venue), venue);
+      let perRenderer = ebisuWorldCache.get(renderer);
+      if (!perRenderer) {
+        perRenderer = new Map();
+        ebisuWorldCache.set(renderer, perRenderer);
+      }
+      let entry = perRenderer.get(venue);
+      if (!entry) {
+        const ebisuTrack = new EbisuTrack(VENUE_POINTS[venue]);
+        const root = new THREE.Group();
+        root.name = `venue:${venue}`;
+        // the builders only call scene.add(); fog/environment are (re)applied by the lighting controller below
+        const refs = buildEbisuWorld(root as unknown as THREE.Scene, ebisuTrack, renderer, computeEbisuZones(ebisuTrack, 4, venue), venue);
+        entry = { root, refs };
+        perRenderer.set(venue, entry);
+      }
+      ebisuWorldRoot = entry.root;
+      ebisuWorld = entry.refs;
+      scene.add(ebisuWorldRoot);
+      scene.fog = ebisuWorld.lighting.stylizedFog;
+      scene.environment = ebisuWorld.lighting.stylizedEnv;
+      scene.environmentIntensity = 0.5;
       ebisuLighting = new EbisuLighting(scene, renderer, ebisuWorld.lighting);
       ebisuLighting.setMode('hdri');
     }
@@ -4429,7 +4493,11 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       hdriRenderTarget?.dispose();
       ebisuLighting?.dispose();
       pmremGenerator.dispose();
-      renderer.dispose();
+      // keep the cached venue alive; free everything else (cars, particles, arena dressing …)
+      if (ebisuWorldRoot) scene.remove(ebisuWorldRoot);
+      disposeSubtree(scene);
+      scene.clear();
+      renderer.renderLists.dispose();
       dioramaCarRigRef.current = null;
     };
   }, [circuit, resetTrigger, customization.bodyId, menuKey]);
