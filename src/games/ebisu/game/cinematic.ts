@@ -159,7 +159,7 @@ export class SunShaftsPass extends Pass {
     // 3. composite
     this.compositeMat.uniforms.tDiffuse.value = readBuffer.texture;
     this.compositeMat.uniforms.tShafts.value = src.texture;
-    this.compositeMat.uniforms.intensity.value = 0.32 * this.strength;
+    this.compositeMat.uniforms.intensity.value = 0.18 * this.strength;
     this.quad.material = this.compositeMat;
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
@@ -194,7 +194,7 @@ export class CinematicFx {
     this.shafts = new SunShaftsPass(width, height);
     this.composer.addPass(this.shafts);
     // gentle: only true emitters (LEDs, reflectors, sun) bloom; the scene itself stays untouched
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.14, 0.28, 2.2);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.07, 0.22, 3.0);
     this.composer.addPass(this.bloom);
     this.composer.addPass(new OutputPass());
     this.setSize(width, height);

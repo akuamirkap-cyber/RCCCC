@@ -63,9 +63,9 @@ const REAL = {
  * clouds and the solar disc stay bright white (the disc keeps its HDR energy for the sun-shaft pass).
  */
 const HDR_DOME = {
-  exposure: 0.62,
-  saturation: 1.45,
-  tint: new THREE.Color(0.94, 0.985, 1.07),
+  exposure: 0.82,
+  saturation: 1.3,
+  tint: new THREE.Color(0.965, 0.99, 1.04),
 };
 
 function makeHdrDomeMaterial(tex: THREE.Texture): THREE.ShaderMaterial {
@@ -388,7 +388,7 @@ export class LightingController {
     const flare = new Lensflare();
     const glow = flareTexture('glow');
     const ring = flareTexture('ring');
-    flare.addElement(new LensflareElement(glow, 520, 0, new THREE.Color('#fff7ea')));
+    flare.addElement(new LensflareElement(glow, 380, 0, new THREE.Color('#fff7ea')));
     flare.addElement(new LensflareElement(ring, 60, 0.55, new THREE.Color('#dfe9ff')));
     flare.addElement(new LensflareElement(ring, 100, 0.72, new THREE.Color('#cfe3ff')));
     flare.addElement(new LensflareElement(ring, 50, 0.86, new THREE.Color('#fff0dc')));

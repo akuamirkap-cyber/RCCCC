@@ -994,7 +994,7 @@ function makeCloudTexture(rand: () => number, variant: number): THREE.CanvasText
     const base = H * 0.62;
     const py = base - Math.abs(rand() - rand()) * H * 0.3 - (0.5 - Math.abs(px / W - 0.5)) * H * 0.25;
     const rr = H * (0.1 + rand() * 0.16);
-    const shade = 1 - Math.max(0, (py - H * 0.4) / (H * 0.35)) * 0.22; // lower puffs a touch greyer
+    const shade = 1 - Math.max(0, (py - H * 0.4) / (H * 0.35)) * 0.1; // lower puffs only a hint greyer — never dark
     const g = ctx.createRadialGradient(px, py, 0, px, py, rr);
     const v = Math.round(255 * shade);
     g.addColorStop(0, `rgba(${v},${v},${Math.min(255, v + 4)},0.95)`);
