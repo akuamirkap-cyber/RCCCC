@@ -13,6 +13,8 @@ export interface WorldRefs {
   lighting: LightingRig;
   /** Ambient animation: crowd, clouds, balloons, windmill. */
   update: (dt: number) => void;
+  /** Cars the fans follow with their heads (each fan watches the nearest one). Flat [x0, z0, x1, z1, …]. */
+  setCrowdFocus: (xz: ArrayLike<number>) => void;
 }
 
 /** Sun position relative to the player (also drives the sun disc in the sky). Lower + warmer = golden-hour look. */
@@ -539,7 +541,15 @@ interface CrowdSpot {
 
 export class Crowd {
   readonly spots: CrowdSpot[] = [];
+  /** Cars the fans look at, flat [x, z, x, z, …]; empty = nobody in particular. */
+  focus: number[] = [];
   constructor(private rand: () => number) {}
+
+  setFocus(xz: ArrayLike<number>) {
+    const f = this.focus;
+    f.length = 0;
+    for (let i = 0; i + 1 < xz.length; i += 2) f.push(xz[i], xz[i + 1]);
+  }
 
   add(x: number, y: number, z: number, o: { wave?: number; jumpChance?: number; flagChance?: number } = {}) {
     const r = this.rand;
@@ -587,12 +597,12 @@ export class Crowd {
     // --- geometry (Stumble Guys proportions, 1 unit = 1 m at sc = 1) ---
     // Low-poly on purpose: thousands of fans × ~15 parts each — every segment here is multiplied by the crowd size.
     // Fans are always 10 m+ from the camera, so 2-segment rounded boxes read identically to 4-segment ones.
-    const headGeo = new RoundedBoxGeometry(0.54, 0.5, 0.5, 1, 0.19);
-    const torsoGeo = new RoundedBoxGeometry(0.46, 0.4, 0.36, 1, 0.13);
+    const headGeo = new RoundedBoxGeometry(0.54, 0.5, 0.5, 2, 0.19);
+    const torsoGeo = new RoundedBoxGeometry(0.46, 0.4, 0.36, 1, 0.08);
     const eyeGeo = new THREE.BoxGeometry(0.055, 0.12, 0.04);
     const armGeo = new THREE.CapsuleGeometry(0.07, 0.17, 1, 5);
     const handGeo = new THREE.SphereGeometry(0.08, 5, 4);
-    const legGeo = new THREE.CapsuleGeometry(0.085, 0.1, 1, 5);
+    const legGeo = new THREE.CapsuleGeometry(0.085, 0.24, 1, 5); // tall: the upper half sits hidden inside the torso
     const shoeGeo = new THREE.BoxGeometry(0.17, 0.11, 0.27);
     const capDomeGeo = new THREE.SphereGeometry(0.3, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
     capDomeGeo.scale(1, 0.62, 1);
@@ -681,9 +691,19 @@ export class Crowd {
     // Parts whose instances only bob up/down with the jump: (mesh, instance k, spot i, base y)
     type Bob = { mesh: THREE.InstancedMesh; k: number; i: number; y: number };
     const bobs: Bob[] = [];
+    // Head-mounted parts (head, eyes, hats, hair, shades) are re-posed every frame to look at the focus car.
+    type HeadPart = { mesh: THREE.InstancedMesh; k: number; fwd: number; side: number; y: number };
+    const headParts: HeadPart[][] = new Array(N);
+    for (let i = 0; i < N; i++) headParts[i] = [];
+    const headYaw = new Float32Array(N); // current head yaw relative to the body
+    let headMode = false;
+    let recordBobs = true; // only during the initial placement
     const place = (mesh: THREE.InstancedMesh, k: number, i: number, fwd: number, side: number, y: number, extraQ?: THREE.Quaternion) => {
+      if (headMode) headParts[i].push({ mesh, k, fwd, side, y });
+      placeYaw(mesh, k, i, fwd, side, y, yaw[i], extraQ);
+    };
+    const placeYaw = (mesh: THREE.InstancedMesh, k: number, i: number, fwd: number, side: number, y: number, a: number, extraQ?: THREE.Quaternion) => {
       const s = spots[i];
-      const a = yaw[i];
       const fx = Math.sin(a);
       const fz = Math.cos(a);
       const rx = Math.cos(a);
@@ -694,7 +714,7 @@ export class Crowd {
       p.set(s.x + (fx * fwd + rx * side) * s.sc, py, s.z + (fz * fwd + rz * side) * s.sc);
       m4.compose(p, q, sc.set(s.sc, s.sc, s.sc));
       mesh.setMatrixAt(k, m4);
-      bobs.push({ mesh, k, i, y: py });
+      if (recordBobs) bobs.push({ mesh, k, i, y: py });
     };
 
     const SHOULDER_Y = 0.64;
@@ -759,7 +779,7 @@ export class Crowd {
       for (const side of [-1, 1]) {
         const k = i * 2 + (side + 1) / 2;
         const fwdFoot = side * 0.03;
-        place(legs, k, i, fwdFoot, side * 0.115, 0.21, legTilt);
+        place(legs, k, i, fwdFoot, side * 0.105, 0.285, legTilt);
         legs.setColorAt(k, pants);
         place(shoes, k, i, fwdFoot + 0.03, side * 0.115, 0.055);
         shoes.setColorAt(k, shoe);
@@ -767,7 +787,8 @@ export class Crowd {
       // stubby torso directly under the head (no neck)
       place(torsos, i, i, 0, 0, 0.52);
       torsos.setColorAt(i, shirt);
-      // oversized rounded-cube head
+      // oversized rounded-cube head (head-mounted parts are tracked so the head can turn toward the cars)
+      headMode = true;
       place(heads, i, i, 0, 0, 0.98);
       heads.setColorAt(i, skin);
       // face: two tiny vertical dot eyes, no mouth
@@ -775,6 +796,7 @@ export class Crowd {
         const k = i * 2 + (side + 1) / 2;
         place(eyes, k, i, 0.245, side * 0.095, 1.0);
       }
+      headMode = false;
       armsL.setColorAt(i, shirt);
       armsR.setColorAt(i, shirt);
       handsL.setColorAt(i, skin);
@@ -782,7 +804,8 @@ export class Crowd {
       setArm(armsL, handsL, i, s, -1, raise[i], s.y);
       setArm(armsR, handsR, i, s, 1, raise[i], s.y);
 
-      // outfit
+      // outfit (everything here sits on the head → turns with it)
+      headMode = true;
       if (outfit[i] === 1) {
         const hc = hatCols[Math.floor(r() * hatCols.length)];
         place(capDomes, capK, i, -0.01, 0, 1.19);
@@ -802,22 +825,26 @@ export class Crowd {
         place(pomps, pompK, i, 0.04, 0, 1.3);
         pompK++;
       } else if (outfit[i] === 4) {
-        // businessman: white shirt front + tie on the suit, slicked dark hair
+        // businessman: white shirt front + tie on the suit (torso parts), slicked dark hair (head part)
+        headMode = false;
         place(shirts4, shirtK, i, 0.185, 0, 0.58);
         shirts4.setColorAt(shirtK, white);
         shirtK++;
         place(ties, suitK, i, 0.205, 0, 0.56);
         ties.setColorAt(suitK, tieCols[Math.floor(r() * tieCols.length)]);
+        headMode = true;
         place(slickHairs, suitK, i, -0.01, 0, 1.255);
         slickHairs.setColorAt(suitK, hairCols[Math.floor(r() * 2)]);
         suitK++;
       } else if (outfit[i] === 5) {
-        // dapper gent: blazer, white shirt, bow tie, fedora
+        // dapper gent: blazer, white shirt, bow tie (torso parts), fedora (head part)
+        headMode = false;
         place(shirts4, shirtK, i, 0.185, 0, 0.58);
         shirts4.setColorAt(shirtK, white);
         shirtK++;
         place(bowTies, dapperK, i, 0.2, 0, 0.69);
         bowTies.setColorAt(dapperK, r() < 0.5 ? dark : tieCols[Math.floor(r() * tieCols.length)]);
+        headMode = true;
         const fc = fedoraCols[Math.floor(r() * fedoraCols.length)];
         place(fedoraTops, dapperK, i, 0, 0, 1.33);
         fedoraTops.setColorAt(dapperK, fc);
@@ -830,6 +857,7 @@ export class Crowd {
         place(faceShades, shadesK, i, 0.255, 0, 1.01);
         shadesK++;
       }
+      headMode = false;
     });
     flagIdx.forEach((si, f) => {
       const s = spots[si];
@@ -849,11 +877,57 @@ export class Crowd {
     const offs = new Float32Array(N);
     let t = 0;
     let armTick = 0;
+    // Head tracking: every frame a quarter of the fans re-aim their heads at the focus car (≈15 Hz per fan),
+    // with a neck limit and per-fan lag so the whole stand turns like a real crowd, not like turrets.
+    const HEAD_SLICES = 4;
+    const NECK = 1.15;
+    const HEAD_RANGE = 110;
+    let slice = 0;
+    const headLag = new Float32Array(N);
+    for (let i = 0; i < N; i++) headLag[i] = 0.18 + r() * 0.25;
+    const aimHeads = () => {
+      const focus = this.focus;
+      const nf = focus.length;
+      const from = Math.floor((slice * N) / HEAD_SLICES);
+      const to = Math.floor(((slice + 1) * N) / HEAD_SLICES);
+      slice = (slice + 1) % HEAD_SLICES;
+      for (let i = from; i < to; i++) {
+        const s = spots[i];
+        let target = 0;
+        // nearest car within range
+        let bestD = HEAD_RANGE * HEAD_RANGE;
+        let bdx = 0;
+        let bdz = 0;
+        for (let c = 0; c < nf; c += 2) {
+          const dx = focus[c] - s.x;
+          const dz = focus[c + 1] - s.z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < bestD) {
+            bestD = d2;
+            bdx = dx;
+            bdz = dz;
+          }
+        }
+        if (bdx !== 0 || bdz !== 0) {
+          let rel = Math.atan2(bdx, bdz) - yaw[i];
+          rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to ±π
+          target = THREE.MathUtils.clamp(rel, -NECK, NECK);
+        }
+        const cur = headYaw[i];
+        const next = cur + (target - cur) * headLag[i];
+        if (Math.abs(next - cur) < 0.002) continue;
+        headYaw[i] = next;
+        const a = yaw[i] + next;
+        for (const hp of headParts[i]) placeYaw(hp.mesh, hp.k, i, hp.fwd, hp.side, hp.y, a);
+      }
+    };
+    recordBobs = false;
     return (dt: number) => {
       t += dt;
       armTick += dt;
       const doArms = armTick > 0.05; // arms update at 20 Hz — plenty for a wave
       if (doArms) armTick = 0;
+      aimHeads();
       for (let i = 0; i < N; i++) {
         const s = spots[i];
         let off = 0;
@@ -1902,5 +1976,6 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     update: (dt) => {
       for (const f of animated) f(dt);
     },
+    setCrowdFocus: (xz) => crowd.setFocus(xz),
   };
 }

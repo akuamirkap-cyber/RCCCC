@@ -253,6 +253,7 @@ export class Game {
   private playerModel: CarModel;
   private player!: PlayerState;
   private ais: AICar[] = [];
+  private crowdFocus: number[] = [];
   private skid = new SkidMarks();
   private smoke = new Smoke();
   private clock = new THREE.Clock();
@@ -841,6 +842,10 @@ export class Game {
       this.time += dt;
       this.update(dt);
     }
+    this.crowdFocus.length = 0;
+    this.crowdFocus.push(this.player.x, this.player.z);
+    for (const ai of this.ais) this.crowdFocus.push(ai.x, ai.z);
+    this.world.setCrowdFocus(this.crowdFocus);
     this.world.update(dt); // ambient scenery keeps moving even while paused
     this.petals.update(dt, this.player.x, this.player.z, GROUND_Y);
     if (this.phase === 'menu' && this.garage.active) {

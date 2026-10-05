@@ -29,6 +29,6 @@ export const DEFAULT_CUSTOMIZATION: CarCustomization = {
   chassisAnodizeColor: '#F59E0B',
   neonColor: '#00F0FF',
   wheelColor: '#F8FAFC',
-  underglowMode: 'steady',
+  underglowMode: 'off',
   underglowIntensity: 0.8,
 };

@@ -528,6 +528,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       fx = new CinematicFx(renderer, scene, camera, Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     }
     const sunOffset = () => (ebisuLighting ? ebisuLighting.sunOffset : EBISU_SUN_OFFSET);
+    const crowdFocus: number[] = [];
     const present = () => {
       if (fx && ebisuLighting) {
         fx.updateSun(ebisuLighting.sunOffset);
@@ -2722,6 +2723,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           camera.updateProjectionMatrix();
         }
         if (ebisuWorld) {
+          ebisuWorld.setCrowdFocus([state.pos.x, state.pos.z]); // showroom: all eyes on the hero car
           ebisuWorld.update(dt); // crowd, flags, clouds, balloons keep moving behind the menu
           const so = sunOffset();
           ebisuWorld.sun.position.set(state.pos.x + so.x, so.y, state.pos.z + so.z);
@@ -4414,6 +4416,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       harunaSky?.follow(camera.position);
       mainDirLight.target.updateMatrixWorld();
       if (ebisuWorld) {
+        crowdFocus.length = 0;
+        crowdFocus.push(state.pos.x, state.pos.z);
+        for (const b of botStates) crowdFocus.push(b.pos.x, b.pos.z);
+        ebisuWorld.setCrowdFocus(crowdFocus); // fans turn their heads toward the nearest car
         ebisuWorld.update(dt); // crowd, flags, clouds, balloons
         const so = sunOffset();
         ebisuWorld.sun.position.set(state.pos.x + so.x, so.y, state.pos.z + so.z);
