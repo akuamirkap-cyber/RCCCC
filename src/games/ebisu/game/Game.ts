@@ -1,6 +1,11 @@
 import * as THREE from 'three';
-import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST } from './track';
-import { buildWorld, SUN_OFFSET, type WorldRefs } from './world';
+import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, VENUE_POINTS, type Venue } from './track';
+import { buildWorld, GROUND_Y, type WorldRefs } from './world';
+import { CinematicFx, SakuraPetals } from './cinematic';
+import { Garage } from './garage';
+
+export type MenuBackdrop = 'wall' | 'scenic';
+import { LightingController } from './lighting';
 import { createCar, disposeCar, setBrakeLights, type CarModel } from './car';
 import { SkidMarks, Smoke, type WheelAnchor } from './effects';
 import { GameAudio } from './audio';
@@ -21,7 +26,7 @@ import {
   type SakuraTuning,
 } from './tuning';
 import { computeDriftZones, nextZoneDistances, zoneLookup, zoneStars, type DriftZone } from './zones';
-import { DEFAULT_PREFS, type CameraMode, type CarStyle, type SmokeSettings, type VisualPrefs } from './prefs';
+import { DEFAULT_PREFS, type CameraMode, type CarStyle, type FxMode, type LightingMode, type SmokeSettings, type VisualPrefs } from './prefs';
 import {
   RAD2DEG,
   botInput,
@@ -45,6 +50,19 @@ export interface MiniCar {
   color: string;
   player: boolean;
 }
+
+/** One row of the live leaderboard (NFS Underground style). */
+export interface Standing {
+  position: number;
+  name: string;
+  color: string;
+  player: boolean;
+  /** Seconds behind the leader (0 for the leader). */
+  gap: number;
+  finished: boolean;
+}
+
+const RIVAL_NAMES = ['KEIICHI', 'NOBUTERU', 'DAIGO', 'MASATO', 'YOICHI'];
 
 export interface ZoneHud {
   name: string;
@@ -93,6 +111,7 @@ export interface HudState {
   zone: ZoneHud | null;
   zoneAhead: ZoneAheadHud | null;
   cars: MiniCar[];
+  standings: Standing[];
 }
 
 export interface RaceResult {
@@ -115,6 +134,7 @@ export interface InputState {
   right: boolean;
   handbrake: boolean;
   brake: boolean;
+  gas: boolean; // throttle (W / ↑ / GAS button) — only the Sakura RC engine needs it; Slip & Classic auto-accelerate
   boost: boolean; // manual boost trigger (SHIFT / boost button)
 }
 
@@ -215,7 +235,7 @@ function hex(c: number) {
 }
 
 export class Game {
-  readonly input: InputState = { left: false, right: false, handbrake: false, brake: false, boost: false };
+  readonly input: InputState = { left: false, right: false, handbrake: false, brake: false, gas: false, boost: false };
   readonly track: Track;
   readonly zones: DriftZone[];
   readonly audio = new GameAudio();
@@ -225,9 +245,15 @@ export class Game {
   private camera: THREE.PerspectiveCamera;
   private sun: THREE.DirectionalLight;
   private world: WorldRefs;
+  private lighting: LightingController;
+  private fx: CinematicFx | null = null;
+  private petals: SakuraPetals;
+  private garage = new Garage();
+  private menuBackdrop: MenuBackdrop = 'scenic';
   private playerModel: CarModel;
   private player!: PlayerState;
   private ais: AICar[] = [];
+  private crowdFocus: number[] = [];
   private skid = new SkidMarks();
   private smoke = new Smoke();
   private clock = new THREE.Clock();
@@ -246,6 +272,8 @@ export class Game {
   private lastWrongWayPopup = -10;
   private resizeObs: ResizeObserver | null = null;
   private disposed = false;
+  /** True while another renderer (the Sakura RC showroom) owns the screen: skip simulation + rendering, keep the loop alive. */
+  private suspended = false;
   private engine: EngineKind = DEFAULT_ENGINE;
   private tuning: CarTuning = { ...DEFAULT_TUNING };
   private slipTuning: SlipTuning = { ...DEFAULT_SLIP };
@@ -268,16 +296,17 @@ export class Game {
     private canvas: HTMLCanvasElement,
     private cb: GameCallbacks,
     initialPrefs?: VisualPrefs,
+    readonly venue: Venue = 'ebisu',
   ) {
     if (initialPrefs) this.prefs = { ...initialPrefs, smoke: { ...initialPrefs.smoke } };
-    this.track = new Track();
-    this.zones = computeDriftZones(this.track, 4);
+    this.track = new Track(VENUE_POINTS[venue]);
+    this.zones = computeDriftZones(this.track, 4, venue);
     this.zoneOf = zoneLookup(this.track, this.zones);
     this.nextZone = nextZoneDistances(this.track, this.zoneOf);
 
     const isMobile = window.matchMedia('(pointer: coarse)').matches;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.6 : 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -285,16 +314,24 @@ export class Game {
     this.renderer.toneMappingExposure = 1.22;
 
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.5, 2000);
-    this.world = buildWorld(this.scene, this.track, this.renderer, this.zones);
+    this.world = buildWorld(this.scene, this.track, this.renderer, this.zones, venue);
     this.sun = this.world.sun;
     if (isMobile) {
       this.sun.shadow.mapSize.set(1024, 1024);
       this.renderer.shadowMap.type = THREE.PCFShadowMap;
     }
+    this.lighting = new LightingController(this.scene, this.renderer, this.world.lighting);
+    this.lighting.setMode(this.prefs.lighting);
+    this.petals = new SakuraPetals(isMobile ? 160 : 420);
+    this.scene.add(this.petals.mesh);
+    if (!isMobile) {
+      const sz = this.renderer.getSize(new THREE.Vector2());
+      this.fx = new CinematicFx(this.renderer, this.scene, this.camera, Math.max(1, sz.x), Math.max(1, sz.y));
+    }
     this.scene.add(this.skid.mesh);
     this.scene.add(this.smoke.group);
 
-    this.playerModel = createCar(CFG.playerColor, this.prefs.carStyle);
+    this.playerModel = createCar(CFG.playerColor, this.prefs.carStyle, { nativePaint: true });
     this.scene.add(this.playerModel.group);
     this.smoke.setTuning(this.prefs.smoke);
     CFG.aiColors.forEach((color) => {
@@ -330,6 +367,7 @@ export class Game {
     this.applyAiSpeeds();
     this.resetGrid();
     this.phase = 'menu';
+    this.applyMenuBackdrop();
     this.handleResize();
     this.resizeObs = new ResizeObserver(() => this.handleResize());
     this.resizeObs.observe(canvas.parentElement ?? canvas);
@@ -425,7 +463,7 @@ export class Game {
     if (this.paused === v) return;
     this.paused = v;
     if (v) {
-      this.input.left = this.input.right = this.input.handbrake = this.input.brake = this.input.boost = false;
+      this.input.left = this.input.right = this.input.handbrake = this.input.brake = this.input.gas = this.input.boost = false;
       this.audio.setEngine(0, 0, false);
       this.audio.setDrift(0);
     }
@@ -459,16 +497,27 @@ export class Game {
     this.smoke.setTuning(s);
   }
 
+  setFx(mode: FxMode) {
+    this.prefs.fx = mode;
+  }
+
+  setLighting(mode: LightingMode) {
+    if (this.prefs.lighting === mode) return;
+    this.prefs.lighting = mode;
+    this.lighting.setMode(mode);
+  }
+
   /** Rebuilds every car with the new proportions (safe mid-race: positions are re-applied each frame). */
   setCarStyle(style: CarStyle) {
     if (this.prefs.carStyle === style) return;
     this.prefs.carStyle = style;
     const p = this.player;
     disposeCar(this.playerModel);
-    this.playerModel = createCar(CFG.playerColor, style);
+    this.playerModel = createCar(CFG.playerColor, style, { nativePaint: true });
     this.playerModel.group.position.set(p.x, 0, p.z);
     this.playerModel.group.rotation.y = p.angle;
-    this.scene.add(this.playerModel.group);
+    if (this.phase === 'menu') this.applyMenuBackdrop();
+    else this.scene.add(this.playerModel.group);
     for (const ai of this.ais) {
       disposeCar(ai.model);
       ai.model = createCar(ai.color, style);
@@ -482,6 +531,7 @@ export class Game {
   private updateCockpitVisibility() {
     const cockpit = this.prefs.camera === 'cockpit' && this.phase !== 'menu';
     for (const o of this.playerModel.cockpitHidden) o.visible = !cockpit;
+    for (const o of this.playerModel.cockpitOnly) o.visible = cockpit;
     const near = cockpit ? 0.2 : 0.5;
     if (this.camera.near !== near) {
       this.camera.near = near;
@@ -582,6 +632,8 @@ export class Game {
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this.garage.setAspect(w / h);
+    this.fx?.setSize(w, h);
   }
 
   private gridSlot(slot: number) {
@@ -674,6 +726,8 @@ export class Game {
   startRace() {
     this.audio.init();
     this.paused = false;
+    const parked = this.garage.release();
+    if (parked) this.scene.add(parked);
     this.resetGrid();
     this.phase = 'countdown';
     this.countdownT = 3.0;
@@ -684,15 +738,88 @@ export class Game {
     this.emitHud(true);
   }
 
+  /** Start-menu backdrop: flat studio wall, or the real circuit (grandstand, hills, sky) behind the parked car. */
+  setMenuBackdrop(mode: MenuBackdrop) {
+    if (this.menuBackdrop === mode) return;
+    this.menuBackdrop = mode;
+    if (this.phase === 'menu') this.applyMenuBackdrop();
+  }
+
+  getMenuBackdrop(): MenuBackdrop {
+    return this.menuBackdrop;
+  }
+
+  private applyMenuBackdrop() {
+    const car = this.playerModel.group;
+    if (this.menuBackdrop === 'wall') {
+      this.garage.show(car);
+      return;
+    }
+    const parked = this.garage.release();
+    if (parked && parked.parent !== this.scene) this.scene.add(parked);
+    else if (!car.parent) this.scene.add(car);
+    const p = this.player;
+    car.position.set(p.x, 0, p.z);
+    car.rotation.set(0, p.angle, 0);
+  }
+
+  /** R key / reset button: put the player back on the centerline of the nearest track sample, facing forward. */
+  resetToTrack() {
+    if (this.phase !== 'racing' || this.paused) return;
+    const p = this.player;
+    if (p.finished) return;
+    const v = p.veh;
+    v.x = p.x;
+    v.z = p.z;
+    resetVehicleOnTrack(v, this.track, 0, 5);
+    v.velocityAngle = v.heading;
+    v.frontSteerAngle = 0;
+    v.fwd = 5;
+    v.lat = 0;
+    v.speed = 5;
+    // mirror into the legacy/classic player state
+    p.x = v.x;
+    p.z = v.z;
+    p.angle = v.heading;
+    p.vx = v.vx;
+    p.vz = v.vz;
+    p.vf = 5;
+    p.vl = 0;
+    p.speed = 5;
+    p.steer = 0;
+    p.yawRate = 0;
+    p.roll = 0;
+    p.offTrack = false;
+    p.wrongWayTime = 0;
+    p.lastIdx = v.idx;
+    if (p.drifting) {
+      p.drifting = false;
+      p.driftTime = 0;
+      p.driftPoints = 0;
+      p.combo = 1;
+    }
+    p.smokeIntensity = 0;
+    this.playerModel.group.position.set(p.x, 0, p.z);
+    this.playerModel.group.rotation.y = p.angle;
+    this.playerModel.body.rotation.set(0, 0, 0);
+    this.camRallyYaw = p.angle;
+    this.cb.onPopup('RESET', 'info');
+  }
+
   backToMenu() {
     this.paused = false;
     this.resetGrid();
     this.phase = 'menu';
+    this.applyMenuBackdrop();
     this.updateCockpitVisibility();
     this.cb.onPhase('menu');
   }
 
   dispose() {
+    this.lighting.dispose();
+    this.garage.dispose();
+    this.fx?.dispose();
+    this.petals.dispose();
     this.disposed = true;
     cancelAnimationFrame(this.raf);
     this.resizeObs?.disconnect();
@@ -700,16 +827,39 @@ export class Game {
     this.renderer.dispose();
   }
 
+  setSuspended(v: boolean) {
+    if (this.suspended === v) return;
+    this.suspended = v;
+    if (!v) this.clock.getDelta(); // drop the idle time so the first live frame is not a huge step
+  }
+
   private tick = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.tick);
+    if (this.suspended) return;
     const dt = Math.min(0.033, this.clock.getDelta());
     if (!this.paused) {
       this.time += dt;
       this.update(dt);
     }
+    this.crowdFocus.length = 0;
+    this.crowdFocus.push(this.player.x, this.player.z);
+    for (const ai of this.ais) this.crowdFocus.push(ai.x, ai.z);
+    this.world.setCrowdFocus(this.crowdFocus);
     this.world.update(dt); // ambient scenery keeps moving even while paused
-    this.renderer.render(this.scene, this.camera);
+    this.petals.update(dt, this.player.x, this.player.z, GROUND_Y);
+    if (this.phase === 'menu' && this.garage.active) {
+      // static showroom behind the start menu — the car never moves or rotates
+      this.garage.pose();
+      this.garage.render(this.renderer, this.scene.environment);
+      return;
+    }
+    if (this.fx && this.prefs.fx === 'cinematic') {
+      this.fx.updateSun(this.lighting.sunOffset);
+      this.fx.render();
+    } else {
+      this.renderer.render(this.scene, this.camera);
+    }
   };
 
   private update(dt: number) {
@@ -754,7 +904,8 @@ export class Game {
     this.updateAudio();
 
     const p = this.player;
-    this.sun.position.set(p.x + SUN_OFFSET.x, SUN_OFFSET.y, p.z + SUN_OFFSET.z);
+    const so = this.lighting.sunOffset;
+    this.sun.position.set(p.x + so.x, so.y, p.z + so.z);
     this.sun.target.position.set(p.x, 0, p.z);
     this.sun.target.updateMatrixWorld();
 
@@ -1039,7 +1190,8 @@ export class Game {
       v,
       {
         steerTarget: racing ? (inp.right ? 1 : 0) - (inp.left ? 1 : 0) : 0,
-        throttle: inp.brake ? -0.6 : 1,
+        // Sakura RC = manual throttle like the original game: no gas held → no acceleration, the car coasts down
+        throttle: inp.brake ? -0.6 : inp.gas ? 1 : 0,
         handbrake: inp.handbrake,
         active: racing,
       },
@@ -1155,9 +1307,11 @@ export class Game {
     const wheelSpinRate = racingNow && (p.drifting || p.boostTime > 0) ? p.vf / dims.wheelRadius + 12 : p.vf / dims.wheelRadius;
     m.wheels.forEach((w, i) => (w.rotation.x += (i < 2 ? p.vf / dims.wheelRadius : wheelSpinRate) * dt));
     // positive rotation.y points a wheel to the car's left, so mirror the steer input (or counter-steer in sakura_rc mode)
+    // bigger visual lock (~40°) + natural counter-steer from the slip angle while sliding (visual only)
+    const pSlip = this.engine !== 'classic' && p.veh ? p.veh.slip : 0;
     const steerVis = this.engine === 'sakura_rc' && p.veh.frontSteerAngle !== undefined
       ? -p.veh.frontSteerAngle
-      : -p.steer * 0.45;
+      : THREE.MathUtils.clamp(-p.steer * 0.7 - pSlip * 1.2, -0.85, 0.85);
     m.frontWheels.forEach((w) => (w.rotation.y = steerVis));
     m.steeringWheel.rotation.z = this.engine === 'sakura_rc' ? steerVis * 1.8 : -p.steer * 1.4;
     const boosting = p.boostTime > 0;
@@ -1404,7 +1558,7 @@ export class Game {
     const steerVis = this.engine === 'sakura_rc' && ai.veh.frontSteerAngle !== undefined
       ? -ai.veh.frontSteerAngle
       : slipMode
-      ? -ai.veh.steer * 0.45
+      ? THREE.MathUtils.clamp(-ai.veh.steer * 0.7 - ai.veh.slip * 1.2, -0.85, 0.85)
       : THREE.MathUtils.clamp(ai.curv * 20, -0.4, 0.4);
     m.frontWheels.forEach((w) => (w.rotation.y = steerVis));
     m.steeringWheel.rotation.z = this.engine === 'sakura_rc' ? steerVis * 1.8 : slipMode ? -ai.veh.steer * 1.4 : THREE.MathUtils.clamp(ai.curv * 60, -1.2, 1.2);
@@ -1437,10 +1591,12 @@ export class Game {
     const p = this.player;
     if (this.engine === 'slip' || this.engine === 'sakura_rc') {
       const vehicles = [p.veh, ...this.ais.map((a) => a.veh)];
-      for (let i = 0; i < vehicles.length; i++) {
-        for (let j = i + 1; j < vehicles.length; j++) {
-          const vn = collideVehicles(vehicles[i], vehicles[j], CFG.collideRadius);
-          if (vn > 1.5 && (i === 0 || j === 0)) this.onHit(vn * 0.6, false);
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i < vehicles.length; i++) {
+          for (let j = i + 1; j < vehicles.length; j++) {
+            const vn = collideVehicles(vehicles[i], vehicles[j], CFG.collideRadius);
+            if (pass === 0 && vn > 1.5 && (i === 0 || j === 0)) this.onHit(vn * 0.6, false);
+          }
         }
       }
       this.syncPlayerFromVehicle();
@@ -1464,10 +1620,11 @@ export class Game {
         p.z += nz * push;
         const vn = p.vx * nx + p.vz * nz;
         if (vn < 0) {
-          p.vx -= nx * vn * 1.3;
-          p.vz -= nz * vn * 1.3;
-          p.vx *= 0.85;
-          p.vz *= 0.85;
+          // inelastic: kill the closing speed, no rebound
+          p.vx -= nx * vn;
+          p.vz -= nz * vn;
+          p.vx *= 0.9;
+          p.vz *= 0.9;
           this.onHit(Math.abs(vn) * 0.6, false);
         }
         ai.laneTarget = THREE.MathUtils.clamp(ai.lane + (Math.random() - 0.5) * 2, -3.6, 3.6);
@@ -1476,6 +1633,34 @@ export class Game {
   }
 
   // ---------------- Race flow ----------------
+
+  /** Live leaderboard: finished cars first (by finish order), then by track progress. */
+  private computeStandings(): Standing[] {
+    const p = this.player;
+    const entries = [
+      { name: 'YOU', color: hex(CFG.playerColor), player: true, progress: p.progress, speed: p.speed, finished: p.finished, finishOrder: p.finishOrder },
+      ...this.ais.map((a, i) => ({
+        name: RIVAL_NAMES[i % RIVAL_NAMES.length],
+        color: hex(a.color),
+        player: false,
+        progress: a.progress,
+        speed: a.speed,
+        finished: a.finished,
+        finishOrder: a.finishOrder,
+      })),
+    ];
+    entries.sort((a, b) => {
+      if (a.finished && b.finished) return a.finishOrder - b.finishOrder;
+      if (a.finished !== b.finished) return a.finished ? -1 : 1;
+      return b.progress - a.progress;
+    });
+    const leader = entries[0];
+    return entries.map((e, i) => {
+      const gapM = Math.max(0, (leader.progress - e.progress) * this.track.spacing);
+      const v = Math.max(8, Math.abs(e.speed) || 0);
+      return { position: i + 1, name: e.name, color: e.color, player: e.player, gap: e.finished ? 0 : gapM / v, finished: e.finished };
+    });
+  }
 
   private currentPosition(): number {
     const p = this.player;
@@ -1512,14 +1697,20 @@ export class Game {
     const p = this.player;
     const cam = this.camera;
     if (this.phase === 'menu') {
-      const t = this.time * 0.35;
-      const target = new THREE.Vector3(p.x + Math.sin(t) * 10.5, 3.6 + Math.sin(t * 0.7) * 0.6, p.z + Math.cos(t) * 10.5);
-      this.camPos.lerp(target, 1 - Math.exp(-dt * 2.5));
-      this.camLook.lerp(new THREE.Vector3(p.x, 0.7, p.z), 1 - Math.exp(-dt * 4));
+      // scenic backdrop: the same fixed showroom pose as the garage, but on the circuit — the car never orbits
+      const a = p.angle;
+      const fx = Math.sin(a);
+      const fz = Math.cos(a);
+      const rx = Math.cos(a);
+      const rz = -Math.sin(a);
+      const look = new THREE.Vector3(p.x + fx * Garage.CAM_SHIFT, Garage.LOOK_HEIGHT, p.z + fz * Garage.CAM_SHIFT);
+      const pos = new THREE.Vector3(look.x + rx * Garage.CAM_SIDE, Garage.CAM_HEIGHT, look.z + rz * Garage.CAM_SIDE);
+      this.camPos.copy(pos);
+      this.camLook.copy(look);
       cam.up.set(0, 1, 0);
-      cam.position.copy(this.camPos);
-      cam.lookAt(this.camLook);
-      this.camFov += (50 - this.camFov) * Math.min(1, dt * 3);
+      cam.position.copy(pos);
+      cam.lookAt(look);
+      this.camFov = this.garage.camera.fov;
       cam.fov = this.camFov;
       cam.updateProjectionMatrix();
       return;
@@ -1693,6 +1884,7 @@ export class Game {
         ...this.ais.map((a) => ({ x: a.x, z: a.z, color: hex(a.color), player: false })),
         { x: p.x, z: p.z, color: hex(CFG.playerColor), player: true },
       ],
+      standings: this.computeStandings(),
     };
     if (force) this.hudAcc = 0;
     this.cb.onHud(hud);

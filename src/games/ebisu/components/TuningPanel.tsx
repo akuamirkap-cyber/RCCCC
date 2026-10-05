@@ -190,8 +190,8 @@ export function TuningPanel({ setup, onEngine, onTuning, onSlipTuning, onSakuraT
 
   return (
     <div
-      className="absolute inset-0 z-30 flex items-center justify-center p-2 font-display sm:p-6"
-      style={{ background: 'rgba(40, 80, 140, 0.35)', backdropFilter: 'blur(4px)' }}
+      className="dk-panel absolute inset-0 z-30 flex items-center justify-center p-2 font-display sm:p-6"
+      style={{ background: 'rgba(30, 42, 60, 0.55)', backdropFilter: 'blur(6px)' }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

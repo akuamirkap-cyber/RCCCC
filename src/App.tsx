@@ -4,6 +4,7 @@ import HarunaOldApp from './games/haruna_old/App';
 import ProDriftApp from './games/pro_drift/ProDriftApp';
 import EbisuApp from './games/ebisu/EbisuApp';
 import SakuraDriftApp from './games/sakura_rc/App';
+import { loadVenue, saveVenue, type Venue } from './games/ebisu/game/track';
 import { PromptDownloadModal } from './components/PromptDownloadModal';
 import { DRIFT_PROMPTS, downloadFile } from './data/driftPrompts';
 import { BMWAdjustmentModal } from './components/BMWAdjustmentModal';
@@ -17,9 +18,23 @@ import {
 type GameSelection = 'menu' | 'haruna_new' | 'haruna_old' | 'pro_drift' | 'ebisu' | 'sakura';
 
 export default function App() {
-  const [selectedGame, setSelectedGame] = useState<GameSelection>('menu');
+  // The app boots straight into Ebisu Drift's own menu; the landing picker is reached via its "Mode Lain" button.
+  const [selectedGame, setSelectedGame] = useState<GameSelection>('ebisu');
+  // set when Sakura RC is launched from the DRIFT KING menu → Ebisu circuit, straight into the session
+  const [sakuraLaunch, setSakuraLaunch] = useState<{ circuitId: string; autoStart: boolean } | null>(null);
+  // true while the DRIFT KING menu is showing (Sakura backdrop live); false while Ebisu Drift mode races on top
+  const [ebisuMenuVisible, setEbisuMenuVisible] = useState(true);
+  // DRIFT KING circuit: Long Beach street circuit by default, Ebisu as the option (persisted)
+  const [venue, setVenueState] = useState<Venue>(() => loadVenue());
+  const setVenue = (v: Venue) => {
+    saveVenue(v);
+    setVenueState(v);
+  };
+  const venueCircuitId = venue === 'longbeach' ? 'longbeach_street_circuit' : 'ebisu_drift_circuit';
   const [showPhysicsGuide, setShowPhysicsGuide] = useState(false);
   const [showOtherGames, setShowOtherGames] = useState(true);
+  // Landing shows ONLY Ebisu Drift; every other mode is hidden behind the "Mode Lain" button.
+  const [showOtherModes, setShowOtherModes] = useState(false);
   const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
   const [modalPromptId, setModalPromptId] = useState<string>('haruna_new');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -82,12 +97,55 @@ export default function App() {
     return <ProDriftApp onSwitchGame={() => setSelectedGame('menu')} />;
   }
 
-  if (selectedGame === 'ebisu') {
-    return <EbisuApp onSwitchGame={() => setSelectedGame('menu')} />;
+  // DRIFT KING: ONE Sakura RC instance (Ebisu circuit) stays mounted underneath the DRIFT KING menu as its showroom
+  // backdrop and simply keeps running when START RACE is pressed — the camera dollies from the menu pose into the
+  // chase view with no reload. The Ebisu Drift game sits on top only for its menu UI and the EBISU DRIFT MODE option.
+  if (selectedGame === 'ebisu' || (selectedGame === 'sakura' && sakuraLaunch)) {
+    const menuUp = selectedGame === 'ebisu';
+    return (
+      <div className="fixed inset-0 overflow-hidden bg-[#0B0D13]">
+        <div className="absolute inset-0">
+          <SakuraDriftApp
+            key="driftking"
+            initialCircuitId={venueCircuitId}
+            showroom={menuUp}
+            suspended={menuUp && !ebisuMenuVisible}
+            onSwitchGame={() => {
+              // "Menu utama" inside the race → back to the DRIFT KING menu (same scene, car re-parked on the grid)
+              setSakuraLaunch(null);
+              setSelectedGame('ebisu');
+            }}
+          />
+        </div>
+        {menuUp && (
+          <div className="absolute inset-0">
+            <EbisuApp
+              onSwitchGame={() => {
+                setShowOtherModes(true); // arriving from Ebisu = the user wants the other modes → show them expanded
+                setSelectedGame('menu');
+              }}
+              menuShowroom="sakura"
+              onShowroomChange={setEbisuMenuVisible}
+              venue={venue}
+              onChangeVenue={setVenue}
+              onPlaySakuraEbisu={() => {
+                setSakuraLaunch({ circuitId: venueCircuitId, autoStart: true });
+                setSelectedGame('sakura');
+              }}
+            />
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (selectedGame === 'sakura') {
-    return <SakuraDriftApp onSwitchGame={() => setSelectedGame('menu')} />;
+    return (
+      <SakuraDriftApp
+        key="picker"
+        onSwitchGame={() => setSelectedGame('menu')}
+      />
+    );
   }
 
   return (
@@ -117,33 +175,122 @@ export default function App() {
           </div>
 
           <h1 className="text-3xl sm:text-5xl font-black tracking-tight drop-shadow-md">
-            PILIH GAME: FILE LAMA ATAU FILE BARU
+            EBISU DRIFT
           </h1>
           <p className="text-sm sm:text-base text-neutral-300 max-w-2xl mx-auto leading-relaxed">
-            Mainkan update terbaru <strong className="text-amber-300">File Baru (b.zip)</strong> dengan audio sintetis 4A-GE &amp; guardrails 3D, atau <strong className="text-sky-300">File Lama (a.zip)</strong> dengan minimap &amp; 5 mode drift.
+            Sirkuit pegunungan <strong className="text-orange-300">Ebisu Touge</strong> · BMW GLB wide-body · Triple Drift Engine (Slip, Classic &amp; Sakura RC Gyro) · Cinematic FX.
           </p>
+        </header>
 
-          {/* Quick Action Button: Download Prompts */}
-          <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+        {/* HERO: EBISU DRIFT (the only mode shown by default) */}
+        <div className="my-8 mx-auto w-full max-w-3xl">
+          <div className="relative rounded-3xl bg-gradient-to-b from-neutral-900/95 to-neutral-950/95 border-2 border-orange-500/70 hover:border-orange-400 transition-all duration-300 p-6 sm:p-8 flex flex-col gap-5 shadow-2xl hover:shadow-orange-500/20">
+            <div className="flex items-center justify-between">
+              <span className="px-3 py-1 text-xs font-black uppercase tracking-wider bg-gradient-to-r from-orange-400 to-amber-400 text-neutral-950 rounded-full shadow-md">
+                🏁 EBISU DRIFT
+              </span>
+              <span className="text-xs font-mono px-2 py-0.5 rounded bg-neutral-800 text-orange-300 border border-neutral-700">
+                RCDRIFT BEST2.zip · Mode Utama
+              </span>
+            </div>
+            <div>
+              <h2 className="text-2xl sm:text-4xl font-black text-white leading-tight">EBISU CIRCUIT</h2>
+              <p className="text-xs sm:text-sm font-bold text-orange-300 uppercase tracking-wider mt-1">BMW GLB Wide-Body · Ebisu Touge Pro Circuit · 6 Mobil Drift Race</p>
+              <p className="text-sm text-neutral-300 leading-relaxed mt-3">
+                Drift zone ×2 / ×3, grandstand penuh penonton, sponsor hoardings, Armco &amp; TecPro, LED start/finish, sun rays &amp; sakura petals. Pilih engine
+                <strong className="text-white"> Slip</strong>, <strong className="text-white">Classic</strong> (auto-gas) atau <strong className="text-white">Sakura RC</strong> (gas manual W/↑).
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px] font-medium">
+              {['🏎️ Triple Drift Engine', '🎥 4 Kamera + Cockpit', '✨ Cinematic FX', '🛞 Velg 6-Spoke Deep Dish', '🏟️ Grandstand & Sponsor', '📐 Body BMW Adjustable'].map((f) => (
+                <span key={f} className="px-2.5 py-1.5 rounded-lg bg-neutral-800/80 border border-neutral-700 text-neutral-200">
+                  {f}
+                </span>
+              ))}
+            </div>
+
+            {/* Live Dimensions of BMW */}
+            <div className="flex flex-wrap items-center gap-1.5 py-1.5 px-2.5 rounded-xl bg-orange-400/10 border border-orange-500/25 text-[11px] font-mono text-orange-300">
+              <span className="font-bold">📐 BMW:</span>
+              <span>P: {bmwAdjs.ebisu.length.toFixed(2)}m</span>
+              <span>• L: {bmwAdjs.ebisu.width.toFixed(2)}m</span>
+              <span>• T: {bmwAdjs.ebisu.height.toFixed(2)}m</span>
+              <span>• Y: {bmwAdjs.ebisu.offsetY >= 0 ? `+${bmwAdjs.ebisu.offsetY.toFixed(2)}` : bmwAdjs.ebisu.offsetY.toFixed(2)}m</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <button
+                onClick={() => setBmwModalMode('ebisu')}
+                className="py-2.5 px-3 rounded-xl bg-orange-400/15 hover:bg-orange-400/25 border border-orange-400/50 text-orange-300 font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                title="Atur panjang, lebar, tinggi dan letak ketinggian BMW GLB"
+              >
+                <span>📐</span>
+                <span>Adjust Body</span>
+              </button>
+              <button
+                onClick={(e) => handleDownloadPrompt('ebisu', e)}
+                className="py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-orange-300 font-bold border border-neutral-700 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span>📥</span>
+                <span>Unduh Prompt</span>
+              </button>
+              <button
+                onClick={(e) => handleOpenPromptModal('ebisu', e)}
+                className="py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700 flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <span>👁️</span>
+                <span>Lihat / Copy</span>
+              </button>
+            </div>
+
             <button
-              onClick={() => {
-                setModalPromptId('haruna_new');
-                setIsPromptModalOpen(true);
-              }}
-              className="px-4 py-2.5 rounded-xl bg-neutral-800/90 hover:bg-neutral-800 border border-amber-500/50 hover:border-amber-400 text-amber-300 text-xs font-bold transition shadow-lg flex items-center gap-2 cursor-pointer active:scale-95"
+              onClick={() => setSelectedGame('ebisu')}
+              className="w-full py-4 px-4 rounded-2xl bg-gradient-to-r from-orange-400 via-amber-400 to-orange-500 hover:from-orange-300 hover:to-amber-400 text-neutral-950 font-black text-base uppercase tracking-wider shadow-lg hover:shadow-orange-400/25 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>📥</span>
-              <span>DOWNLOAD PROMPT SISTEM DRIFT ({DRIFT_PROMPTS.length} MODE LENGKAP)</span>
+              <span className="text-lg">🏁</span>
+              <span>MAIN EBISU DRIFT</span>
             </button>
           </div>
-        </header>
+
+          {/* Toggle for every other mode */}
+          <div className="mt-5 flex flex-col items-center gap-2">
+            <button
+              onClick={() => setShowOtherModes((v) => !v)}
+              className="px-5 py-2.5 rounded-xl bg-neutral-800/90 hover:bg-neutral-800 border border-neutral-600 hover:border-amber-400 text-neutral-200 hover:text-amber-300 text-xs font-bold uppercase tracking-wider transition shadow-lg flex items-center gap-2 cursor-pointer active:scale-95"
+            >
+              <span>🎮</span>
+              <span>{showOtherModes ? 'Sembunyikan Mode Lain' : 'Mode Lain'}</span>
+              <span>{showOtherModes ? '▲' : '▼'}</span>
+            </button>
+            {!showOtherModes && (
+              <span className="text-[11px] text-neutral-500 font-mono">Haruna (a.zip / b.zip), Pro Drift 3D &amp; Sakura RC Pro tersembunyi — tekan tombol untuk membukanya</span>
+            )}
+          </div>
+        </div>
+
+        {showOtherModes && (
+        <>
+        {/* Quick Action Button: Download Prompts */}
+        <div className="pt-2 flex flex-wrap items-center justify-center gap-3">
+          <button
+            onClick={() => {
+              setModalPromptId('haruna_new');
+              setIsPromptModalOpen(true);
+            }}
+            className="px-4 py-2.5 rounded-xl bg-neutral-800/90 hover:bg-neutral-800 border border-amber-500/50 hover:border-amber-400 text-amber-300 text-xs font-bold transition shadow-lg flex items-center gap-2 cursor-pointer active:scale-95"
+          >
+            <span>📥</span>
+            <span>DOWNLOAD PROMPT SISTEM DRIFT ({DRIFT_PROMPTS.length} MODE LENGKAP)</span>
+          </button>
+        </div>
 
         {/* HERO CARDS: FILE BARU (b.zip) vs FILE LAMA (a.zip) */}
         <div className="my-8 space-y-4">
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-neutral-400">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
-              <span>Pilihan Utama (a.zip &amp; b.zip)</span>
+              <span>Mode Lain: Haruna (a.zip &amp; b.zip)</span>
             </div>
             <span className="text-[11px] text-neutral-500 font-mono">Bisa beralih kapan saja lewat tombol menu</span>
           </div>
@@ -333,7 +480,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <span className="text-lg">🏎️</span>
               <h3 className="text-base font-bold text-neutral-200 uppercase tracking-wider">
-                Koleksi Game RC Drift Lainnya
+                Mode Lain: Koleksi Game RC Drift
               </h3>
             </div>
             <div className="flex items-center gap-2">
@@ -356,7 +503,7 @@ export default function App() {
           </div>
 
           {showOtherGames && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5 animate-in fade-in duration-200">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-in fade-in duration-200">
               {/* CARD 3: PRO DRIFT 3D (best drift.zip) */}
               <div className="rounded-2xl bg-neutral-900/80 border border-neutral-800 hover:border-yellow-500/50 p-5 flex flex-col justify-between transition-all">
                 <div className="space-y-2.5">
@@ -477,68 +624,12 @@ export default function App() {
                 </div>
               </div>
 
-              {/* CARD 5: EBISU CIRCUIT (RCDRIFT BEST2.zip) */}
-              <div className="rounded-2xl bg-neutral-900/80 border border-neutral-800 hover:border-orange-500/50 p-5 flex flex-col justify-between transition-all">
-                <div className="space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black uppercase tracking-wider bg-orange-400 text-black px-2 py-0.5 rounded-full">
-                      Ebisu Touge
-                    </span>
-                    <span className="text-[10px] font-mono text-neutral-400">RCDRIFT BEST2.zip</span>
-                  </div>
-                  <h4 className="text-lg font-black text-white">EBISU CIRCUIT</h4>
-                  <p className="text-xs text-neutral-300">
-                    Sirkuit pegunungan Ebisu Touge dengan Triple Drift Engine (Slip, Classic &amp; Sakura RC Gyro), 4 kamera...
-                  </p>
-
-                  {/* Live Dimensions of BMW for Mode 3 */}
-                  <div className="flex flex-wrap items-center gap-1 py-1.5 px-2.5 rounded-xl bg-orange-400/10 border border-orange-500/25 text-[10px] font-mono text-orange-300">
-                    <span className="font-bold">📐 BMW:</span>
-                    <span>P: {bmwAdjs.ebisu.length.toFixed(2)}m</span>
-                    <span>• L: {bmwAdjs.ebisu.width.toFixed(2)}m</span>
-                    <span>• T: {bmwAdjs.ebisu.height.toFixed(2)}m</span>
-                    <span>• Y: {bmwAdjs.ebisu.offsetY >= 0 ? `+${bmwAdjs.ebisu.offsetY.toFixed(2)}` : bmwAdjs.ebisu.offsetY.toFixed(2)}m</span>
-                  </div>
-                </div>
-
-                <div className="pt-4 mt-4 border-t border-neutral-800/80 space-y-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setBmwModalMode('ebisu');
-                    }}
-                    className="w-full py-2 px-3 rounded-xl bg-orange-400/15 hover:bg-orange-400/25 border border-orange-400/50 text-orange-300 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-98"
-                    title="Atur panjang, lebar, tinggi dan letak ketinggian BMW GLB"
-                  >
-                    <span>📐</span>
-                    <span>ADJUST BODY BMW (P × L × T &amp; Y)</span>
-                  </button>
-
-                  <div className="flex gap-2 text-[11px]">
-                    <button
-                      onClick={(e) => handleDownloadPrompt('ebisu', e)}
-                      className="flex-1 py-1.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-orange-300 font-bold border border-neutral-700"
-                    >
-                      📥 Prompt
-                    </button>
-                    <button
-                      onClick={(e) => handleOpenPromptModal('ebisu', e)}
-                      className="py-1.5 px-2.5 rounded-lg bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-700"
-                    >
-                      👁️
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => setSelectedGame('ebisu')}
-                    className="w-full py-2.5 rounded-xl bg-orange-400 hover:bg-orange-300 text-neutral-950 font-black text-xs uppercase tracking-wider transition cursor-pointer"
-                  >
-                    Main Ebisu Circuit
-                  </button>
-                </div>
-              </div>
             </div>
           )}
         </div>
+
+        </>
+        )}
 
         {/* Footer info & Physics explanation toggle */}
         <footer className="pt-4 border-t border-neutral-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-neutral-400">

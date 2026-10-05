@@ -22,6 +22,39 @@ class RCSoundEngine {
   private slideNoiseGain: GainNode | null = null;
   private slideFilter: BiquadFilterNode | null = null;
 
+  // === REAL BRUSHLESS HD (super realistic RC drift car) ===
+  // Bus + saturasi + kompresor + convolution reverb aula
+  private realBus: GainNode | null = null;
+  private realDry: GainNode | null = null;
+  private realWet: GainNode | null = null;
+  // Motor whine (electrical frequency, 4-pole sensored) 3 harmonik + jitter LFO
+  private motorOsc1: OscillatorNode | null = null;
+  private motorOsc2: OscillatorNode | null = null;
+  private motorOsc3: OscillatorNode | null = null;
+  private motorJitter: OscillatorNode | null = null;
+  private motorJitterGain: GainNode | null = null;
+  private motorGain: GainNode | null = null;
+  private motorPresence: BiquadFilterNode | null = null;
+  // Spur/pinion gear mesh (sawtooth + resonansi chassis)
+  private gearOsc: OscillatorNode | null = null;
+  private gearFilter: BiquadFilterNode | null = null;
+  private gearGain: GainNode | null = null;
+  // ESC drag-brake / cogging buzz saat lepas gas
+  private escOsc: OscillatorNode | null = null;
+  private escFilter: BiquadFilterNode | null = null;
+  private escGain: GainNode | null = null;
+  // Belt / bearing hiss (noise highband) + road rumble (noise lowband)
+  private beltFilter: BiquadFilterNode | null = null;
+  private beltGain: GainNode | null = null;
+  private rumbleFilter: BiquadFilterNode | null = null;
+  private rumbleGain: GainNode | null = null;
+  // Tire scrub HD (dua band: body 600-900 Hz + squeal 2.4-4.5 kHz)
+  private scrubLoFilter: BiquadFilterNode | null = null;
+  private scrubLoGain: GainNode | null = null;
+  private scrubHiFilter: BiquadFilterNode | null = null;
+  private scrubHiGain: GainNode | null = null;
+  private realLoad: number = 0; // beban motor (0..1) smoothing
+
   private isMuted: boolean = false;
   private isInitialized: boolean = false;
   private soundMode: SoundMode = 'rb26_soundbox';
@@ -39,6 +72,201 @@ class RCSoundEngine {
       curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
     }
     return curve;
+  }
+
+  /** Impulse response sintetis aula olahraga: early reflections + tail 1.7 s, HF damping bertahap */
+  private makeHallImpulse(ctx: AudioContext, seconds = 1.7): AudioBuffer {
+    const rate = ctx.sampleRate;
+    const len = Math.floor(rate * seconds);
+    const buf = ctx.createBuffer(2, len, rate);
+    const early = [0.011, 0.019, 0.027, 0.041, 0.058, 0.074, 0.092];
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / rate;
+        const env = Math.exp(-3.4 * t) * (1 - Math.exp(-t * 90));
+        const white = Math.random() * 2 - 1;
+        // Damping HF makin kuat seiring waktu (udara + panel akustik)
+        const k = 0.18 + Math.min(0.78, t * 0.42);
+        lp = lp + (white - lp) * (1 - k);
+        d[i] = lp * env * 0.55;
+      }
+      for (const et of early) {
+        const idx = Math.floor((et + (ch ? 0.0021 : 0)) * rate);
+        if (idx < len) d[idx] += (0.5 - et * 3.6) * (ch ? 0.9 : 1.0);
+      }
+    }
+    return buf;
+  }
+
+  private buildRealBrushlessGraph(ctx: AudioContext, master: GainNode, noiseBuffer: AudioBuffer) {
+    // --- Bus: saturasi lembut -> kompresor -> dry/wet reverb ---
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = this.makeWarmSaturationCurve(6);
+    shaper.oversample = '2x';
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -20;
+    comp.knee.value = 14;
+    comp.ratio.value = 3.2;
+    comp.attack.value = 0.004;
+    comp.release.value = 0.16;
+
+    this.realBus = ctx.createGain();
+    this.realBus.gain.value = 1.0;
+    this.realBus.connect(shaper);
+    shaper.connect(comp);
+
+    this.realDry = ctx.createGain();
+    this.realDry.gain.value = 0.86;
+    comp.connect(this.realDry);
+    this.realDry.connect(master);
+
+    const conv = ctx.createConvolver();
+    conv.buffer = this.makeHallImpulse(ctx);
+    conv.normalize = true;
+    this.realWet = ctx.createGain();
+    this.realWet.gain.value = 0.2;
+    comp.connect(conv);
+    conv.connect(this.realWet);
+    this.realWet.connect(master);
+
+    // --- Motor whine: fundamental listrik + 2x + 3x, jitter halus ---
+    this.motorOsc1 = ctx.createOscillator();
+    this.motorOsc2 = ctx.createOscillator();
+    this.motorOsc3 = ctx.createOscillator();
+    this.motorOsc1.type = 'sine';
+    this.motorOsc2.type = 'sine';
+    this.motorOsc3.type = 'triangle';
+    this.motorOsc2.detune.value = 4;
+    this.motorOsc3.detune.value = -5;
+    const m1 = ctx.createGain();
+    m1.gain.value = 0.62;
+    const m2 = ctx.createGain();
+    m2.gain.value = 0.3;
+    const m3 = ctx.createGain();
+    m3.gain.value = 0.14;
+    this.motorOsc1.connect(m1);
+    this.motorOsc2.connect(m2);
+    this.motorOsc3.connect(m3);
+
+    this.motorJitter = ctx.createOscillator();
+    this.motorJitter.type = 'sine';
+    this.motorJitter.frequency.value = 7.3;
+    this.motorJitterGain = ctx.createGain();
+    this.motorJitterGain.gain.value = 3;
+    this.motorJitter.connect(this.motorJitterGain);
+    this.motorJitterGain.connect(this.motorOsc1.frequency);
+    this.motorJitterGain.connect(this.motorOsc2.frequency);
+
+    this.motorPresence = ctx.createBiquadFilter();
+    this.motorPresence.type = 'peaking';
+    this.motorPresence.frequency.value = 2600;
+    this.motorPresence.Q.value = 0.9;
+    this.motorPresence.gain.value = 3.5;
+    this.motorGain = ctx.createGain();
+    this.motorGain.gain.value = 0;
+    m1.connect(this.motorPresence);
+    m2.connect(this.motorPresence);
+    m3.connect(this.motorPresence);
+    this.motorPresence.connect(this.motorGain);
+    this.motorGain.connect(this.realBus);
+
+    // --- Gear mesh: sawtooth tipis lewat bandpass resonan (spur 48P + pinion) ---
+    this.gearOsc = ctx.createOscillator();
+    this.gearOsc.type = 'sawtooth';
+    this.gearFilter = ctx.createBiquadFilter();
+    this.gearFilter.type = 'bandpass';
+    this.gearFilter.frequency.value = 1800;
+    this.gearFilter.Q.value = 5.5;
+    this.gearGain = ctx.createGain();
+    this.gearGain.gain.value = 0;
+    this.gearOsc.connect(this.gearFilter);
+    this.gearFilter.connect(this.gearGain);
+    this.gearGain.connect(this.realBus);
+
+    // --- ESC drag brake / cogging buzz ---
+    this.escOsc = ctx.createOscillator();
+    this.escOsc.type = 'square';
+    this.escFilter = ctx.createBiquadFilter();
+    this.escFilter.type = 'lowpass';
+    this.escFilter.frequency.value = 900;
+    this.escFilter.Q.value = 0.8;
+    this.escGain = ctx.createGain();
+    this.escGain.gain.value = 0;
+    this.escOsc.connect(this.escFilter);
+    this.escFilter.connect(this.escGain);
+    this.escGain.connect(this.realBus);
+
+    // --- Noise layers (satu buffer pink noise dibagi 4 filter) ---
+    const mkNoise = () => {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      src.loop = true;
+      src.loopStart = Math.random() * 1.5;
+      src.start();
+      return src;
+    };
+    this.beltFilter = ctx.createBiquadFilter();
+    this.beltFilter.type = 'bandpass';
+    this.beltFilter.frequency.value = 2600;
+    this.beltFilter.Q.value = 0.7;
+    this.beltGain = ctx.createGain();
+    this.beltGain.gain.value = 0;
+    mkNoise().connect(this.beltFilter);
+    this.beltFilter.connect(this.beltGain);
+    this.beltGain.connect(this.realBus);
+
+    this.rumbleFilter = ctx.createBiquadFilter();
+    this.rumbleFilter.type = 'lowpass';
+    this.rumbleFilter.frequency.value = 140;
+    this.rumbleFilter.Q.value = 0.6;
+    this.rumbleGain = ctx.createGain();
+    this.rumbleGain.gain.value = 0;
+    mkNoise().connect(this.rumbleFilter);
+    this.rumbleFilter.connect(this.rumbleGain);
+    this.rumbleGain.connect(this.realBus);
+
+    this.scrubLoFilter = ctx.createBiquadFilter();
+    this.scrubLoFilter.type = 'bandpass';
+    this.scrubLoFilter.frequency.value = 700;
+    this.scrubLoFilter.Q.value = 1.1;
+    this.scrubLoGain = ctx.createGain();
+    this.scrubLoGain.gain.value = 0;
+    mkNoise().connect(this.scrubLoFilter);
+    this.scrubLoFilter.connect(this.scrubLoGain);
+    this.scrubLoGain.connect(this.realBus);
+
+    this.scrubHiFilter = ctx.createBiquadFilter();
+    this.scrubHiFilter.type = 'bandpass';
+    this.scrubHiFilter.frequency.value = 3200;
+    this.scrubHiFilter.Q.value = 2.2;
+    this.scrubHiGain = ctx.createGain();
+    this.scrubHiGain.gain.value = 0;
+    mkNoise().connect(this.scrubHiFilter);
+    this.scrubHiFilter.connect(this.scrubHiGain);
+    this.scrubHiGain.connect(this.realBus);
+
+    this.motorOsc1.start();
+    this.motorOsc2.start();
+    this.motorOsc3.start();
+    this.motorJitter.start();
+    this.gearOsc.start();
+    this.escOsc.start();
+  }
+
+  /** Redam semua layer mode REAL HD (dipakai saat mute / ganti mode) */
+  private fadeRealLayers(now: number, tc = 0.05) {
+    const gains = [
+      this.motorGain,
+      this.gearGain,
+      this.escGain,
+      this.beltGain,
+      this.rumbleGain,
+      this.scrubLoGain,
+      this.scrubHiGain,
+    ];
+    for (const g of gains) g?.gain.setTargetAtTime(0, now, tc);
   }
 
   public init() {
@@ -168,6 +396,9 @@ class RCSoundEngine {
       this.slideNoiseGain.connect(this.masterGain);
       pinkNoise.start();
 
+      // --- 4. REAL BRUSHLESS HD GRAPH (motor whine + gear mesh + ESC + noise + reverb aula) ---
+      this.buildRealBrushlessGraph(this.ctx, this.masterGain, noiseBuffer);
+
       this.isInitialized = true;
     } catch {
       // Ignore if Web Audio is blocked
@@ -185,6 +416,7 @@ class RCSoundEngine {
       this.engineGain.gain.setTargetAtTime(0, now, 0.04);
       this.turboGain.gain.setTargetAtTime(0, now, 0.04);
       this.slideNoiseGain.gain.setTargetAtTime(0, now, 0.04);
+      this.fadeRealLayers(now, 0.04);
     }
   }
 
@@ -196,7 +428,9 @@ class RCSoundEngine {
     rpm: number,
     driftAngleDeg: number,
     speedKmh: number,
-    turboActive: boolean
+    turboActive: boolean,
+    throttle01: number = 1,
+    braking: boolean = false
   ) {
     if (
       !this.isInitialized ||
@@ -221,6 +455,7 @@ class RCSoundEngine {
       this.engineGain.gain.setTargetAtTime(0, now, 0.05);
       this.turboGain.gain.setTargetAtTime(0, now, 0.05);
       this.slideNoiseGain.gain.setTargetAtTime(0, now, 0.05);
+      this.fadeRealLayers(now, 0.05);
       return;
     }
 
@@ -233,13 +468,20 @@ class RCSoundEngine {
       (rpmDrop > 3800 && this.prevRpm > 28000) ||
       (this.prevTurbo && !turboActive && rpm > 25000)
     ) {
-      if (performance.now() - this.lastFlutterTime > 650) {
+      if (performance.now() - this.lastFlutterTime > 650 && this.soundMode !== 'real_brushless_hd') {
         this.playTurboFlutter();
         this.lastFlutterTime = performance.now();
       }
     }
     this.prevRpm = rpm;
     this.prevTurbo = turboActive;
+
+    if (this.soundMode === 'real_brushless_hd') {
+      this.updateRealBrushless(now, rpm, normRpm, driftAngleDeg, speedKmh, turboActive, throttle01, braking);
+      return;
+    }
+    // Mode lama aktif -> pastikan layer REAL HD diam
+    if (this.motorGain && this.motorGain.gain.value > 0.0005) this.fadeRealLayers(now, 0.04);
 
     if (this.soundMode === 'rb26_soundbox') {
       // RB26DETT Inline-6 Scale Sound Module:
@@ -288,6 +530,97 @@ class RCSoundEngine {
       Math.min(1, speedKmh / 14);
     this.slideFilter.frequency.setTargetAtTime(360 + slideFactor * 340, now, 0.05);
     this.slideNoiseGain.gain.setTargetAtTime(slideFactor * 0.045, now, 0.05);
+  }
+
+  /**
+   * REAL BRUSHLESS HD — model akustik mobil RC drift 1/10 sensored brushless:
+   * - Whine motor = frekuensi listrik (rpm/60 x 2 pasang kutub), 3 harmonik, naik-turun mengikuti rpm
+   * - Beban (gas ditekan) menambah level + harmonik atas; lepas gas -> whine meluncur turun + drag brake buzz
+   * - Gear mesh spur/pinion beresonansi di 1.2–4.5 kHz, belt/bearing hiss ikut kecepatan
+   * - Scrub ban P-tile: body 600–900 Hz + squeal 2.4–4.5 kHz saat sudut drift besar
+   * - Semua masuk bus saturasi + kompresor + convolution reverb aula
+   */
+  private updateRealBrushless(
+    now: number,
+    rpm: number,
+    normRpm: number,
+    driftAngleDeg: number,
+    speedKmh: number,
+    turboActive: boolean,
+    throttle01: number,
+    braking: boolean
+  ) {
+    if (
+      !this.motorOsc1 || !this.motorOsc2 || !this.motorOsc3 || !this.motorGain || !this.motorPresence ||
+      !this.motorJitter || !this.motorJitterGain ||
+      !this.gearOsc || !this.gearFilter || !this.gearGain ||
+      !this.escOsc || !this.escFilter || !this.escGain ||
+      !this.beltFilter || !this.beltGain || !this.rumbleFilter || !this.rumbleGain ||
+      !this.scrubLoFilter || !this.scrubLoGain || !this.scrubHiFilter || !this.scrubHiGain ||
+      !this.engineGain || !this.turboGain || !this.slideNoiseGain || !this.realWet
+    ) {
+      return;
+    }
+
+    // Layer mode lama diam
+    this.engineGain.gain.setTargetAtTime(0, now, 0.04);
+    this.turboGain.gain.setTargetAtTime(0, now, 0.04);
+    this.slideNoiseGain.gain.setTargetAtTime(0, now, 0.04);
+
+    const thr = Math.min(1, Math.max(0, throttle01));
+    const spd01 = Math.min(1, Math.max(0, speedKmh / 110));
+    // Beban motor: gas + akselerasi (rpm naik) + drift (ban spin). Smoothing agar tidak klik.
+    const rpmRise = Math.min(1, Math.max(0, (rpm - this.prevRpm) / 900));
+    const loadTarget = thr * (0.55 + 0.45 * rpmRise) + (turboActive ? 0.15 : 0);
+    this.realLoad += (loadTarget - this.realLoad) * 0.18;
+    const load = Math.min(1, this.realLoad);
+
+    // Frekuensi listrik 4-pole: rpm/60 * 2 (clamp agar tidak terlalu melengking)
+    const elecF = Math.min(2300, Math.max(140, (rpm / 60) * 2));
+    // Lepas gas: pitch meluncur lebih lambat (freewheel), gas: respons cepat
+    const tcF = thr > 0.5 ? 0.028 : 0.07;
+    this.motorOsc1.frequency.setTargetAtTime(elecF, now, tcF);
+    this.motorOsc2.frequency.setTargetAtTime(elecF * 2, now, tcF);
+    this.motorOsc3.frequency.setTargetAtTime(elecF * 3, now, tcF);
+    this.motorJitter.frequency.setTargetAtTime(5 + normRpm * 9, now, 0.1);
+    this.motorJitterGain.gain.setTargetAtTime(1.5 + load * 4, now, 0.1);
+    // Presence lebih terang saat beban (arus tinggi)
+    this.motorPresence.gain.setTargetAtTime(1.5 + load * 5, now, 0.06);
+    this.motorPresence.frequency.setTargetAtTime(1800 + normRpm * 1800, now, 0.08);
+    const motorLevel =
+      0.012 + normRpm * 0.05 + load * (0.03 + normRpm * 0.035) + (turboActive ? 0.012 : 0);
+    this.motorGain.gain.setTargetAtTime(motorLevel, now, 0.045);
+
+    // Gear mesh: pitch mengikuti motor, resonansi chassis geser naik
+    const gearF = Math.min(4500, 650 + elecF * 1.35);
+    this.gearOsc.frequency.setTargetAtTime(elecF * 0.75, now, tcF);
+    this.gearFilter.frequency.setTargetAtTime(gearF, now, 0.05);
+    this.gearGain.gain.setTargetAtTime(0.003 + normRpm * 0.014 + load * 0.008, now, 0.05);
+
+    // ESC drag brake / cogging: muncul saat lepas gas di kecepatan, atau rem ditekan
+    const coast = (1 - thr) * spd01;
+    const escLevel = (braking ? 0.03 : 0) + coast * 0.012;
+    this.escOsc.frequency.setTargetAtTime(Math.max(60, elecF * 0.25), now, 0.05);
+    this.escFilter.frequency.setTargetAtTime(500 + spd01 * 900, now, 0.06);
+    this.escGain.gain.setTargetAtTime(escLevel, now, braking ? 0.02 : 0.08);
+
+    // Belt / bearing hiss + rumble lantai
+    this.beltFilter.frequency.setTargetAtTime(1900 + spd01 * 2400, now, 0.08);
+    this.beltGain.gain.setTargetAtTime(0.004 + spd01 * 0.03, now, 0.08);
+    this.rumbleFilter.frequency.setTargetAtTime(90 + spd01 * 120, now, 0.1);
+    this.rumbleGain.gain.setTargetAtTime(0.01 + spd01 * 0.08, now, 0.1);
+
+    // Scrub ban HD: dua band
+    const slide =
+      Math.min(1, Math.max(0, (driftAngleDeg - 8) / 50)) * Math.min(1, speedKmh / 12);
+    const squeal = Math.min(1, Math.max(0, (driftAngleDeg - 22) / 45)) * Math.min(1, speedKmh / 25);
+    this.scrubLoFilter.frequency.setTargetAtTime(560 + slide * 360, now, 0.05);
+    this.scrubLoGain.gain.setTargetAtTime(slide * 0.075, now, 0.05);
+    this.scrubHiFilter.frequency.setTargetAtTime(2400 + squeal * 1800 + spd01 * 300, now, 0.05);
+    this.scrubHiGain.gain.setTargetAtTime(squeal * 0.035 * (0.6 + load * 0.4), now, 0.05);
+
+    // Reverb aula sedikit lebih basah saat kencang (jauh dari kamera) & drift
+    this.realWet.gain.setTargetAtTime(0.16 + spd01 * 0.08 + slide * 0.05, now, 0.2);
   }
 
   // Iconic Nissan Skyline RB26 "Stu-tu-tu" Turbo Compressor Flutter

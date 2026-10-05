@@ -10,11 +10,8 @@ import {
   SpeedLevel,
   TuningSetup,
 } from './types/rcDrift';
-import {
-  DEFAULT_SMOKE_CONFIG,
-  DEFAULT_SUSPENSION_SETUP,
-  RC_CIRCUITS,
-} from './data/circuitsAndCars';
+import { DEFAULT_SMOKE_CONFIG, RC_CIRCUITS } from './data/circuitsAndCars';
+import { DEFAULT_CUSTOMIZATION, DEFAULT_TUNING } from './data/defaults';
 import { RCDriftCanvas3D } from './components/RCDriftCanvas3D';
 import { TelemetryHUD } from './components/TelemetryHUD';
 import { PitBenchDrawer } from './components/PitBenchDrawer';
@@ -24,41 +21,41 @@ import { DesignDocsModal } from './components/DesignDocsModal';
 import { rcSound } from './utils/soundEngine';
 import { BMWAdjustmentModal } from '@/components/BMWAdjustmentModal';
 
-export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) {
-  const [circuit, setCircuit] = useState<CircuitDef>(RC_CIRCUITS[0]);
+export function SakuraDriftApp({
+  onSwitchGame,
+  initialCircuitId,
+  autoStart = false,
+  showroom,
+  suspended = false,
+}: {
+  onSwitchGame?: () => void;
+  /** Preselect a circuit (e.g. 'ebisu_drift_circuit' when launched from the DRIFT KING menu). */
+  initialCircuitId?: string;
+  /** Skip the Sakura main menu and drop straight into the session. */
+  autoStart?: boolean;
+  /**
+   * DRIFT KING host mode (defined = hosted). true = the DRIFT KING menu is drawn on top and this app only renders the
+   * showroom backdrop (car on the Ebisu grid, static menu camera). Flipping to false starts the race in the SAME
+   * scene, so the camera dollies continuously from the menu pose into the chase camera.
+   */
+  showroom?: boolean;
+  /** Ebisu Drift mode is running on top: pause rendering, keep everything else. */
+  suspended?: boolean;
+}) {
+  const hosted = showroom !== undefined;
+  const [circuit, setCircuit] = useState<CircuitDef>(
+    () => RC_CIRCUITS.find((c) => c.id === initialCircuitId) ?? RC_CIRCUITS[0],
+  );
   const [gameMode, setGameMode] = useState<GameMode>('race');
   const [cameraMode, setCameraMode] = useState<CameraMode>('chase_close');
   const [resetTrigger, setResetTrigger] = useState<number>(0);
   const [showBMWAdjust, setShowBMWAdjust] = useState<boolean>(false);
 
   // Authentic 1:10 RWD RC Drift Physics Tuning State + Pro Suspension + RB26DETT Sound Box + 5-Stage Smoke
-  const [tuning, setTuning] = useState<TuningSetup>({
-    gyroGain: 82,
-    maxSteerAngle: 76,
-    escTurboBoost: 78,
-    // Haruna/Akina feel controls: Sakura RC Pro remains manual and still needs W.
-    accelerationPower: 100,
-    driftResponse: 55,
-    throttleResponse: 100,
-    handlingAssist: 35,
-    tireCompound: 'hdpe_ptile',
-    // Gas harus selalu diberi lewat W / tombol throttle; tidak auto-maju saat idle.
-    autoThrottle: false,
-    speedLevel: 'normal',
-    soundMode: 'rb26_soundbox',
-    smokeConfig: DEFAULT_SMOKE_CONFIG,
-    suspension: DEFAULT_SUSPENSION_SETUP,
-  });
+  const [tuning, setTuning] = useState<TuningSetup>(DEFAULT_TUNING);
 
   // Default Car: Nissan Skyline GT-R (BNR34) in Iconic Bayside Blue
-  const [customization, setCustomization] = useState<CarCustomization>({
-    bodyId: 'r34_skyline',
-    bodyShellMode: 'painted',
-    bodyColor: '#0E64FF',
-    chassisAnodizeColor: '#F59E0B',
-    neonColor: '#00F0FF',
-    wheelColor: '#F8FAFC',
-  });
+  const [customization, setCustomization] = useState<CarCustomization>(DEFAULT_CUSTOMIZATION);
 
   const [rcCredits, setRcCredits] = useState<number>(3500);
   const [isPitBenchOpen, setIsPitBenchOpen] = useState<boolean>(false);
@@ -67,7 +64,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
   );
   const [sessionResult, setSessionResult] = useState<SessionResult | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
-  const [hasStarted, setHasStarted] = useState<boolean>(false);
+  // launched from DRIFT KING (autoStart): never flash Sakura's own menu — the DRIFT KING menu IS the main menu
+  const [hasStarted, setHasStarted] = useState<boolean>(autoStart || (hosted && !showroom));
   const [isDocsOpen, setIsDocsOpen] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number | null>(null);
 
@@ -128,13 +126,9 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
 
   const handleCycleCamera = () => {
     rcSound.init();
-    setCameraMode((prev) =>
-      prev === 'chase_close'
-        ? 'isometric_broadcast'
-        : prev === 'isometric_broadcast'
-        ? 'driver_stand'
-        : 'chase_close'
-    );
+    // same order as Ebisu Drift: chase → chase far → art of rally → cockpit, then the arena views
+    const order: CameraMode[] = ['chase_close', 'chase_far', 'rally', 'cockpit', 'isometric_broadcast', 'driver_stand'];
+    setCameraMode((prev) => order[(order.indexOf(prev) + 1) % order.length]);
   };
 
   const handleCycleBodyShellMode = () => {
@@ -183,6 +177,48 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
     setCountdown(3);
   };
 
+  // DRIFT KING host: the circuit tile in the menu switches the venue → rebuild the showroom on the new layout
+  useEffect(() => {
+    if (!hosted || !initialCircuitId) return;
+    setCircuit((cur) => {
+      if (cur.id === initialCircuitId) return cur;
+      const next = RC_CIRCUITS.find((c) => c.id === initialCircuitId);
+      if (!next) return cur;
+      setSessionResult(null);
+      setResetTrigger((prev) => prev + 1);
+      return next;
+    });
+  }, [hosted, initialCircuitId]);
+
+  // DRIFT KING host: menu → START RACE flips `showroom` false → start here without rebuilding the scene;
+  // back to the menu (showroom true again) → rebuild so the car is parked on the grid again.
+  const showroomPrev = useRef(showroom);
+  useEffect(() => {
+    if (!hosted || showroomPrev.current === showroom) return;
+    showroomPrev.current = showroom;
+    if (showroom) {
+      setHasStarted(false);
+      setSessionResult(null);
+      setIsPitBenchOpen(false);
+      setResetTrigger((prev) => prev + 1);
+    } else {
+      rcSound.init();
+      rcSound.playClippingZoneChime(false);
+      setSessionResult(null);
+      setHasStarted(true);
+      setCountdown(3);
+    }
+  }, [hosted, showroom]);
+
+  // Launched from another menu (DRIFT KING → "Ebisu Drift by Sakura RC"): start immediately.
+  const autoStartedRef = useRef(false);
+  useEffect(() => {
+    if (!autoStart || autoStartedRef.current) return;
+    autoStartedRef.current = true;
+    handleStartFromMenu();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
+
   // Countdown 3-2-1-GO setelah START
   useEffect(() => {
     if (countdown === null) return;
@@ -207,6 +243,11 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
   }, [hasStarted, sessionResult, isPitBenchOpen, isDocsOpen]);
 
   const handleBackToMenu = () => {
+    // Launched from the DRIFT KING menu → "menu" means that menu (Ebisu showroom camera + car), not Sakura's own.
+    if ((autoStart || hosted) && onSwitchGame) {
+      onSwitchGame();
+      return;
+    }
     setHasStarted(false);
     setSessionResult(null);
   };
@@ -232,6 +273,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         cameraMode={cameraMode}
         resetTrigger={resetTrigger}
         isMenu={!hasStarted}
+        menuShowroom={hosted}
+        suspended={suspended}
         externalSteer={externalSteer}
         externalThrottle={externalThrottle}
         externalBrake={externalBrake}
@@ -241,7 +284,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
       />
 
       {/* Sakura main menu — tampil sebelum balapan dimulai */}
-      {!hasStarted && (
+      {!hasStarted && !hosted && (
         <MainMenu
           circuits={RC_CIRCUITS}
           circuit={circuit}
@@ -294,6 +337,9 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         onToggleAutoThrottle={() =>
           setTuning((prev) => ({ ...prev, autoThrottle: !prev.autoThrottle }))
         }
+        onToggleCornerLock={(lock) =>
+          setTuning((prev) => ({ ...prev, cornerSpeedLock: lock }))
+        }
         onToggleSmokeMode={() =>
           setTuning((prev) => {
             const curSmoke = prev.smokeConfig || DEFAULT_SMOKE_CONFIG;
@@ -331,6 +377,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         }}
         onBackToMenu={handleBackToMenu}
         onOpenBMWAdjust={() => setShowBMWAdjust(true)}
+        onOpenDocs={() => setIsDocsOpen(true)}
+        onSwitchGame={autoStart || hosted ? undefined : onSwitchGame}
       />
       )}
 
@@ -369,8 +417,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
         }}
       />
 
-      {/* Tombol dokumen desain — selalu tersedia, di menu & di game */}
-      {!isDocsOpen && (
+      {/* Tombol dokumen desain — hanya di menu; saat balapan ada di popover MENU (⋯) HUD */}
+      {!isDocsOpen && !hasStarted && !hosted && (
         <button
           onClick={() => setIsDocsOpen(true)}
           title="Buka dokumen desain map & menu (bisa di-copy)"
@@ -384,7 +432,8 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
       {/* Modal dokumentasi dengan tombol Copy */}
       <DesignDocsModal isOpen={isDocsOpen} onClose={() => setIsDocsOpen(false)} />
 
-      {/* Floating Top Controls: PILIH GAME & ADJUST BODY BMW */}
+      {/* Floating Top Controls: PILIH GAME & ADJUST BODY BMW — hanya di menu (saat balapan masuk popover MENU HUD) */}
+      {!hasStarted && !hosted && (
       <div className="fixed top-3 left-3 z-[60] flex items-center gap-2">
         {onSwitchGame && (
           <button
@@ -406,6 +455,7 @@ export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) 
           <span>BODY BMW</span>
         </button>
       </div>
+      )}
 
       {/* BMW GLB Dimensions & Ride Height Adjustment Modal */}
       <BMWAdjustmentModal

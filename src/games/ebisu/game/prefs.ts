@@ -1,6 +1,8 @@
 /** Visual / feel preferences: camera, smoke, car style. Saved separately from the car tuning. */
 export type CameraMode = 'rally' | 'chase' | 'cockpit' | 'far';
 export type CarStyle = 'standard' | 'toon';
+export type LightingMode = 'hdri' | 'stylized';
+export type FxMode = 'cinematic' | 'off';
 
 export interface SmokeSettings {
   amount: number; // 0..2 — emission density multiplier
@@ -14,8 +16,20 @@ export interface SmokeSettings {
 export interface VisualPrefs {
   camera: CameraMode;
   carStyle: CarStyle;
+  lighting: LightingMode;
+  fx: FxMode;
   smoke: SmokeSettings;
 }
+
+export const FX_MODES: { id: FxMode; label: string; emoji: string; desc: string }[] = [
+  { id: 'cinematic', label: 'Cinematic', emoji: '🌤️', desc: 'Sun rays, soft bloom on lights & cones, drifting sakura petals' },
+  { id: 'off', label: 'Performance', emoji: '⚡', desc: 'No post-processing — fastest, cleanest frame' },
+];
+
+export const LIGHTING_MODES: { id: LightingMode; label: string; emoji: string; desc: string }[] = [
+  { id: 'hdri', label: 'HDRI Realistic', emoji: '🌅', desc: 'Image-based lighting from a real sunrise HDRI, long shadows, haze & lens flare' },
+  { id: 'stylized', label: 'Stylized', emoji: '🎨', desc: 'Painted golden-hour sky with punchy teal & orange lighting' },
+];
 
 export const CAMERA_MODES: { id: CameraMode; label: string; emoji: string; desc: string }[] = [
   { id: 'rally', label: 'Art of Rally', emoji: '🎨', desc: 'High isometric follow cam, fixed heading — see the whole slide' },
@@ -47,16 +61,18 @@ export const SMOKE_FIELDS: SmokeField[] = [
 ];
 
 export const SMOKE_PRESETS: { id: string; label: string; emoji: string; smoke: SmokeSettings }[] = [
-  { id: 'subtle', label: 'Subtle', emoji: '🌬️', smoke: { amount: 0.6, size: 0.85, duration: 0.8, opacity: 0.65, tint: 0.1, wheelSpin: true } },
-  { id: 'normal', label: 'Normal', emoji: '💨', smoke: { amount: 1, size: 1, duration: 1, opacity: 0.9, tint: 0.2, wheelSpin: true } },
-  { id: 'heavy', label: 'Heavy', emoji: '🌫️', smoke: { amount: 1.6, size: 1.35, duration: 1.4, opacity: 1.1, tint: 0.35, wheelSpin: true } },
-  { id: 'burnout', label: 'Burnout', emoji: '🔥', smoke: { amount: 2, size: 1.5, duration: 1.6, opacity: 1.2, tint: 0.8, wheelSpin: true } },
+  { id: 'subtle', label: 'Subtle', emoji: '🌬️', smoke: { amount: 0.6, size: 0.85, duration: 0.8, opacity: 0.65, tint: 0.04, wheelSpin: true } },
+  { id: 'normal', label: 'Normal', emoji: '💨', smoke: { amount: 1, size: 1, duration: 1, opacity: 0.9, tint: 0.1, wheelSpin: true } },
+  { id: 'heavy', label: 'Heavy', emoji: '🌫️', smoke: { amount: 1.6, size: 1.35, duration: 1.4, opacity: 1.1, tint: 0.18, wheelSpin: true } },
+  { id: 'burnout', label: 'Burnout', emoji: '🔥', smoke: { amount: 2, size: 1.5, duration: 1.6, opacity: 1.2, tint: 0.4, wheelSpin: true } },
 ];
 
 export const DEFAULT_PREFS: VisualPrefs = {
   camera: 'chase',
   carStyle: 'toon',
-  smoke: { ...SMOKE_PRESETS[1].smoke },
+  lighting: 'hdri',
+  fx: 'cinematic',
+  smoke: { ...SMOKE_PRESETS[0].smoke }, // Subtle — thin, realistic tyre smoke
 };
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
@@ -77,16 +93,21 @@ export function matchSmokePreset(s: SmokeSettings) {
 }
 
 const STORAGE_KEY = 'drift-king-prefs-v1';
+/** Bump to force every saved smoke setting back to the Subtle default (one-time). */
+const SMOKE_SCHEMA = 2;
 
 export function loadPrefs(): VisualPrefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const p = JSON.parse(raw) as Partial<VisualPrefs>;
+      const p = JSON.parse(raw) as Partial<VisualPrefs> & { smokeSchema?: number };
       return {
         camera: CAMERA_MODES.some((c) => c.id === p.camera) ? (p.camera as CameraMode) : DEFAULT_PREFS.camera,
         carStyle: CAR_STYLES.some((c) => c.id === p.carStyle) ? (p.carStyle as CarStyle) : DEFAULT_PREFS.carStyle,
-        smoke: clampSmoke(p.smoke),
+        lighting: LIGHTING_MODES.some((c) => c.id === p.lighting) ? (p.lighting as LightingMode) : DEFAULT_PREFS.lighting,
+        fx: FX_MODES.some((c) => c.id === p.fx) ? (p.fx as FxMode) : DEFAULT_PREFS.fx,
+        // migration: any smoke saved before the current schema (old Normal default, or a Heavy/Burnout test) → Subtle
+        smoke: p.smokeSchema === SMOKE_SCHEMA ? clampSmoke(p.smoke) : { ...SMOKE_PRESETS[0].smoke },
       };
     }
   } catch {
@@ -97,7 +118,7 @@ export function loadPrefs(): VisualPrefs {
 
 export function savePrefs(p: VisualPrefs) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...p, smokeSchema: SMOKE_SCHEMA }));
   } catch {
     /* ignore */
   }

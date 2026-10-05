@@ -173,8 +173,8 @@ export class Smoke {
   private pool: Particle[] = [];
   private next = 0;
   private tuning: SmokeTuning = { size: 1, duration: 1, opacity: 0.9, tint: 0.2 };
-  private white = { from: new THREE.Color(0xc4c8cf), to: new THREE.Color(0xf7f8fb) };
-  private burnt = { from: new THREE.Color(0x8f847e), to: new THREE.Color(0xd9d3ce) };
+  private white = { from: new THREE.Color(0xc9ccd2), to: new THREE.Color(0xf8f9fb) };
+  private burnt = { from: new THREE.Color(0xa09e9c), to: new THREE.Color(0xe0dedc) }; // neutral grey — never tan/brown over the asphalt
 
   constructor(count = 640) {
     const tex = makeSmokePuff();
@@ -217,7 +217,7 @@ export class Smoke {
     p.maxLife = (1.1 + Math.random() * 0.9) * tn.duration;
     p.life = p.maxLife;
     p.size = (1.1 + strength * 1.1 + Math.random() * 0.5) * tn.size;
-    p.alpha = (0.55 + Math.min(1, strength) * 0.35) * tn.opacity;
+    p.alpha = (0.55 + Math.min(1, strength) * 0.35) * tn.opacity * 0.8; // 20% thinner than the original
     p.spin = (Math.random() - 0.5) * 2.4;
     p.from.lerpColors(this.white.from, this.burnt.from, tn.tint);
     p.to.lerpColors(this.white.to, this.burnt.to, tn.tint);

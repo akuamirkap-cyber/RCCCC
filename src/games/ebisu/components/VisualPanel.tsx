@@ -3,12 +3,16 @@ import {
   CAMERA_MODES,
   CAR_STYLES,
   DEFAULT_PREFS,
+  LIGHTING_MODES,
+  FX_MODES,
   SMOKE_FIELDS,
   SMOKE_PRESETS,
   clampSmoke,
   matchSmokePreset,
   type CameraMode,
   type CarStyle,
+  type LightingMode,
+  type FxMode,
   type SmokeSettings,
   type VisualPrefs,
 } from '../game/prefs';
@@ -19,6 +23,8 @@ interface Props {
   prefs: VisualPrefs;
   onCamera: (c: CameraMode) => void;
   onCarStyle: (s: CarStyle) => void;
+  onLighting: (m: LightingMode) => void;
+  onFx: (m: FxMode) => void;
   onSmoke: (s: SmokeSettings) => void;
   onClose: () => void;
 }
@@ -42,7 +48,7 @@ function OptionCard({ active, emoji, label, desc, onClick }: { active: boolean; 
   );
 }
 
-export function VisualPanel({ prefs, onCamera, onCarStyle, onSmoke, onClose }: Props) {
+export function VisualPanel({ prefs, onCamera, onCarStyle, onLighting, onFx, onSmoke, onClose }: Props) {
   const [showBMWModal, setShowBMWModal] = useState(false);
   const smoke = prefs.smoke;
   const preset = matchSmokePreset(smoke);
@@ -50,8 +56,8 @@ export function VisualPanel({ prefs, onCamera, onCarStyle, onSmoke, onClose }: P
 
   return (
     <div
-      className="absolute inset-0 z-30 flex items-center justify-center p-2 font-display sm:p-6"
-      style={{ background: 'rgba(40, 80, 140, 0.35)', backdropFilter: 'blur(4px)' }}
+      className="dk-panel absolute inset-0 z-30 flex items-center justify-center p-2 font-display sm:p-6"
+      style={{ background: 'rgba(30, 42, 60, 0.55)', backdropFilter: 'blur(6px)' }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -91,6 +97,22 @@ export function VisualPanel({ prefs, onCamera, onCarStyle, onSmoke, onClose }: P
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {CAR_STYLES.map((s) => (
               <OptionCard key={s.id} active={prefs.carStyle === s.id} emoji={s.emoji} label={s.label} desc={s.desc} onClick={() => onCarStyle(s.id)} />
+            ))}
+          </div>
+
+          {/* Lighting */}
+          <div className="mt-5 text-sm font-bold tracking-wider text-slate-800">☀️ LIGHTING</div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {LIGHTING_MODES.map((m) => (
+              <OptionCard key={m.id} active={prefs.lighting === m.id} emoji={m.emoji} label={m.label} desc={m.desc} onClick={() => onLighting(m.id)} />
+            ))}
+          </div>
+
+          {/* Post FX */}
+          <div className="mt-5 text-sm font-bold tracking-wider text-slate-800">✨ CINEMATIC FX</div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {FX_MODES.map((m) => (
+              <OptionCard key={m.id} active={prefs.fx === m.id} emoji={m.emoji} label={m.label} desc={m.desc} onClick={() => onFx(m.id)} />
             ))}
           </div>
 

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { RaceResult } from '../game/Game';
 import {
   DIFFICULTIES,
@@ -15,6 +16,7 @@ import {
   type GameSetup,
 } from '../game/tuning';
 import { CAMERA_MODES, CAR_STYLES, matchSmokePreset, type VisualPrefs } from '../game/prefs';
+import { VENUES, type Venue } from '../game/track';
 import { formatTime, ordinal, useRollingNumber } from './Hud';
 import { cn } from '../utils/cn';
 
@@ -148,6 +150,46 @@ interface StartProps {
   onOpenVisual: () => void;
   onOpenBMWAdjust?: () => void;
   isTouch: boolean;
+  backdrop?: 'wall' | 'scenic';
+  onToggleBackdrop?: () => void;
+  /** Launch the Sakura RC engine on the Ebisu circuit (same venue, RC physics). */
+  onPlaySakuraEbisu?: () => void;
+  venue?: Venue;
+  onChangeVenue?: (v: Venue) => void;
+}
+
+/**
+ * Checkered flag strip on the START RACE tile. Normally a compositor-driven CSS transform animation (buttery even
+ * while WebGL is busy); if the browser is not running CSS animations at all, a requestAnimationFrame loop takes over.
+ */
+function CheckerFlag() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let raf = 0;
+    const timer = window.setTimeout(() => {
+      const running = typeof el.getAnimations === 'function' && el.getAnimations().some((a) => a.playState === 'running');
+      if (running) return;
+      el.style.animation = 'none';
+      const t0 = performance.now();
+      const loop = (now: number) => {
+        const px = -(((now - t0) / 1000) * 32) % 32; // 32 px/s to the LEFT, wrapping every 32 px (one pattern tile)
+        el.style.transform = `translate3d(${px.toFixed(2)}px, 0, 0)`;
+        raf = requestAnimationFrame(loop);
+      };
+      raf = requestAnimationFrame(loop);
+    }, 400);
+    return () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+  return (
+    <div className="dk-tile__checker" aria-hidden>
+      <div ref={ref} className="dk-tile__checker-strip" />
+    </div>
+  );
 }
 
 function VisualChip({ prefs, onClick }: { prefs: VisualPrefs; onClick: () => void }) {
@@ -167,78 +209,168 @@ function VisualChip({ prefs, onClick }: { prefs: VisualPrefs; onClick: () => voi
   );
 }
 
-export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, onOpenSetup, onOpenVisual, onOpenBMWAdjust, isTouch }: StartProps) {
+export function StartScreen({ best, setup, prefs, muted, onToggleMute, onStart, onOpenSetup, onOpenVisual, onOpenBMWAdjust, isTouch, backdrop = 'wall', onToggleBackdrop, onPlaySakuraEbisu, venue = 'longbeach', onChangeVenue }: StartProps) {
+  const venueInfo = VENUES.find((v) => v.id === venue) ?? VENUES[0];
+  const nextVenue = VENUES[(VENUES.findIndex((v) => v.id === venue) + 1) % VENUES.length];
+  const engineInfo = ENGINES.find((e) => e.id === setup.engine);
+  const diff = DIFFICULTIES.find((d) => d.id === setup.race.difficulty)?.label ?? 'Normal';
+  const preset =
+    setup.engine === 'sakura_rc' ? matchSakuraPreset(setup.sakuraTuning) : setup.engine === 'slip' ? matchSlipPreset(setup.slipTuning) : matchPreset(setup.tuning);
+  const cam = CAMERA_MODES.find((c) => c.id === prefs.camera);
+  const car = CAR_STYLES.find((c) => c.id === prefs.carStyle);
+  const smoke = matchSmokePreset(prefs.smoke)?.label ?? 'Custom';
+  const scoreAnim = useRollingNumber(best.score, 900);
   return (
-    <div className="scroll-y absolute inset-0 text-white" style={{ background: OVERLAY_BG }}>
-      <SoundButton muted={muted} onToggle={onToggleMute} />
-      <div className="flex min-h-full flex-col items-center justify-center gap-4 px-4 py-6 sm:gap-5 short:gap-2 short:py-3">
-        <div className="anim-slide-up text-center">
-          <div className="hud-text-lg text-5xl font-bold italic tracking-tight sm:text-8xl short:text-4xl">
-            <span className="text-white">DRIFT</span>
-            <span className="grad-text-fire"> KING</span>
-          </div>
-          <div className="hud-text mt-1 text-xs font-semibold tracking-[0.4em] text-white/90 sm:text-base short:hidden">EBISU-STYLE DRIFT CIRCUIT</div>
-        </div>
+    <div className={cn('dk-menu scroll-y absolute inset-0 text-white', backdrop === 'scenic' && 'dk-menu--scenic')}>
+      {/* angled slate panel behind the tile column (keeps the 3D car visible on the right) */}
+      <div className="dk-menu__panel" />
+      <div className="dk-bubbles" aria-hidden>
+        {Array.from({ length: 9 }, (_, i) => (
+          <i key={i} style={{ left: `${4 + i * 5.2}%`, animationDelay: `${i * 0.9}s`, animationDuration: `${7 + (i % 4) * 2}s` }} />
+        ))}
+      </div>
 
-        <div className="anim-slide-up flex w-full flex-col items-center gap-3 short:gap-2" style={{ animationDelay: '0.1s' }}>
-          <SetupCard setup={setup} onClick={onOpenSetup} />
-          <div className="flex flex-wrap items-center justify-center gap-2">
-            <VisualChip prefs={prefs} onClick={onOpenVisual} />
-            {onOpenBMWAdjust && (
-              <button
-                type="button"
-                onClick={onOpenBMWAdjust}
-                className={cn(SECONDARY_BTN, 'flex items-center gap-2 px-4 py-1.5 text-xs sm:text-sm border border-yellow-400/60 bg-yellow-400/15 text-yellow-300 hover:bg-yellow-400/25 shadow-md cursor-pointer')}
-              >
-                <span>📐</span>
-                <span>ADJUST BODY BMW GLB</span>
-              </button>
-            )}
+      {/* title — top right, above the showroom car */}
+      <div className="dk-title anim-slide-up">
+        <div className="dk-title__main">
+          <span>DRIFT</span>
+          <span className="dk-title__accent dk-shimmer"> KING</span>
+        </div>
+        <div className="dk-title__sub">RC DRIFT RACE</div>
+      </div>
+
+      {/* tile column */}
+      <div className="dk-tiles">
+        <button type="button" onClick={onPlaySakuraEbisu ?? onStart} className="dk-tile dk-tile--blue dk-tile--hero dk-anim-in" style={{ animationDelay: '0.05s' }} aria-label="Start race">
+          <CheckerFlag />
+          <div className="dk-tile__sheen" />
+          <div className="dk-tile__label">RC DRIFT RACE · SAKURA RC</div>
+          <div className="dk-tile__big">
+            {isTouch ? 'TAP TO RACE' : 'START RACE'}
+            <span className="dk-chevrons" aria-hidden>
+              <i />
+              <i />
+              <i />
+            </span>
           </div>
+          <div className="dk-tile__meta">
+            {onPlaySakuraEbisu
+              ? `${venueInfo.short} · RC 1:10 · 3 LAPS · LANGSUNG MAIN`
+              : `${setup.race.laps} LAPS · ${diff.toUpperCase()} · ${engineInfo?.label.toUpperCase()}`}
+          </div>
+        </button>
+
+        {onChangeVenue ? (
           <button
             type="button"
-            onClick={onStart}
-            className={cn(PRIMARY_BTN, 'anim-pulse-btn px-12 py-4 text-2xl sm:px-16 sm:py-5 sm:text-3xl short:py-2.5 short:text-xl')}
+            onClick={() => onChangeVenue(nextVenue.id)}
+            className={cn('dk-tile dk-tile--wide dk-anim-in', venue === 'longbeach' ? 'dk-tile--blue' : 'dk-tile--teal')}
+            style={{ animationDelay: '0.09s' }}
+            aria-label="Ganti sirkuit"
           >
-            {isTouch ? 'TAP TO RACE' : 'START RACE'}
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__name">
+              CIRCUIT · {venueInfo.short}
+              <span className="ml-2 text-[0.6em] opacity-70">▸ {nextVenue.short}</span>
+            </span>
+            <span className="dk-tile__meta">{venueInfo.desc.toUpperCase()}</span>
+            <span className="dk-tile__glyph dk-float">{venue === 'longbeach' ? '🌴' : '⛰️'}</span>
           </button>
-          <div className="card grid grid-cols-3 gap-3 px-4 py-2 text-center text-xs sm:text-sm short:py-1">
-            <div>
-              <div className="hud-text text-white/80">BEST SCORE</div>
-              <div className="hud-text text-lg font-bold text-yellow-200">{best.score.toLocaleString()}</div>
-            </div>
-            <div>
-              <div className="hud-text text-white/80">BEST LAP</div>
-              <div className="hud-text text-lg font-bold text-fuchsia-200">{best.lap ? formatTime(best.lap) : '--:--.--'}</div>
-            </div>
-            <div>
-              <div className="hud-text text-white/80">WINS</div>
-              <div className="hud-text text-lg font-bold text-emerald-200">
-                {best.wins}
-                <span className="text-sm text-white/70">/{best.races}</span>
-              </div>
-            </div>
-          </div>
+        ) : null}
+
+        <div className="dk-tiles__row">
+          <button type="button" onClick={onOpenSetup} className="dk-tile dk-tile--teal dk-anim-in" style={{ animationDelay: '0.12s' }}>
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__icon dk-float">🏆</span>
+            <span className="dk-tile__name">TOURNAMENT</span>
+            <span className="dk-tile__meta">SETUP · ENGINE · TUNING · LAPS</span>
+          </button>
+          <button type="button" onClick={onOpenVisual} className="dk-tile dk-tile--purple dk-anim-in" style={{ animationDelay: '0.18s' }}>
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__icon dk-spin-slow">⚙️</span>
+            <span className="dk-tile__name">CUSTOMIZATION</span>
+            <span className="dk-tile__meta">
+              {cam?.label} · {car?.label} · {smoke}
+            </span>
+          </button>
         </div>
 
-        <div className="anim-slide-up card max-w-md px-4 py-2 text-center text-[11px] text-white sm:text-sm short:py-1 short:text-[10px]" style={{ animationDelay: '0.2s' }}>
-          {isTouch ? (
-            <>
-              <div className="hud-text font-bold">◀ HOLD LEFT / RIGHT SIDE TO STEER ▶</div>
-              <div className="hud-text mt-0.5">
-                Auto accelerate · Drift for points × combo · hit the <span className="font-bold text-violet-200">DRIFT ZONES</span> for ×2 / <span className="font-bold text-yellow-200">×3</span>
-              </div>
-              <div className="hud-text mt-0.5 text-white/85">DRIFT button = handbrake · tap BOOST meter to fire · 🎬 camera · ⏸ pause & tune</div>
-            </>
-          ) : (
-            <>
-              <div className="hud-text font-bold">← → or A / D to steer · SPACE = handbrake · SHIFT = boost · S = brake</div>
-              <div className="hud-text mt-0.5">
-                Auto accelerate · Drift for points × combo · hit the <span className="font-bold text-violet-200">DRIFT ZONES</span> for ×2 / <span className="font-bold text-yellow-200">×3</span>
-              </div>
-              <div className="hud-text mt-0.5 text-white/85">C = switch camera · ESC / P = pause & tune · Drift to charge boost, SHIFT to fire it</div>
-            </>
+        <div className="dk-tile dk-tile--violet dk-tile--wide dk-anim-in" style={{ animationDelay: '0.24s' }} role="group" aria-label="Statistics">
+          <div className="dk-tile__sheen" />
+          <div className="dk-tile__name">STATISTICS</div>
+          <div className="dk-stats">
+            <div>
+              <span className="dk-stats__k">BEST SCORE</span>
+              <span className="dk-stats__v text-yellow-200">{Math.round(scoreAnim).toLocaleString()}</span>
+            </div>
+            <div>
+              <span className="dk-stats__k">BEST LAP</span>
+              <span className="dk-stats__v text-fuchsia-200">{best.lap ? formatTime(best.lap) : '--:--.--'}</span>
+            </div>
+            <div>
+              <span className="dk-stats__k">WINS</span>
+              <span className="dk-stats__v text-emerald-200">
+                {best.wins}
+                <span className="text-white/70 text-sm">/{best.races}</span>
+              </span>
+            </div>
+          </div>
+          <span className="dk-tile__glyph dk-bars" aria-hidden>
+            <i />
+            <i />
+            <i />
+          </span>
+        </div>
+
+        {onOpenBMWAdjust ? (
+          <button type="button" onClick={onOpenBMWAdjust} className="dk-tile dk-tile--violet dk-tile--wide dk-anim-in" style={{ animationDelay: '0.3s' }}>
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__name">BODY BMW GLB</span>
+            <span className="dk-tile__meta">PANJANG · LEBAR · TINGGI · RIDE HEIGHT</span>
+            <span className="dk-tile__glyph">📐</span>
+          </button>
+        ) : null}
+
+        {onPlaySakuraEbisu ? (
+          <button type="button" onClick={onStart} className="dk-tile dk-tile--sakura dk-tile--wide dk-anim-in" style={{ animationDelay: '0.36s' }} aria-label="Ebisu Drift mode">
+            <div className="dk-tile__sheen" />
+            <span className="dk-tile__name">EBISU DRIFT MODE</span>
+            <span className="dk-tile__meta">
+              BMW GLB WIDE-BODY · {setup.race.laps} LAPS · {diff.toUpperCase()} · {engineInfo?.label.toUpperCase()}
+              {preset ? ` · ${preset.name.toUpperCase()}` : ''}
+            </span>
+            <span className="dk-tile__glyph dk-float">🏁</span>
+          </button>
+        ) : null}
+      </div>
+
+      {/* bottom bar — stripes + quick actions / controls */}
+      <div className="dk-bar">
+        <div className="dk-bar__stripes" />
+        <div className="dk-bar__items">
+          <button type="button" onClick={onToggleMute} className="dk-bar__btn" aria-label={muted ? 'Unmute' : 'Mute'}>
+            <span>{muted ? '🔇' : '🔊'}</span>
+            <span>{muted ? 'SOUND OFF' : 'SOUND ON'}</span>
+          </button>
+          <button type="button" onClick={onOpenVisual} className="dk-bar__btn">
+            <span>⚙️</span>
+            <span>SETTINGS</span>
+          </button>
+          {onToggleBackdrop && (
+            <button type="button" onClick={onToggleBackdrop} className="dk-bar__btn dk-bar__btn--accent" title="Ganti latar garasi / pemandangan sirkuit">
+              <span>{backdrop === 'wall' ? '🏔️' : '🏢'}</span>
+              <span>{backdrop === 'wall' ? 'PEMANDANGAN' : 'GARASI'}</span>
+            </button>
           )}
+          <span className="dk-bar__hint">
+            {isTouch ? (
+              <>HOLD LEFT / RIGHT = STEER · DRIFT = HANDBRAKE · GAS (SAKURA RC) · ↺ RESET</>
+            ) : (
+              <>
+                ← → / A D STEER · SPACE HANDBRAKE · SHIFT BOOST · S BRAKE · W GAS (SAKURA RC) · <b>R RESET</b> · C CAMERA · ESC PAUSE
+              </>
+            )}
+          </span>
         </div>
       </div>
     </div>

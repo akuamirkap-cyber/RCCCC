@@ -9,7 +9,7 @@ export const SAMPLE_COUNT = 600;
 
 // Ebisu-inspired technical drift layout in the XZ plane (closed loop). Start/finish is at the first point.
 // Start straight → fast T1 sweeper → tight hairpin → esses → back hairpin → final banked sweeper.
-const CONTROL_POINTS: [number, number][] = [
+export const EBISU_CONTROL_POINTS: [number, number][] = [
   [0, 0],
   [55, 0],
   [95, 6],
@@ -30,6 +30,65 @@ const CONTROL_POINTS: [number, number][] = [
   [-60, 30],
   [-25, 12],
 ];
+
+/**
+ * Formula Drift Long Beach-inspired street circuit (closed loop, clockwise). Start/finish on the Shoreline-style main
+ * straight in front of the main grandstand → the long, fast "Turn 9" right sweeper hugging the concrete wall →
+ * long back chute with the "Turn 10" esses → tight "Turn 11" hairpin at the harbour end → left/right complex back
+ * onto the main straight.
+ */
+export const LONG_BEACH_CONTROL_POINTS: [number, number][] = [
+  [112.0, 0.0],
+  [168.0, 0.0],
+  [212.8, 0.0],
+  [250.8, -15.7],
+  [266.6, -53.8],
+  [250.8, -91.8],
+  [212.8, -107.5],
+  [168.0, -107.5],
+  [134.4, -105.3],
+  [112.0, -96.3],
+  [89.6, -105.3],
+  [61.6, -107.5],
+  [11.2, -107.5],
+  [-3.1, -101.6],
+  [-9.0, -87.4],
+  [-3.1, -73.1],
+  [11.2, -67.2],
+  [33.6, -67.2],
+  [49.4, -60.6],
+  [56.0, -44.8],
+  [62.6, -6.6],
+  [78.4, 0.0],
+];
+
+export type Venue = 'ebisu' | 'longbeach';
+export const VENUES: { id: Venue; label: string; short: string; desc: string }[] = [
+  { id: 'longbeach', label: 'Long Beach Street Circuit', short: 'LONG BEACH', desc: 'Street course · concrete walls · city skyline · packed stands' },
+  { id: 'ebisu', label: 'Ebisu Circuit', short: 'EBISU', desc: 'Mountain circuit · hills · forest · lake' },
+];
+export const VENUE_POINTS: Record<Venue, [number, number][]> = {
+  ebisu: EBISU_CONTROL_POINTS,
+  longbeach: LONG_BEACH_CONTROL_POINTS,
+};
+export const DEFAULT_VENUE: Venue = 'longbeach';
+const VENUE_KEY = 'drift-king.venue';
+export function loadVenue(): Venue {
+  try {
+    const v = localStorage.getItem(VENUE_KEY);
+    if (v === 'ebisu' || v === 'longbeach') return v;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_VENUE;
+}
+export function saveVenue(v: Venue) {
+  try {
+    localStorage.setItem(VENUE_KEY, v);
+  } catch {
+    /* ignore */
+  }
+}
 
 export interface TrackSample {
   x: number;
@@ -53,8 +112,8 @@ export class Track {
   readonly center: { x: number; z: number };
   readonly curve: THREE.CatmullRomCurve3;
 
-  constructor() {
-    const pts = CONTROL_POINTS.map(([x, z]) => new THREE.Vector3(x, 0, z));
+  constructor(readonly controlPoints: [number, number][] = EBISU_CONTROL_POINTS) {
+    const pts = controlPoints.map(([x, z]) => new THREE.Vector3(x, 0, z));
     this.curve = new THREE.CatmullRomCurve3(pts, true, 'centripetal', 0.5);
     const n = SAMPLE_COUNT;
     const spaced = this.curve.getSpacedPoints(n);

@@ -23,6 +23,7 @@ import {
   SuspensionSetup,
   TireCompound,
   TuningSetup,
+  UnderglowMode,
 } from '../types/rcDrift';
 import {
   DEFAULT_SMOKE_CONFIG,
@@ -967,6 +968,11 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
                         title: 'SILKY RC BRUSHLESS',
                         sub: 'Smooth Geared Motor Hum',
                       },
+                      {
+                        id: 'real_brushless_hd',
+                        title: 'REAL BRUSHLESS HD ★',
+                        sub: 'Super realistis: whine motor, gear mesh, ESC, ban & gema aula',
+                      },
                     ] as { id: SoundMode; title: string; sub: string }[]
                   ).map((sm) => {
                     const active = (tuning.soundMode || 'rb26_soundbox') === sm.id;
@@ -1330,11 +1336,19 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
                   </div>
                 </div>
 
-                <div>
-                  <div className="text-xs font-display font-bold uppercase tracking-wider text-white mb-2">
-                    CHASSIS LED UNDERGLOW
+                <div className="bg-slate-950/80 p-3.5 rounded-2xl border border-white/10">
+                  <div className="text-xs font-display font-bold uppercase tracking-wider text-white mb-2 flex items-center justify-between">
+                    <span>NEON UNDERGLOW // NFS-U2 STYLE</span>
+                    <span
+                      className="w-8 h-2 rounded-full"
+                      style={{
+                        backgroundColor: customization.neonColor,
+                        boxShadow: `0 0 14px ${customization.neonColor}`,
+                        opacity: (customization.underglowMode ?? 'steady') === 'off' ? 0.2 : 1,
+                      }}
+                    />
                   </div>
-                  <div className="flex flex-wrap gap-2.5">
+                  <div className="flex flex-wrap gap-2.5 mb-3">
                     {NEON_SWATCHES.map((s) => (
                       <button
                         key={s.hex}
@@ -1342,12 +1356,17 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
                           onChangeCustomization({
                             ...customization,
                             neonColor: s.hex,
+                            underglowMode:
+                              (customization.underglowMode ?? 'steady') === 'off'
+                                ? 'steady'
+                                : customization.underglowMode ?? 'steady',
                           })
                         }
                         title={s.name}
                         className="w-9 h-9 rounded-xl border-2 flex items-center justify-center transition transform hover:scale-105 cursor-pointer"
                         style={{
                           backgroundColor: s.hex,
+                          boxShadow: customization.neonColor === s.hex ? `0 0 16px ${s.hex}` : 'none',
                           borderColor:
                             customization.neonColor === s.hex
                               ? '#FFFFFF'
@@ -1360,6 +1379,56 @@ export const PitBenchDrawer: React.FC<PitBenchDrawerProps> = ({
                       </button>
                     ))}
                   </div>
+                  <div className="grid grid-cols-5 gap-1.5 mb-3">
+                    {(
+                      [
+                        { id: 'off', label: 'OFF' },
+                        { id: 'steady', label: 'STEADY' },
+                        { id: 'pulse', label: 'PULSE' },
+                        { id: 'strobe', label: 'STROBE' },
+                        { id: 'rainbow', label: 'RAINBOW' },
+                      ] as { id: UnderglowMode; label: string }[]
+                    ).map((m) => {
+                      const active = (customization.underglowMode ?? 'steady') === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() =>
+                            onChangeCustomization({ ...customization, underglowMode: m.id })
+                          }
+                          className={`h-8 rounded-lg text-[10px] font-display font-bold tracking-wider transition cursor-pointer ${
+                            active
+                              ? m.id === 'rainbow'
+                                ? 'text-white bg-[linear-gradient(90deg,#FF2A85,#F59E0B,#CCFF00,#00F0FF,#A855F7)] shadow-[0_0_12px_rgba(255,255,255,0.35)]'
+                                : 'bg-white text-slate-950 shadow-[0_0_12px_rgba(255,255,255,0.35)]'
+                              : 'bg-white/5 border border-white/10 text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] font-mono-tabular text-slate-400 mb-1">
+                    <span>BRIGHTNESS</span>
+                    <span className="text-white font-bold">
+                      {Math.round((customization.underglowIntensity ?? 0.8) * 100)}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={100}
+                    step={5}
+                    value={Math.round((customization.underglowIntensity ?? 0.8) * 100)}
+                    onChange={(e) =>
+                      onChangeCustomization({
+                        ...customization,
+                        underglowIntensity: Number(e.target.value) / 100,
+                      })
+                    }
+                    className="w-full accent-[#00F0FF] cursor-pointer"
+                  />
                 </div>
               </div>
             </>

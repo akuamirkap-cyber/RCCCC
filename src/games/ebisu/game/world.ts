@@ -1,18 +1,27 @@
 import * as THREE from 'three';
-import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH } from './track';
+import { buildProCircuit } from './proCircuit';
+import type { LightingRig } from './lighting';
+import { buildLongBeachVenue } from './longBeach';
+import { buildProStand, buildStartGantry, buildProForest, makeRoadText } from './proVenue';
+import { buildGuardrails, buildCornerBlocks, makeTrafficCone, buildSponsorBoards, makeSponsorStrip } from './proBarriers';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH, type Venue } from './track';
 import { zoneLookup, type DriftZone } from './zones';
 
 export interface WorldRefs {
   sun: THREE.DirectionalLight;
+  lighting: LightingRig;
   /** Ambient animation: crowd, clouds, balloons, windmill. */
   update: (dt: number) => void;
+  /** Cars the fans follow with their heads (each fan watches the nearest one). Flat [x0, z0, x1, z1, …]. */
+  setCrowdFocus: (xz: ArrayLike<number>) => void;
 }
 
 /** Sun position relative to the player (also drives the sun disc in the sky). Lower + warmer = golden-hour look. */
 export const SUN_OFFSET = new THREE.Vector3(65, 58, 38);
 const SUN_DIR = SUN_OFFSET.clone().normalize();
 const FOG_COLOR = '#d9e1f2';
-const GROUND_Y = -0.08;
+export const GROUND_Y = -0.08;
 const TERRAIN_SIZE = 2400;
 const TERRAIN_SEGS = 200;
 const UP = new THREE.Vector3(0, 1, 0);
@@ -83,75 +92,6 @@ const circDist = (a: number, b: number, n: number) => {
 /* ------------------------------------------------------------------ */
 /*  Textures                                                           */
 /* ------------------------------------------------------------------ */
-
-/** Warm mid-grey asphalt with aggregate speckle, subtle patches, faint cracks and crisp edge lines. */
-function makeRoadTexture(): THREE.CanvasTexture {
-  const W = 512;
-  const H = 512;
-  const c = document.createElement('canvas');
-  c.width = W;
-  c.height = H;
-  const ctx = c.getContext('2d')!;
-  const rnd = mulberry32(4242);
-  ctx.fillStyle = '#484b52';
-  ctx.fillRect(0, 0, W, H);
-  // large soft patches (repaved areas / wear)
-  for (let i = 0; i < 26; i++) {
-    const x = rnd() * W;
-    const y = rnd() * H;
-    const r = 40 + rnd() * 90;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    const light = rnd() < 0.5;
-    g.addColorStop(0, light ? 'rgba(120,120,126,0.22)' : 'rgba(58,58,64,0.28)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
-  }
-  // fine aggregate speckle
-  for (let i = 0; i < 26000; i++) {
-    const v = 70 + rnd() * 70;
-    ctx.fillStyle = `rgba(${v},${v},${v + 4},${0.25 + rnd() * 0.4})`;
-    ctx.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 1.5, 1 + rnd() * 1.5);
-  }
-  // occasional bright stones
-  for (let i = 0; i < 700; i++) {
-    ctx.fillStyle = `rgba(190,190,196,${0.15 + rnd() * 0.3})`;
-    ctx.fillRect(rnd() * W, rnd() * H, 1, 1);
-  }
-  // darker worn tire lines at ~1/4 and ~3/4 of the width
-  for (const cxLine of [W * 0.27, W * 0.73]) {
-    const g = ctx.createLinearGradient(cxLine - 60, 0, cxLine + 60, 0);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(0.5, 'rgba(0,0,0,0.13)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(cxLine - 60, 0, 120, H);
-  }
-  // faint cracks
-  ctx.strokeStyle = 'rgba(30,30,34,0.45)';
-  ctx.lineWidth = 1.2;
-  for (let i = 0; i < 9; i++) {
-    let x = rnd() * W;
-    let y = rnd() * H;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    for (let k = 0; k < 8; k++) {
-      x += (rnd() - 0.5) * 30;
-      y += (rnd() - 0.5) * 30;
-      ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  }
-  // thick white edge lines, no center line (drift-course style)
-  ctx.fillStyle = '#f2f0e9';
-  ctx.fillRect(0, 0, 15, H);
-  ctx.fillRect(W - 15, 0, 15, H);
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = THREE.ClampToEdgeWrapping;
-  t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
 
 function makeCheckerTexture(cols: number, rows: number, a = '#111111', b = '#f4f4f4'): THREE.CanvasTexture {
   const c = document.createElement('canvas');
@@ -231,43 +171,6 @@ function makeTextTexture(text: string, o: TextOpts = {}): THREE.CanvasTexture {
   ctx.fillStyle = o.fg ?? '#ffffff';
   ctx.fillText(text, w / 2, h / 2 + size * 0.05);
   const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  return t;
-}
-
-function makeSponsorTexture(): THREE.CanvasTexture {
-  const panels: [string, string, string, number][] = [
-    ['エビスサーキット', '#c8102e', '#ffffff', 58],
-    ['DRIFT 天国', '#15181f', '#ffd166', 64],
-    ['FUJI TIRE 富士', '#0a3d91', '#ffffff', 54],
-    ['APEX 山', '#ffd23f', '#15181f', 72],
-  ];
-  const pw = 512;
-  const ph = 128;
-  const c = document.createElement('canvas');
-  c.width = pw * panels.length;
-  c.height = ph;
-  const ctx = c.getContext('2d')!;
-  panels.forEach(([text, bg, fg, size], i) => {
-    const x0 = i * pw;
-    ctx.fillStyle = bg;
-    ctx.fillRect(x0, 0, pw, ph);
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fillRect(x0, ph - 14, pw, 14);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(x0 + pw - 4, 0, 4, ph);
-    ctx.font = `700 ${size}px ${FONT}, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineWidth = 8;
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.strokeText(text, x0 + pw / 2, ph / 2 + 2);
-    ctx.fillStyle = fg;
-    ctx.fillText(text, x0 + pw / 2, ph / 2 + 2);
-  });
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
@@ -410,34 +313,6 @@ function makeNoboriTexture(text: string, bg: string, fg: string): THREE.CanvasTe
 /*  Track-following geometry                                           */
 /* ------------------------------------------------------------------ */
 
-/** Flat strip between two lateral offsets along the whole track. */
-function buildStrip(track: Track, from: number, to: number, y: number, uvScale: number): THREE.BufferGeometry {
-  const n = track.count;
-  const s = track.samples;
-  const pos: number[] = [];
-  const uv: number[] = [];
-  const nor: number[] = [];
-  const idx: number[] = [];
-  for (let i = 0; i <= n; i++) {
-    const k = i % n;
-    const sm = s[k];
-    const v = (i === n ? track.length : sm.dist) / uvScale;
-    pos.push(sm.x + sm.rx * from, y, sm.z + sm.rz * from, sm.x + sm.rx * to, y, sm.z + sm.rz * to);
-    uv.push(0, v, 1, v);
-    nor.push(0, 1, 0, 0, 1, 0);
-  }
-  for (let i = 0; i < n; i++) {
-    const a = i * 2;
-    idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  g.setIndex(idx);
-  return g;
-}
-
 /** Flat strip for a sample range, optionally with alternating color bands. */
 function buildRangeStrip(
   track: Track,
@@ -502,39 +377,6 @@ function buildWallStrip(track: Track, start: number, len: number, offset: number
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   g.setIndex(idx);
-  return g;
-}
-
-/** Curb strip with alternating red/white segments via vertex colors. */
-function buildCurb(track: Track, side: 1 | -1): THREE.BufferGeometry {
-  const n = track.count;
-  const s = track.samples;
-  const pos: number[] = [];
-  const col: number[] = [];
-  const nor: number[] = [];
-  const red = new THREE.Color('#e63946');
-  const white = new THREE.Color('#f5f5f5');
-  const y = 0.02;
-  const inner = HALF_WIDTH * side;
-  const outer = (HALF_WIDTH + CURB_WIDTH) * side;
-  for (let i = 0; i < n; i++) {
-    const a = s[i];
-    const b = s[(i + 1) % n];
-    const c = Math.floor(a.dist / 3) % 2 === 0 ? red : white;
-    const ai = [a.x + a.rx * inner, y, a.z + a.rz * inner];
-    const ao = [a.x + a.rx * outer, y, a.z + a.rz * outer];
-    const bi = [b.x + b.rx * inner, y, b.z + b.rz * inner];
-    const bo = [b.x + b.rx * outer, y, b.z + b.rz * outer];
-    pos.push(...ai, ...bi, ...ao, ...ao, ...bi, ...bo);
-    for (let k = 0; k < 6; k++) {
-      col.push(c.r, c.g, c.b);
-      nor.push(0, 1, 0);
-    }
-  }
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   return g;
 }
 
@@ -697,9 +539,17 @@ interface CrowdSpot {
   flag: boolean;
 }
 
-class Crowd {
+export class Crowd {
   readonly spots: CrowdSpot[] = [];
+  /** Cars the fans look at, flat [x, z, x, z, …]; empty = nobody in particular. */
+  focus: number[] = [];
   constructor(private rand: () => number) {}
+
+  setFocus(xz: ArrayLike<number>) {
+    const f = this.focus;
+    f.length = 0;
+    for (let i = 0; i + 1 < xz.length; i += 2) f.push(xz[i], xz[i + 1]);
+  }
 
   add(x: number, y: number, z: number, o: { wave?: number; jumpChance?: number; flagChance?: number } = {}) {
     const r = this.rand;
@@ -715,34 +565,112 @@ class Crowd {
     });
   }
 
-  /** Cute chubby "bean" fans: round body, oversized head with a face, stubby arms that wave. */
+  /**
+   * Stumble Guys-style fans: big rounded-cube head (bigger than the body), two tiny vertical
+   * dot eyes, no mouth, stubby torso, short legs with shoes, stubby arms with round hands,
+   * plus random outfits: green cap, bucket hat + sunglasses on top, pompadour + sunglasses.
+   */
   build(scene: THREE.Scene, facing: (x: number, z: number) => number): (dt: number) => void {
     const spots = this.spots;
     const N = spots.length;
     if (!N) return () => {};
     const r = this.rand;
-    const shirts = ['#ff5a1f', '#ffd166', '#06d6a0', '#118ab2', '#ef476f', '#ffffff', '#b455f5', '#2f80ff', '#f4a261', '#ff8fab', '#e9c46a', '#8ecae6', '#00b4d8', '#9ef01a'].map(
+    const shirts = ['#ff7a1f', '#ffd166', '#06d6a0', '#118ab2', '#ef476f', '#ffffff', '#b455f5', '#2f80ff', '#f4a261', '#ff8fab', '#59c3f0', '#9ef01a', '#ff3d7f', '#1fc8ff'].map(
       (c) => new THREE.Color(c),
     );
-    const skins = ['#ffd6b8', '#f1c9a5', '#e0ac7e', '#c68642', '#8d5524', '#ffe0c2', '#a0522d', '#ffc9a3'].map((c) => new THREE.Color(c));
+    const pantsCols = ['#2f80ff', '#1d4ed8', '#f2a541', '#ffffff', '#3b3b46', '#5dade2', '#c0392b', '#2e8b57'].map((c) => new THREE.Color(c));
+    const shoeCols = ['#1a1a1f', '#2b2b33', '#c62828', '#ffffff', '#1a1a1f'].map((c) => new THREE.Color(c));
+    const skins = ['#f6c9a0', '#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac', '#fbd3b6'].map((c) => new THREE.Color(c));
+    const hatCols = ['#5cb85c', '#43a047', '#ff6f3c', '#2f80ff', '#ffd166', '#e63946', '#ffffff'].map((c) => new THREE.Color(c));
+    const hairCols = ['#1b1b1f', '#3a2418', '#6b3e26', '#111118', '#8a4b1f'].map((c) => new THREE.Color(c));
+    // businessmen: dark suits, white shirt, tie; dapper gents: coloured blazers, bow tie, fedora + shades
+    const suitCols = ['#1e2a44', '#2b2d33', '#16171b', '#4b5563', '#243b6b', '#3a2f2a'].map((c) => new THREE.Color(c));
+    const tieCols = ['#c62828', '#1d4ed8', '#7a1f2b', '#0f766e', '#f59e0b', '#111827'].map((c) => new THREE.Color(c));
+    const blazerCols = ['#7a1f2b', '#efe6d2', '#b98b5a', '#1f6f6b', '#d4a017', '#f1f1f1', '#5b3a8a'].map((c) => new THREE.Color(c));
+    const fedoraCols = ['#1a1a1f', '#4a3222', '#efe6d2', '#6b7280', '#2b2d33'].map((c) => new THREE.Color(c));
+    const dressShoeCols = ['#1a1a1f', '#4a3222', '#2b1d14'].map((c) => new THREE.Color(c));
     const flagColors = ['#ff5a1f', '#ffd166', '#ffffff', '#2f80ff', '#06d6a0'].map((c) => new THREE.Color(c));
-    const eyeBase = new THREE.Color('#1c1c22');
-    const cheekBase = new THREE.Color('#ff7f9f');
+    const eyeBase = new THREE.Color('#15151a');
+    const white = new THREE.Color('#f7f7f7');
+    const dark = new THREE.Color('#15151a');
 
-    const bodyGeo = new THREE.SphereGeometry(0.3, 10, 8);
-    bodyGeo.scale(1, 1.1, 0.9);
-    const headGeo = new THREE.SphereGeometry(0.27, 10, 8);
-    const armGeo = new THREE.CapsuleGeometry(0.07, 0.24, 2, 6);
-    const eyeGeo = new THREE.SphereGeometry(0.045, 6, 5);
-    const cheekGeo = new THREE.SphereGeometry(0.05, 6, 4);
-    cheekGeo.scale(1, 0.7, 0.5);
-    const mat = () => new THREE.MeshStandardMaterial({ roughness: 0.75 });
-    const bodies = new THREE.InstancedMesh(bodyGeo, mat(), N);
-    const heads = new THREE.InstancedMesh(headGeo, mat(), N);
+    // --- geometry (Stumble Guys proportions, 1 unit = 1 m at sc = 1) ---
+    // Low-poly on purpose: thousands of fans × ~15 parts each — every segment here is multiplied by the crowd size.
+    // Fans are always 10 m+ from the camera, so 2-segment rounded boxes read identically to 4-segment ones.
+    const headGeo = new RoundedBoxGeometry(0.54, 0.5, 0.5, 2, 0.19);
+    const torsoGeo = new RoundedBoxGeometry(0.46, 0.4, 0.36, 1, 0.08);
+    const eyeGeo = new THREE.BoxGeometry(0.055, 0.12, 0.04);
+    const armGeo = new THREE.CapsuleGeometry(0.07, 0.17, 1, 5);
+    const handGeo = new THREE.SphereGeometry(0.08, 5, 4);
+    const legGeo = new THREE.CapsuleGeometry(0.085, 0.24, 1, 5); // tall: the upper half sits hidden inside the torso
+    const shoeGeo = new THREE.BoxGeometry(0.17, 0.11, 0.27);
+    const capDomeGeo = new THREE.SphereGeometry(0.3, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    capDomeGeo.scale(1, 0.62, 1);
+    const capVisorGeo = new THREE.BoxGeometry(0.32, 0.04, 0.24);
+    const bucketTopGeo = new THREE.CylinderGeometry(0.26, 0.31, 0.2, 8);
+    const bucketBrimGeo = new THREE.CylinderGeometry(0.38, 0.4, 0.035, 10);
+    const glassesGeo = new THREE.BoxGeometry(0.44, 0.1, 0.05);
+    const pompGeo = new RoundedBoxGeometry(0.5, 0.2, 0.46, 1, 0.07);
+    const shirtGeo = new THREE.BoxGeometry(0.2, 0.26, 0.03);
+    const tieGeo = new THREE.BoxGeometry(0.07, 0.24, 0.02);
+    const bowTieGeo = new THREE.BoxGeometry(0.15, 0.07, 0.03);
+    const slickHairGeo = new THREE.BoxGeometry(0.5, 0.07, 0.48);
+    const fedoraTopGeo = new THREE.CylinderGeometry(0.25, 0.3, 0.22, 10);
+    const fedoraBrimGeo = new THREE.CylinderGeometry(0.44, 0.45, 0.03, 12);
+
+    const mat = (rough = 0.7) => new THREE.MeshStandardMaterial({ roughness: rough });
+    const heads = new THREE.InstancedMesh(headGeo, mat(0.6), N);
+    const torsos = new THREE.InstancedMesh(torsoGeo, mat(), N);
+    const eyes = new THREE.InstancedMesh(eyeGeo, new THREE.MeshStandardMaterial({ roughness: 0.35, color: eyeBase }), N * 2);
     const armsL = new THREE.InstancedMesh(armGeo, mat(), N);
     const armsR = new THREE.InstancedMesh(armGeo, mat(), N);
-    const eyes = new THREE.InstancedMesh(eyeGeo, new THREE.MeshStandardMaterial({ roughness: 0.3, color: eyeBase }), N * 2);
-    const cheeks = new THREE.InstancedMesh(cheekGeo, new THREE.MeshStandardMaterial({ roughness: 0.9, color: cheekBase }), N * 2);
+    const handsL = new THREE.InstancedMesh(handGeo, mat(0.6), N);
+    const handsR = new THREE.InstancedMesh(handGeo, mat(0.6), N);
+    const legs = new THREE.InstancedMesh(legGeo, mat(), N * 2);
+    const shoes = new THREE.InstancedMesh(shoeGeo, mat(0.5), N * 2);
+
+    // outfit variants: 0 = none, 1 = cap, 2 = bucket hat + shades, 3 = pompadour + shades,
+    // 4 = businessman (suit + tie + slick hair), 5 = dapper gent (blazer + bow tie + fedora + shades)
+    const outfit = new Uint8Array(N);
+    const hasShades = new Uint8Array(N);
+    for (let i = 0; i < N; i++) {
+      const v = r();
+      outfit[i] = v < 0.24 ? 0 : v < 0.46 ? 1 : v < 0.64 ? 2 : v < 0.8 ? 3 : v < 0.91 ? 4 : 5;
+      hasShades[i] = outfit[i] === 2 || outfit[i] === 3 || outfit[i] === 5 || (outfit[i] === 4 && r() < 0.4) ? 1 : 0;
+    }
+    const idxOf = (k: number) => {
+      const out: number[] = [];
+      for (let i = 0; i < N; i++) if (outfit[i] === k) out.push(i);
+      return out;
+    };
+    const capIdx = idxOf(1);
+    const bucketIdx = idxOf(2);
+    const pompIdx = idxOf(3);
+    const suitIdx = idxOf(4);
+    const dapperIdx = idxOf(5);
+    let shadesN = 0;
+    for (let i = 0; i < N; i++) shadesN += hasShades[i];
+    const capDomes = new THREE.InstancedMesh(capDomeGeo, mat(), Math.max(1, capIdx.length));
+    const capVisors = new THREE.InstancedMesh(capVisorGeo, mat(), Math.max(1, capIdx.length));
+    const bucketTops = new THREE.InstancedMesh(bucketTopGeo, mat(0.85), Math.max(1, bucketIdx.length));
+    const bucketBrims = new THREE.InstancedMesh(bucketBrimGeo, mat(0.85), Math.max(1, bucketIdx.length));
+    const pomps = new THREE.InstancedMesh(pompGeo, mat(0.55), Math.max(1, pompIdx.length));
+    // every pair of sunglasses sits on the face (over the eyes) — never parked on a hat
+    const faceShades = new THREE.InstancedMesh(glassesGeo, new THREE.MeshStandardMaterial({ roughness: 0.25, metalness: 0.3, color: dark }), Math.max(1, shadesN));
+    const shirts4 = new THREE.InstancedMesh(shirtGeo, mat(0.6), Math.max(1, suitIdx.length + dapperIdx.length));
+    const ties = new THREE.InstancedMesh(tieGeo, mat(0.6), Math.max(1, suitIdx.length));
+    const slickHairs = new THREE.InstancedMesh(slickHairGeo, mat(0.45), Math.max(1, suitIdx.length));
+    const bowTies = new THREE.InstancedMesh(bowTieGeo, mat(0.6), Math.max(1, dapperIdx.length));
+    const fedoraTops = new THREE.InstancedMesh(fedoraTopGeo, mat(0.8), Math.max(1, dapperIdx.length));
+    const fedoraBrims = new THREE.InstancedMesh(fedoraBrimGeo, mat(0.8), Math.max(1, dapperIdx.length));
+    capDomes.count = capVisors.count = capIdx.length;
+    bucketTops.count = bucketBrims.count = bucketIdx.length;
+    pomps.count = pompIdx.length;
+    faceShades.count = shadesN;
+    shirts4.count = suitIdx.length + dapperIdx.length;
+    ties.count = slickHairs.count = suitIdx.length;
+    bowTies.count = fedoraTops.count = fedoraBrims.count = dapperIdx.length;
+
     const flagIdx: number[] = [];
     spots.forEach((s, i) => s.flag && flagIdx.push(i));
     const flags = new THREE.InstancedMesh(new THREE.BoxGeometry(0.6, 0.4, 0.05), mat(), Math.max(1, flagIdx.length));
@@ -760,97 +688,246 @@ class Crowd {
     const armSide = new Float32Array(N); // which arm waves (±1)
     const baseFlag = new Float32Array(flagIdx.length);
 
-    const setArm = (mesh: THREE.InstancedMesh, i: number, s: CrowdSpot, side: number, lift: number, y: number) => {
+    // Parts whose instances only bob up/down with the jump: (mesh, instance k, spot i, base y)
+    type Bob = { mesh: THREE.InstancedMesh; k: number; i: number; y: number };
+    const bobs: Bob[] = [];
+    // Head-mounted parts (head, eyes, hats, hair, shades) are re-posed every frame to look at the focus car.
+    type HeadPart = { mesh: THREE.InstancedMesh; k: number; fwd: number; side: number; y: number };
+    const headParts: HeadPart[][] = new Array(N);
+    for (let i = 0; i < N; i++) headParts[i] = [];
+    const headYaw = new Float32Array(N); // current head yaw relative to the body
+    let headMode = false;
+    let recordBobs = true; // only during the initial placement
+    const place = (mesh: THREE.InstancedMesh, k: number, i: number, fwd: number, side: number, y: number, extraQ?: THREE.Quaternion) => {
+      if (headMode) headParts[i].push({ mesh, k, fwd, side, y });
+      placeYaw(mesh, k, i, fwd, side, y, yaw[i], extraQ);
+    };
+    const placeYaw = (mesh: THREE.InstancedMesh, k: number, i: number, fwd: number, side: number, y: number, a: number, extraQ?: THREE.Quaternion) => {
+      const s = spots[i];
+      const fx = Math.sin(a);
+      const fz = Math.cos(a);
+      const rx = Math.cos(a);
+      const rz = -Math.sin(a);
+      q.setFromAxisAngle(UP, a);
+      if (extraQ) q.multiply(extraQ);
+      const py = s.y + y * s.sc;
+      p.set(s.x + (fx * fwd + rx * side) * s.sc, py, s.z + (fz * fwd + rz * side) * s.sc);
+      m4.compose(p, q, sc.set(s.sc, s.sc, s.sc));
+      mesh.setMatrixAt(k, m4);
+      if (recordBobs) bobs.push({ mesh, k, i, y: py });
+    };
+
+    const SHOULDER_Y = 0.64;
+    const SHOULDER_X = 0.27;
+    const ARM_HALF = 0.155;
+    const setArm = (mesh: THREE.InstancedMesh, hand: THREE.InstancedMesh, i: number, s: CrowdSpot, side: number, lift: number, y: number) => {
       // arm pivots at the shoulder; lift 0 = hanging down, 1 = straight up
       const a = yaw[i];
       const fx = Math.sin(a);
       const fz = Math.cos(a);
       const rx = Math.cos(a);
       const rz = -Math.sin(a);
-      const shoulderX = s.x + rx * side * 0.3 * s.sc;
-      const shoulderZ = s.z + rz * side * 0.3 * s.sc;
-      const shoulderY = y + 0.58 * s.sc;
+      const shoulderX = s.x + rx * side * SHOULDER_X * s.sc;
+      const shoulderZ = s.z + rz * side * SHOULDER_X * s.sc;
+      const shoulderY = y + SHOULDER_Y * s.sc;
       const ang = lift * Math.PI * 0.95; // rotate around the forward axis
       e.set(0, a, side * (Math.PI - ang) * -1, 'YXZ');
       qArm.setFromEuler(e);
       // offset the arm center from the shoulder along its own direction
       const dirY = -Math.cos(ang);
       const lateral = Math.sin(ang) * side;
-      const half = 0.19 * s.sc;
+      const half = ARM_HALF * s.sc;
       p.set(shoulderX + rx * lateral * half + fx * 0.02, shoulderY + dirY * half, shoulderZ + rz * lateral * half + fz * 0.02);
       m4.compose(p, qArm, sc.set(s.sc, s.sc, s.sc));
       mesh.setMatrixAt(i, m4);
+      // round hand at the end of the arm
+      const hl = (ARM_HALF * 2 + 0.03) * s.sc;
+      p.set(shoulderX + rx * lateral * hl + fx * 0.02, shoulderY + dirY * hl, shoulderZ + rz * lateral * hl + fz * 0.02);
+      m4.compose(p, qArm, sc);
+      hand.setMatrixAt(i, m4);
     };
 
+    const legTilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.08);
+    let capK = 0;
+    let bucketK = 0;
+    let pompK = 0;
+    let shadesK = 0;
+    let suitK = 0;
+    let dapperK = 0;
+    let shirtK = 0;
     spots.forEach((s, i) => {
       yaw[i] = facing(s.x, s.z) + (r() - 0.5) * 0.5;
       baseY[i] = s.y;
-      raise[i] = r() < 0.3 ? 1 : 0;
+      const formal = outfit[i] === 4 || outfit[i] === 5;
+      raise[i] = r() < (formal ? 0.08 : 0.3) ? 1 : 0; // suits mostly keep their arms down
       armSide[i] = r() < 0.5 ? -1 : 1;
-      const shirt = shirts[Math.floor(r() * shirts.length)];
+      let shirt = shirts[Math.floor(r() * shirts.length)];
       const skin = skins[Math.floor(r() * skins.length)];
-      q.setFromAxisAngle(UP, yaw[i]);
-      sc.set(s.sc, s.sc, s.sc);
-      m4.compose(p.set(s.x, s.y + 0.36 * s.sc, s.z), q, sc);
-      bodies.setMatrixAt(i, m4);
-      bodies.setColorAt(i, shirt);
-      m4.compose(p.set(s.x, s.y + 0.92 * s.sc, s.z), q, sc);
-      heads.setMatrixAt(i, m4);
-      heads.setColorAt(i, skin);
-      armsL.setColorAt(i, shirt);
-      armsR.setColorAt(i, shirt);
-      setArm(armsL, i, s, -1, raise[i], s.y);
-      setArm(armsR, i, s, 1, raise[i], s.y);
-      // face: two eyes + two cheeks on the front of the head
-      const fx = Math.sin(yaw[i]);
-      const fz = Math.cos(yaw[i]);
-      const rx = Math.cos(yaw[i]);
-      const rz = -Math.sin(yaw[i]);
+      let pants = pantsCols[Math.floor(r() * pantsCols.length)];
+      let shoe = shoeCols[Math.floor(r() * shoeCols.length)];
+      if (outfit[i] === 4) {
+        shirt = suitCols[Math.floor(r() * suitCols.length)];
+        pants = shirt; // matching trousers
+        shoe = dressShoeCols[Math.floor(r() * dressShoeCols.length)];
+      } else if (outfit[i] === 5) {
+        shirt = blazerCols[Math.floor(r() * blazerCols.length)];
+        pants = r() < 0.5 ? suitCols[Math.floor(r() * suitCols.length)] : new THREE.Color('#e9e2d0');
+        shoe = dressShoeCols[Math.floor(r() * dressShoeCols.length)];
+      }
+
+      // legs + shoes (short, slightly apart, one foot a bit forward like the Stumble pose)
       for (const side of [-1, 1]) {
         const k = i * 2 + (side + 1) / 2;
-        m4.compose(p.set(s.x + fx * 0.24 * s.sc + rx * side * 0.1 * s.sc, s.y + 0.97 * s.sc, s.z + fz * 0.24 * s.sc + rz * side * 0.1 * s.sc), q, sc);
-        eyes.setMatrixAt(k, m4);
-        m4.compose(p.set(s.x + fx * 0.19 * s.sc + rx * side * 0.19 * s.sc, s.y + 0.87 * s.sc, s.z + fz * 0.19 * s.sc + rz * side * 0.19 * s.sc), q, sc);
-        cheeks.setMatrixAt(k, m4);
+        const fwdFoot = side * 0.03;
+        place(legs, k, i, fwdFoot, side * 0.105, 0.285, legTilt);
+        legs.setColorAt(k, pants);
+        place(shoes, k, i, fwdFoot + 0.03, side * 0.115, 0.055);
+        shoes.setColorAt(k, shoe);
       }
+      // stubby torso directly under the head (no neck)
+      place(torsos, i, i, 0, 0, 0.52);
+      torsos.setColorAt(i, shirt);
+      // oversized rounded-cube head (head-mounted parts are tracked so the head can turn toward the cars)
+      headMode = true;
+      place(heads, i, i, 0, 0, 0.98);
+      heads.setColorAt(i, skin);
+      // face: two tiny vertical dot eyes, no mouth
+      for (const side of [-1, 1]) {
+        const k = i * 2 + (side + 1) / 2;
+        place(eyes, k, i, 0.245, side * 0.095, 1.0);
+      }
+      headMode = false;
+      armsL.setColorAt(i, shirt);
+      armsR.setColorAt(i, shirt);
+      handsL.setColorAt(i, skin);
+      handsR.setColorAt(i, skin);
+      setArm(armsL, handsL, i, s, -1, raise[i], s.y);
+      setArm(armsR, handsR, i, s, 1, raise[i], s.y);
+
+      // outfit (everything here sits on the head → turns with it)
+      headMode = true;
+      if (outfit[i] === 1) {
+        const hc = hatCols[Math.floor(r() * hatCols.length)];
+        place(capDomes, capK, i, -0.01, 0, 1.19);
+        capDomes.setColorAt(capK, hc);
+        place(capVisors, capK, i, 0.3, 0, 1.2);
+        capVisors.setColorAt(capK, hc);
+        capK++;
+      } else if (outfit[i] === 2) {
+        const hc = r() < 0.6 ? white : hatCols[Math.floor(r() * hatCols.length)];
+        place(bucketTops, bucketK, i, 0, 0, 1.3);
+        bucketTops.setColorAt(bucketK, hc);
+        place(bucketBrims, bucketK, i, 0, 0, 1.21);
+        bucketBrims.setColorAt(bucketK, hc);
+        bucketK++;
+      } else if (outfit[i] === 3) {
+        pomps.setColorAt(pompK, hairCols[Math.floor(r() * hairCols.length)]);
+        place(pomps, pompK, i, 0.04, 0, 1.3);
+        pompK++;
+      } else if (outfit[i] === 4) {
+        // businessman: white shirt front + tie on the suit (torso parts), slicked dark hair (head part)
+        headMode = false;
+        place(shirts4, shirtK, i, 0.185, 0, 0.58);
+        shirts4.setColorAt(shirtK, white);
+        shirtK++;
+        place(ties, suitK, i, 0.205, 0, 0.56);
+        ties.setColorAt(suitK, tieCols[Math.floor(r() * tieCols.length)]);
+        headMode = true;
+        place(slickHairs, suitK, i, -0.01, 0, 1.255);
+        slickHairs.setColorAt(suitK, hairCols[Math.floor(r() * 2)]);
+        suitK++;
+      } else if (outfit[i] === 5) {
+        // dapper gent: blazer, white shirt, bow tie (torso parts), fedora (head part)
+        headMode = false;
+        place(shirts4, shirtK, i, 0.185, 0, 0.58);
+        shirts4.setColorAt(shirtK, white);
+        shirtK++;
+        place(bowTies, dapperK, i, 0.2, 0, 0.69);
+        bowTies.setColorAt(dapperK, r() < 0.5 ? dark : tieCols[Math.floor(r() * tieCols.length)]);
+        headMode = true;
+        const fc = fedoraCols[Math.floor(r() * fedoraCols.length)];
+        place(fedoraTops, dapperK, i, 0, 0, 1.33);
+        fedoraTops.setColorAt(dapperK, fc);
+        place(fedoraBrims, dapperK, i, 0.02, 0, 1.225);
+        fedoraBrims.setColorAt(dapperK, fc);
+        dapperK++;
+      }
+      if (hasShades[i]) {
+        // sunglasses worn over the eyes
+        place(faceShades, shadesK, i, 0.255, 0, 1.01);
+        shadesK++;
+      }
+      headMode = false;
     });
     flagIdx.forEach((si, f) => {
       const s = spots[si];
       q.setFromAxisAngle(UP, yaw[si]);
-      baseFlag[f] = s.y + 1.45 * s.sc;
+      baseFlag[f] = s.y + 1.5 * s.sc;
       m4.compose(p.set(s.x, baseFlag[f], s.z), q, sc.set(s.sc, s.sc, s.sc));
       flags.setMatrixAt(f, m4);
       flags.setColorAt(f, flagColors[Math.floor(r() * flagColors.length)]);
     });
-    bodies.castShadow = heads.castShadow = true;
-    for (const im of [bodies, heads, armsL, armsR, eyes, cheeks, flags]) im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    scene.add(bodies, heads, armsL, armsR, eyes, cheeks, flags);
+    // crowd shadows only pay off for small (close) groups; a 3000-fan grandstand would double the shadow pass
+    heads.castShadow = torsos.castShadow = N <= 1200;
+    const all = [heads, torsos, eyes, armsL, armsR, handsL, handsR, legs, shoes, capDomes, capVisors, bucketTops, bucketBrims, pomps, faceShades, shirts4, ties, slickHairs, bowTies, fedoraTops, fedoraBrims, flags];
+    for (const im of all) im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    scene.add(...all);
 
-    const bArr = bodies.instanceMatrix.array as Float32Array;
-    const hArr = heads.instanceMatrix.array as Float32Array;
-    const eArr = eyes.instanceMatrix.array as Float32Array;
-    const cArr = cheeks.instanceMatrix.array as Float32Array;
     const fArr = flags.instanceMatrix.array as Float32Array;
-    const bodyBase = new Float32Array(N);
-    const headBase = new Float32Array(N);
-    const eyeBaseY = new Float32Array(N * 2);
-    const cheekBaseY = new Float32Array(N * 2);
-    for (let i = 0; i < N; i++) {
-      bodyBase[i] = bArr[i * 16 + 13];
-      headBase[i] = hArr[i * 16 + 13];
-      eyeBaseY[i * 2] = eArr[i * 32 + 13];
-      eyeBaseY[i * 2 + 1] = eArr[i * 32 + 29];
-      cheekBaseY[i * 2] = cArr[i * 32 + 13];
-      cheekBaseY[i * 2 + 1] = cArr[i * 32 + 29];
-    }
     const offs = new Float32Array(N);
     let t = 0;
     let armTick = 0;
+    // Head tracking: every frame a quarter of the fans re-aim their heads at the focus car (≈15 Hz per fan),
+    // with a neck limit and per-fan lag so the whole stand turns like a real crowd, not like turrets.
+    const HEAD_SLICES = 4;
+    const NECK = 1.15;
+    const HEAD_RANGE = 110;
+    let slice = 0;
+    const headLag = new Float32Array(N);
+    for (let i = 0; i < N; i++) headLag[i] = 0.18 + r() * 0.25;
+    const aimHeads = () => {
+      const focus = this.focus;
+      const nf = focus.length;
+      const from = Math.floor((slice * N) / HEAD_SLICES);
+      const to = Math.floor(((slice + 1) * N) / HEAD_SLICES);
+      slice = (slice + 1) % HEAD_SLICES;
+      for (let i = from; i < to; i++) {
+        const s = spots[i];
+        let target = 0;
+        // nearest car within range
+        let bestD = HEAD_RANGE * HEAD_RANGE;
+        let bdx = 0;
+        let bdz = 0;
+        for (let c = 0; c < nf; c += 2) {
+          const dx = focus[c] - s.x;
+          const dz = focus[c + 1] - s.z;
+          const d2 = dx * dx + dz * dz;
+          if (d2 < bestD) {
+            bestD = d2;
+            bdx = dx;
+            bdz = dz;
+          }
+        }
+        if (bdx !== 0 || bdz !== 0) {
+          let rel = Math.atan2(bdx, bdz) - yaw[i];
+          rel = Math.atan2(Math.sin(rel), Math.cos(rel)); // wrap to ±π
+          target = THREE.MathUtils.clamp(rel, -NECK, NECK);
+        }
+        const cur = headYaw[i];
+        const next = cur + (target - cur) * headLag[i];
+        if (Math.abs(next - cur) < 0.002) continue;
+        headYaw[i] = next;
+        const a = yaw[i] + next;
+        for (const hp of headParts[i]) placeYaw(hp.mesh, hp.k, i, hp.fwd, hp.side, hp.y, a);
+      }
+    };
+    recordBobs = false;
     return (dt: number) => {
       t += dt;
       armTick += dt;
       const doArms = armTick > 0.05; // arms update at 20 Hz — plenty for a wave
       if (doArms) armTick = 0;
+      aimHeads();
       for (let i = 0; i < N; i++) {
         const s = spots[i];
         let off = 0;
@@ -864,31 +941,23 @@ class Crowd {
         }
         if (s.amp > 0) off += s.amp * Math.abs(Math.sin(t * 3.6 + s.phase));
         offs[i] = off;
-        bArr[i * 16 + 13] = bodyBase[i] + off;
-        hArr[i * 16 + 13] = headBase[i] + off;
-        eArr[i * 32 + 13] = eyeBaseY[i * 2] + off;
-        eArr[i * 32 + 29] = eyeBaseY[i * 2 + 1] + off;
-        cArr[i * 32 + 13] = cheekBaseY[i * 2] + off;
-        cArr[i * 32 + 29] = cheekBaseY[i * 2 + 1] + off;
         if (doArms) {
           const y = baseY[i] + off;
           const swing = 0.5 + 0.5 * Math.sin(t * 5 + s.phase);
           const liftL = Math.max(waveLift, raise[i] ? 0.85 + 0.15 * swing : armSide[i] < 0 && s.amp > 0 ? swing : 0.05);
           const liftR = Math.max(waveLift, raise[i] ? 0.85 + 0.15 * (1 - swing) : armSide[i] > 0 && s.amp > 0 ? swing : 0.05);
-          setArm(armsL, i, s, -1, liftL, y);
-          setArm(armsR, i, s, 1, liftR, y);
+          setArm(armsL, handsL, i, s, -1, liftL, y);
+          setArm(armsR, handsR, i, s, 1, liftR, y);
         }
       }
-      for (let f = 0; f < flagIdx.length; f++) fArr[f * 16 + 13] = baseFlag[f] + offs[flagIdx[f]] * 1.3;
-      bodies.instanceMatrix.needsUpdate = true;
-      heads.instanceMatrix.needsUpdate = true;
-      eyes.instanceMatrix.needsUpdate = true;
-      cheeks.instanceMatrix.needsUpdate = true;
-      if (doArms) {
-        armsL.instanceMatrix.needsUpdate = true;
-        armsR.instanceMatrix.needsUpdate = true;
+      for (const b of bobs) {
+        (b.mesh.instanceMatrix.array as Float32Array)[b.k * 16 + 13] = b.y + offs[b.i];
       }
-      if (flagIdx.length) flags.instanceMatrix.needsUpdate = true;
+      for (let f = 0; f < flagIdx.length; f++) fArr[f * 16 + 13] = baseFlag[f] + offs[flagIdx[f]] * 1.3;
+      for (const im of all) {
+        if ((im === armsL || im === armsR || im === handsL || im === handsR) && !doArms) continue;
+        if (im.count > 0) im.instanceMatrix.needsUpdate = true;
+      }
     };
   }
 }
@@ -899,39 +968,6 @@ class Crowd {
 
 const poleMat = new THREE.MeshStandardMaterial({ color: '#2b2f3a', roughness: 0.5, metalness: 0.4 });
 const woodMat = new THREE.MeshStandardMaterial({ color: '#8a6540', roughness: 0.9 });
-
-/** Tiered grandstand. Tiers climb toward local -x; seats are returned in local space. */
-function buildStand(length: number, tiers: number, colors: string[], roof: boolean, rand: () => number) {
-  const group = new THREE.Group();
-  const seats: [number, number, number][] = [];
-  for (let k = 0; k < tiers; k++) {
-    const tier = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.2, length), new THREE.MeshStandardMaterial({ color: colors[k % colors.length], roughness: 0.8 }));
-    tier.position.set(-k * 2.4, 0.6 + k * 1.2, 0);
-    tier.castShadow = true;
-    tier.receiveShadow = true;
-    group.add(tier);
-    for (let z = -length / 2 + 0.6; z < length / 2 - 0.4; z += 1.05) {
-      if (rand() < 0.88) seats.push([-k * 2.4 + 0.15 + (rand() - 0.5) * 0.4, 1.2 + k * 1.2, z + (rand() - 0.5) * 0.3]);
-    }
-  }
-  const depth = tiers * 2.4;
-  const back = new THREE.Mesh(new THREE.BoxGeometry(0.4, tiers * 1.2 + 0.6, length), new THREE.MeshStandardMaterial({ color: '#3a4250' }));
-  back.position.set(-depth + 1.0, (tiers * 1.2 + 0.6) / 2, 0);
-  group.add(back);
-  if (roof) {
-    const roofH = tiers * 1.2 + 2.4;
-    const roofMesh = new THREE.Mesh(new THREE.BoxGeometry(depth + 3, 0.35, length + 2), new THREE.MeshStandardMaterial({ color: '#e9eef5' }));
-    roofMesh.position.set(-depth / 2 + 0.6, roofH, 0);
-    roofMesh.castShadow = true;
-    group.add(roofMesh);
-    for (const z of [-length / 2 + 1, 0, length / 2 - 1]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, roofH, 8), poleMat);
-      post.position.set(-depth + 0.9, roofH / 2, z);
-      group.add(post);
-    }
-  }
-  return { group, seats };
-}
 
 /** Overhead gate with a banner (used for drift-zone entries / exits). */
 function buildGate(track: Track, idx: number, tex: THREE.Texture, color: string, small: boolean): THREE.Group {
@@ -966,7 +1002,7 @@ function buildGate(track: Track, idx: number, tex: THREE.Texture, color: string,
 /* ------------------------------------------------------------------ */
 
 /** Bakes a tiny gradient env map (sky + hot sun + green ground) so paint/glass/water get pretty reflections. */
-function applyEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
+function applyEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer): THREE.Texture {
   const env = new THREE.Scene();
   const skyGeo = new THREE.SphereGeometry(60, 16, 12);
   const skyMat = new THREE.ShaderMaterial({
@@ -1008,13 +1044,55 @@ function applyEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
   skyMat.dispose();
   sunGeo.dispose();
   sunMat.dispose();
+  return rt.texture;
 }
 
 /* ------------------------------------------------------------------ */
 /*  World                                                              */
 /* ------------------------------------------------------------------ */
 
-export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.WebGLRenderer, zones: DriftZone[]): WorldRefs {
+/** Soft cumulus sprite: a cluster of radial puffs with a flatter, slightly grey base. */
+function makeCloudTexture(rand: () => number, variant: number): THREE.CanvasTexture {
+  const W = 512;
+  const H = 256;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d')!;
+  ctx.clearRect(0, 0, W, H);
+  const puffs = 26 + variant * 6;
+  const spread = 0.34 + variant * 0.05;
+  for (let i = 0; i < puffs; i++) {
+    const t = i / puffs;
+    const px = W * (0.5 + (rand() - 0.5) * 2 * spread * (0.6 + 0.4 * Math.sin(t * Math.PI)));
+    const base = H * 0.62;
+    const py = base - Math.abs(rand() - rand()) * H * 0.3 - (0.5 - Math.abs(px / W - 0.5)) * H * 0.25;
+    const rr = H * (0.1 + rand() * 0.16);
+    const shade = 1 - Math.max(0, (py - H * 0.4) / (H * 0.35)) * 0.1; // lower puffs only a hint greyer — never dark
+    const g = ctx.createRadialGradient(px, py, 0, px, py, rr);
+    const v = Math.round(255 * shade);
+    g.addColorStop(0, `rgba(${v},${v},${Math.min(255, v + 4)},0.95)`);
+    g.addColorStop(0.55, `rgba(${v},${v},${Math.min(255, v + 4)},0.55)`);
+    g.addColorStop(1, `rgba(${v},${v},${Math.min(255, v + 4)},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(px - rr, py - rr, rr * 2, rr * 2);
+  }
+  // flat, soft underside
+  const under = ctx.createLinearGradient(0, H * 0.58, 0, H * 0.82);
+  under.addColorStop(0, 'rgba(0,0,0,0)');
+  under.addColorStop(1, 'rgba(0,0,0,1)');
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = under;
+  ctx.fillRect(0, H * 0.58, W, H * 0.42);
+  ctx.globalCompositeOperation = 'source-over';
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.WebGLRenderer, zones: DriftZone[], venue: Venue = 'ebisu'): WorldRefs {
+  const LB = venue === 'longbeach';
   const rand = mulberry32(1337);
   const aniso = renderer.capabilities.getMaxAnisotropy();
   const n = track.count;
@@ -1085,10 +1163,12 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   sky.position.set(cx, 0, cz);
   sky.frustumCulled = false;
   scene.add(sky);
-  scene.fog = new THREE.Fog(FOG_COLOR, 200, 1050);
+  const stylizedFog = new THREE.Fog(FOG_COLOR, 200, 1050);
+  scene.fog = stylizedFog;
 
   /* ---------- Lights: warm key + cool fill + sky bounce ---------- */
-  scene.add(new THREE.HemisphereLight(0xbcd9ff, 0x5f9248, 0.9));
+  const hemi = new THREE.HemisphereLight(0xbcd9ff, 0x5f9248, 0.9);
+  scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xffdfb0, 2.4);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
@@ -1111,47 +1191,29 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   scene.add(fill.target);
 
   /* ---------- Image-based lighting: tiny custom env map for glossy reflections ---------- */
-  applyEnvironment(scene, renderer);
+  const stylizedEnv = applyEnvironment(scene, renderer);
 
-  /* ---------- Terrain ---------- */
-  const terrain = buildTerrain(track, aniso);
-  scene.add(terrain.mesh);
-
-  /* ---------- Runoff, road, curbs ---------- */
-  const runoffMat = new THREE.MeshStandardMaterial({ color: '#5da84f', roughness: 1, side: THREE.DoubleSide });
-  for (const side of [1, -1] as const) {
-    const from = (HALF_WIDTH + CURB_WIDTH) * side;
-    const to = WALL_DIST * side;
-    const m = new THREE.Mesh(buildStrip(track, Math.min(from, to), Math.max(from, to), 0.0, 10), runoffMat);
-    m.receiveShadow = true;
-    scene.add(m);
-  }
-  const roadTex = makeRoadTexture();
-  roadTex.anisotropy = aniso;
-  const road = new THREE.Mesh(
-    buildStrip(track, -HALF_WIDTH, HALF_WIDTH, 0.01, 9),
-    new THREE.MeshStandardMaterial({ map: roadTex, color: '#d9d9dc', roughness: 0.78, metalness: 0.05, side: THREE.DoubleSide, envMapIntensity: 0.5 }),
-  );
-  road.receiveShadow = true;
-  scene.add(road);
-  const curbMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide });
-  for (const side of [1, -1] as const) {
-    const m = new THREE.Mesh(buildCurb(track, side), curbMat);
-    m.receiveShadow = true;
-    scene.add(m);
+  /* ---------- Terrain (Ebisu hills) / flat harbour-city ground (Long Beach) ---------- */
+  const terrain = LB ? null : buildTerrain(track, aniso);
+  if (terrain) scene.add(terrain.mesh);
+  if (LB) {
+    // SoCal: clearer, bluer sky and crisper light than the mountain venue
+    skyMat.uniforms.topColor.value.set('#1f5fd6');
+    skyMat.uniforms.midColor.value.set('#6fa3ee');
+    skyMat.uniforms.warmColor.value.set('#ffe6c4');
+    hemi.intensity = 1.0;
+    hemi.groundColor.set('#8f9196');
   }
 
-  /* ---------- Drift zones: painted road, gates, cones ---------- */
+  /* ---------- Pro circuit surface: asphalt, kerbs, run-off, grid, boards ---------- */
+  buildProCircuit(scene, track, zones, { aniso, groundY: GROUND_Y, runoff: LB ? 'none' : 'grass' });
+
+  /* ---------- Drift zones: entry/exit lines, gates, cones ---------- */
   const coneSpots: { x: number; z: number; color: THREE.Color }[] = [];
   for (const z of zones) {
     const base = new THREE.Color(z.color);
-    const dark = base.clone().multiplyScalar(0.45);
-    const paint = new THREE.Mesh(
-      buildRangeStrip(track, z.start, z.len, -HALF_WIDTH + 0.3, HALF_WIDTH - 0.3, 0.018, { len: 3, a: base, b: dark }),
-      new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.24, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
-    );
-    paint.renderOrder = 1;
-    scene.add(paint);
+    // NOTE: no tinted "paint" over the asphalt inside the zone — it turned the road tan/brown in the
+    // ×3 (amber) zones. The zone is marked by its entry/exit lines, gates and coloured cones only.
     const lineMat = new THREE.MeshBasicMaterial({ color: base, transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 });
     const lineIn = new THREE.Mesh(buildRangeStrip(track, z.start, 2, -HALF_WIDTH + 0.3, HALF_WIDTH - 0.3, 0.02), lineMat);
     const lineOut = new THREE.Mesh(buildRangeStrip(track, (z.start + z.len - 2 + n) % n, 2, -HALF_WIDTH + 0.3, HALF_WIDTH - 0.3, 0.02), lineMat);
@@ -1175,15 +1237,12 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }
   }
   if (coneSpots.length) {
-    const cones = new THREE.InstancedMesh(
-      new THREE.ConeGeometry(0.32, 0.85, 8),
-      new THREE.MeshStandardMaterial({ roughness: 0.6, emissive: '#ffffff', emissiveIntensity: 0.12 }),
-      coneSpots.length,
-    );
+    const cone = makeTrafficCone();
+    const cones = new THREE.InstancedMesh(cone.geometry, cone.materials, coneSpots.length);
     coneSpots.forEach((c, i) => {
-      m4.compose(tmpPos.set(c.x, GROUND_Y + 0.43, c.z), quat.identity(), ONE);
+      quat.setFromAxisAngle(UP, rand() * Math.PI * 2);
+      m4.compose(tmpPos.set(c.x, GROUND_Y, c.z), quat, ONE);
       cones.setMatrixAt(i, m4);
-      cones.setColorAt(i, c.color);
     });
     cones.castShadow = true;
     scene.add(cones);
@@ -1196,41 +1255,49 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   startGroup.rotation.y = s0.angle;
   scene.add(startGroup);
   const line = new THREE.Mesh(
-    new THREE.PlaneGeometry(TRACK_WIDTH, 2.4),
-    new THREE.MeshStandardMaterial({ map: makeCheckerTexture(12, 2), roughness: 0.8 }),
+    new THREE.PlaneGeometry(TRACK_WIDTH, 3.0),
+    new THREE.MeshStandardMaterial({ map: makeCheckerTexture(14, 3), roughness: 0.7 }),
   );
   line.rotation.x = -Math.PI / 2;
   line.position.y = 0.03;
   line.receiveShadow = true;
   startGroup.add(line);
-  const poleX = HALF_WIDTH + CURB_WIDTH + 1.0;
-  for (const sx of [-poleX, poleX]) {
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.25, 7.5, 10), poleMat);
-    pole.position.set(sx, 3.75, 0);
-    pole.castShadow = true;
-    startGroup.add(pole);
-  }
-  const beam = new THREE.Mesh(new THREE.BoxGeometry(poleX * 2 + 0.6, 0.5, 0.6), poleMat);
-  beam.position.set(0, 7.5, 0);
-  beam.castShadow = true;
-  startGroup.add(beam);
-  const gantryTex = makeTextTexture('DRIFT KING CIRCUIT', { bg: '#ff5a1f', fg: '#ffffff', h: 96, size: 60, checker: true });
-  gantryTex.anisotropy = aniso;
-  const gantryMat = new THREE.MeshStandardMaterial({ map: gantryTex, roughness: 0.9 });
-  const banner = new THREE.Mesh(new THREE.BoxGeometry(poleX * 2, 1.5, 0.12), [poleMat, poleMat, poleMat, poleMat, gantryMat, gantryMat]);
-  banner.position.set(0, 6.5, 0);
-  banner.castShadow = true;
-  startGroup.add(banner);
-  // start lights on the gantry
-  for (let i = -2; i <= 2; i++) {
-    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.3), new THREE.MeshStandardMaterial({ color: '#ff3b30', emissive: '#ff2a2a', emissiveIntensity: 0.9 }));
-    lamp.position.set(i * 0.8, 7.5, 0.5);
-    startGroup.add(lamp);
+  const poleX = HALF_WIDTH + CURB_WIDTH + 1.6;
+  startGroup.add(buildStartGantry(poleX, aniso));
+  // painted START text on the grid, just behind the line
+  const startText = makeRoadText('START');
+  startText.position.set(0, 0.024, -4.2);
+  startGroup.add(startText);
+  const startText2 = makeRoadText('START');
+  startText2.position.set(0, 0.024, 4.2);
+  startText2.rotation.z = Math.PI;
+  startGroup.add(startText2);
+
+  if (LB) {
+    buildLongBeachVenue(scene, track, zones, {
+      rand,
+      aniso,
+      crowd,
+      animated,
+      groundY: GROUND_Y,
+      buildWallStrip,
+      buildRangeStrip,
+      makeFenceTexture,
+      makeTextTexture,
+    });
   }
 
+  // positions that the Ebisu scenery pass (part 2) must avoid
+  let standX = 0;
+  let standZ = 0;
+  let pitX = 0;
+  let pitZ = 0;
+  const miniStandCenters: { x: number; z: number }[] = [];
+
+  if (!LB) {
   /* ---------- Main grandstand (start straight) ---------- */
   const gs = samples[34];
-  const mainStand = buildStand(46, 6, ['#c8102e', '#f5f5f5', '#c8102e', '#f5f5f5', '#c8102e', '#f5f5f5'], true, rand);
+  const mainStand = buildProStand(52, 6, ['#c8102e', '#f5f5f5', '#1d4ed8', '#f5f5f5'], rand, { roof: true, vip: true, name: 'EBISU CIRCUIT  ·  DRIFT KING', floodlights: true });
   const standOffset = -(WALL_DIST + 5);
   mainStand.group.position.set(gs.x + gs.rx * standOffset, 0, gs.z + gs.rz * standOffset);
   mainStand.group.rotation.y = gs.angle;
@@ -1240,8 +1307,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     mainStand.group.localToWorld(tmpV.set(lx, ly, lz));
     crowd.add(tmpV.x, tmpV.y, tmpV.z, { wave: lz + 23, jumpChance: 0.25, flagChance: 0.14 });
   }
-  const standX = mainStand.group.position.x;
-  const standZ = mainStand.group.position.z;
+  standX = mainStand.group.position.x;
+  standZ = mainStand.group.position.z;
 
   /* ---------- Pit building, pit wall, big screen (opposite the grandstand) ---------- */
   const ps = samples[32];
@@ -1254,6 +1321,13 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   pitWall.castShadow = true;
   pitWall.receiveShadow = true;
   pit.add(pitWall);
+  // sponsor strip on the track-facing side of the pit wall
+  const pitSponsorTex = makeSponsorStrip(3, 9);
+  pitSponsorTex.anisotropy = aniso;
+  const pitSponsor = new THREE.Mesh(new THREE.PlaneGeometry(70, 0.7), new THREE.MeshStandardMaterial({ map: pitSponsorTex, roughness: 0.75 }));
+  pitSponsor.position.set(-0.21, 0.5, 0);
+  pitSponsor.rotation.y = -Math.PI / 2;
+  pit.add(pitSponsor);
   const garageTex = makeGarageTexture();
   garageTex.anisotropy = aniso;
   const wallMat = new THREE.MeshStandardMaterial({ color: '#d7dde6', roughness: 0.9 });
@@ -1305,8 +1379,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
       }
     }
   }
-  const pitX = pit.position.x + ps.rx * 9;
-  const pitZ = pit.position.z + ps.rz * 9;
+  pitX = pit.position.x + ps.rx * 9;
+  pitZ = pit.position.z + ps.rz * 9;
 
   /* ---------- Tire stacks (pit boxes + corner apexes) ---------- */
   const tireSpots: { x: number; z: number; y: number; color: THREE.Color }[] = [];
@@ -1350,54 +1424,9 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   tires.castShadow = true;
   scene.add(tires);
 
-  /* ---------- Corner barriers (skipping the apexes covered by tire stacks) ---------- */
-  const barrierSpots: { x: number; z: number; angle: number; red: boolean }[] = [];
-  let bCount = 0;
-  for (let i = 0; i < n; i += 5) {
-    const s = samples[i];
-    if (Math.abs(s.curv) < 0.011) continue;
-    if (zones.some((z) => circDist(i, z.apex, n) <= 7)) continue;
-    const side = -Math.sign(s.curv);
-    const off = (WALL_DIST + 1.0) * side;
-    barrierSpots.push({ x: s.x + s.rx * off, z: s.z + s.rz * off, angle: s.angle, red: bCount % 2 === 0 });
-    bCount++;
-  }
-  if (barrierSpots.length) {
-    const barriers = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.9, 2.2), new THREE.MeshStandardMaterial({ roughness: 0.6 }), barrierSpots.length);
-    const cRed = new THREE.Color('#e63946');
-    const cWhite = new THREE.Color('#f7f7f7');
-    barrierSpots.forEach((b, i) => {
-      quat.setFromAxisAngle(UP, b.angle);
-      m4.compose(tmpPos.set(b.x, 0.45, b.z), quat, ONE);
-      barriers.setMatrixAt(i, m4);
-      barriers.setColorAt(i, b.red ? cRed : cWhite);
-    });
-    barriers.castShadow = true;
-    barriers.receiveShadow = true;
-    scene.add(barriers);
-  }
-
-  /* ---------- Guardrails: continuous silver W-beam + white posts, full loop ---------- */
-  const railMat = new THREE.MeshStandardMaterial({ color: '#c8ccd2', metalness: 0.7, roughness: 0.35, side: THREE.DoubleSide, envMapIntensity: 0.9 });
-  for (const side of [1, -1] as const) {
-    const rail = new THREE.Mesh(buildWallStrip(track, 0, n, (WALL_DIST + 0.4) * side, GROUND_Y + 0.35, GROUND_Y + 0.75, 1), railMat);
-    rail.receiveShadow = true;
-    scene.add(rail);
-  }
-  const postSpots: { x: number; z: number }[] = [];
-  for (let i = 0; i < n; i += 4) {
-    const s = samples[i];
-    for (const side of [1, -1] as const) {
-      postSpots.push({ x: s.x + s.rx * (WALL_DIST + 0.4) * side, z: s.z + s.rz * (WALL_DIST + 0.4) * side });
-    }
-  }
-  const railPosts = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 0.85, 0.14), new THREE.MeshStandardMaterial({ color: '#e8eaee', roughness: 0.7 }), postSpots.length);
-  postSpots.forEach((p, i) => {
-    m4.compose(tmpPos.set(p.x, GROUND_Y + 0.42, p.z), quat.identity(), ONE);
-    railPosts.setMatrixAt(i, m4);
-  });
-  railPosts.castShadow = true;
-  scene.add(railPosts);
+  /* ---------- Pro barriers: TecPro corner blocks + W-beam Armco with reflectors ---------- */
+  buildCornerBlocks(scene, track, zones, { groundY: GROUND_Y, aniso, rand });
+  buildGuardrails(scene, track, { groundY: GROUND_Y, aniso, rand });
 
   /* ---------- Corner crowds, fences, umbrellas, mini grandstands ---------- */
   const fenceTex = makeFenceTexture();
@@ -1405,9 +1434,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   const fenceMat = new THREE.MeshStandardMaterial({ map: fenceTex, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.4 });
   const fencePostSpots: { x: number; z: number }[] = [];
   const umbrellaSpots: { x: number; z: number; color: THREE.Color }[] = [];
-  const umbrellaColors = ['#ff5a1f', '#ffd166', '#06d6a0', '#ef476f', '#2f80ff', '#ffffff'].map((c) => new THREE.Color(c));
-  const miniStandZones = [...zones].sort((a, b) => b.mult - a.mult).slice(0, 2);
-  const miniStandCenters: { x: number; z: number }[] = [];
+  const miniStandZones = [...zones]; // every corner gets a covered grandstand — all fans are seated
 
   for (const z of zones) {
     const side = -z.dir;
@@ -1418,28 +1445,9 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
       const s = samples[(z.start + k) % n];
       fencePostSpots.push({ x: s.x + s.rx * (WALL_DIST + 2.0) * side, z: s.z + s.rz * (WALL_DIST + 2.0) * side });
     }
-    for (let k = 0; k < z.len; k += 2) {
-      const i = (z.start + k) % n;
-      const s = samples[i];
-      if (Math.abs(s.curv) < 0.008) continue;
-      for (let row = 0; row < 3; row++) {
-        if (rand() < 0.15) continue;
-        const off = (WALL_DIST + 3.2 + row * 1.15 + (rand() - 0.5) * 0.5) * side;
-        const along = (rand() - 0.5) * 1.6;
-        crowd.add(s.x + s.rx * off + s.tx * along, GROUND_Y, s.z + s.rz * off + s.tz * along, { jumpChance: 0.4, flagChance: 0.12 });
-      }
-    }
-    for (let k = 5; k < z.len - 4; k += 11) {
-      const i = (z.start + k) % n;
-      const s = samples[i];
-      if (Math.abs(s.curv) < 0.008) continue;
-      if (hasStand && circDist(i, z.apex, n) < 13) continue;
-      const off = (WALL_DIST + 7.3) * side;
-      umbrellaSpots.push({ x: s.x + s.rx * off, z: s.z + s.rz * off, color: umbrellaColors[Math.floor(rand() * umbrellaColors.length)] });
-    }
     if (hasStand) {
       const s = samples[z.apex];
-      const stand = buildStand(22, 3, ['#ff5a1f', '#ffd166', '#2f80ff'], false, rand);
+      const stand = buildProStand(30, 5, ['#ff5a1f', '#ffd166', '#2f80ff', '#f5f5f5'], rand, { roof: true, name: z.name.toUpperCase() });
       const off = (WALL_DIST + 9.0) * side;
       stand.group.position.set(s.x + s.rx * off, GROUND_Y, s.z + s.rz * off);
       stand.group.rotation.y = s.angle + (side === -1 ? 0 : Math.PI);
@@ -1453,10 +1461,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }
   }
 
-  /* ---------- Sponsor walls + crowds along the other straights ---------- */
-  const sponsorTex = makeSponsorTexture();
-  sponsorTex.anisotropy = aniso;
-  const sponsorMat = new THREE.MeshStandardMaterial({ map: sponsorTex, roughness: 0.85, side: THREE.DoubleSide });
+  /* ---------- Sponsor hoardings (straights both sides + corner boards) + crowds along the straights ---------- */
+  buildSponsorBoards(scene, track, zones, { groundY: GROUND_Y, aniso, rand, skipStart: 66, skipEnd: n - 30 });
   const runs: { a: number; len: number }[] = [];
   let runStart = -1;
   for (let i = 0; i <= n; i++) {
@@ -1468,18 +1474,29 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
       runStart = -1;
     }
   }
+  // straight-side grandstands (behind the hoardings and the light/flag poles) — no standing fans anywhere
+  const straightPalettes = [
+    ['#1d4ed8', '#f5f5f5', '#ffd166'],
+    ['#c8102e', '#f5f5f5', '#111318'],
+    ['#0f766e', '#f5f5f5', '#ff5a1f'],
+  ];
   runs.forEach((run, ri) => {
     const side = ri % 2 === 0 ? 1 : -1;
-    const wall = new THREE.Mesh(buildWallStrip(track, run.a + 3, run.len - 6, (WALL_DIST + 0.3) * side, GROUND_Y, GROUND_Y + 1.1, 32), sponsorMat);
-    wall.castShadow = true;
-    scene.add(wall);
-    for (let k = 3; k < run.len - 3; k += 3) {
-      const s = samples[run.a + k];
-      for (let row = 0; row < 2; row++) {
-        if (rand() > 0.55) continue;
-        const off = (WALL_DIST + 2.0 + row * 1.15 + (rand() - 0.5) * 0.5) * side;
-        crowd.add(s.x + s.rx * off + s.tx * (rand() - 0.5) * 1.5, GROUND_Y, s.z + s.rz * off + s.tz * (rand() - 0.5) * 1.5, { jumpChance: 0.3 });
-      }
+    const lengthM = Math.min(44, run.len * track.spacing - 10);
+    if (lengthM < 16) return;
+    const s = samples[(run.a + Math.floor(run.len / 2)) % n];
+    const stand = buildProStand(lengthM, 5, straightPalettes[ri % straightPalettes.length], rand, { roof: true, name: 'EBISU  ·  DRIFT KING', floodlights: ri % 2 === 0 });
+    const off = (WALL_DIST + 11.5) * side;
+    stand.group.position.set(s.x + s.rx * off, GROUND_Y, s.z + s.rz * off);
+    stand.group.rotation.y = s.angle + (side === -1 ? 0 : Math.PI);
+    scene.add(stand.group);
+    stand.group.updateMatrixWorld(true);
+    for (const [lx, ly, lz] of stand.seats) {
+      stand.group.localToWorld(tmpV.set(lx, ly, lz));
+      crowd.add(tmpV.x, tmpV.y, tmpV.z, { wave: lz + 17, jumpChance: 0.25, flagChance: 0.12 });
+    }
+    for (let d = -lengthM / 2; d <= lengthM / 2; d += 12) {
+      miniStandCenters.push({ x: stand.group.position.x + s.tx * d, z: stand.group.position.z + s.tz * d });
     }
   });
 
@@ -1617,6 +1634,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     });
   }
 
+  } // end Ebisu venue dressing (part 1)
+
   /* ---------- Crowd meshes (everyone faces the nearest bit of track) ---------- */
   animated.push(
     crowd.build(scene, (x, z) => {
@@ -1625,6 +1644,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     }),
   );
 
+  if (terrain) {
   /* ---------- Ebisu paddock: asphalt lot, tents, service buildings ---------- */
   const rockMat = new THREE.MeshStandardMaterial({ color: '#8d8f94', roughness: 0.95, flatShading: true });
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
@@ -1801,53 +1821,19 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
     Math.hypot(x - WM.x, z - WM.z) < 10 ||
     miniStandCenters.some((c) => Math.hypot(x - c.x, z - c.z) < 18);
 
-  /* ---------- Forest: dense Japanese cedar hillsides + broadleaf ---------- */
-  const TREE_MAX = 1400;
-  const trunkMat = new THREE.MeshStandardMaterial({ color: '#5d3f26', roughness: 1 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.9, flatShading: true });
-  const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.38, 3, 6), trunkMat, TREE_MAX);
-  const pines = new THREE.InstancedMesh(new THREE.ConeGeometry(1.9, 4.8, 7), leafMat, TREE_MAX);
-  const rounds = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(2.1, 0), leafMat, TREE_MAX);
-  const pineColors = ['#1f6b34', '#2a7a3a', '#1a5c2e', '#357a38'].map((c) => new THREE.Color(c));
-  const roundColors = ['#3f8a3a', '#4f9a40', '#2f7a32', '#63a848'].map((c) => new THREE.Color(c));
-  const autumnColors = ['#e0a03c', '#d8623a', '#f0b84a'].map((c) => new THREE.Color(c));
-  let nT = 0;
-  let nP = 0;
-  let nR = 0;
-  let attempts = 0;
-  const spread = 420;
-  while (nT < TREE_MAX && attempts < 22000) {
-    attempts++;
-    const x = cx - spread + rand() * spread * 2;
-    const z = cz - spread + rand() * spread * 2;
-    const d = terrain.distToTrack(x, z);
-    if (d < WALL_DIST + 7 || blocked(x, z)) continue;
-    const h = terrain.heightAt(x, z);
-    if (h - GROUND_Y > 150 || terrain.slopeAt(x, z) > 0.7) continue;
-    if (d < 55 && rand() > 0.3) continue;
-    const sc = 0.75 + rand() * 0.75;
-    quat.setFromAxisAngle(UP, rand() * Math.PI * 2);
-    tmpScale.set(sc, sc, sc);
-    m4.compose(tmpPos.set(x, h + 1.5 * sc - 0.6, z), quat, tmpScale);
-    trunks.setMatrixAt(nT++, m4);
-    if (rand() < 0.65) {
-      m4.compose(tmpPos.set(x, h + 5.4 * sc - 0.6, z), quat, tmpScale);
-      pines.setMatrixAt(nP, m4);
-      pines.setColorAt(nP, pineColors[Math.floor(rand() * pineColors.length)]);
-      nP++;
-    } else {
-      m4.compose(tmpPos.set(x, h + 4.6 * sc - 0.6, z), quat, tmpScale.set(sc, sc * 0.9, sc));
-      rounds.setMatrixAt(nR, m4);
-      const autumn = rand() < 0.08;
-      rounds.setColorAt(nR, autumn ? autumnColors[Math.floor(rand() * autumnColors.length)] : roundColors[Math.floor(rand() * roundColors.length)]);
-      nR++;
-    }
-  }
-  trunks.count = nT;
-  pines.count = nP;
-  rounds.count = nR;
-  trunks.castShadow = pines.castShadow = rounds.castShadow = true;
-  scene.add(trunks, pines, rounds);
+  /* ---------- Forest: layered cedars on the hills, broadleaf + sakura lining the track ---------- */
+  buildProForest(scene, {
+    cx,
+    cz,
+    groundY: GROUND_Y,
+    wallDist: WALL_DIST,
+    rand,
+    heightAt: terrain.heightAt,
+    slopeAt: terrain.slopeAt,
+    distToTrack: terrain.distToTrack,
+    blocked,
+    max: 1500,
+  });
 
   /* ---------- Bushes & flowers near the track (outside zones / paddock) ---------- */
   const bushCount = 110;
@@ -1898,6 +1884,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   scene.add(flowers);
 
   /* ---------- Rocks on the hills ---------- */
+  const spread = 420;
   const rockCount = 70;
   const rocks = new THREE.InstancedMesh(rockGeo, rockMat, rockCount);
   let nRk = 0;
@@ -1916,34 +1903,34 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   rocks.count = nRk;
   rocks.castShadow = true;
   scene.add(rocks);
+  } // end Ebisu scenery (part 2)
 
   /* ---------- Drifting clouds ---------- */
-  const cloudMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, emissive: '#ffe7cf', emissiveIntensity: 0.45, envMapIntensity: 0.4 });
-  const cloudGeo = new THREE.SphereGeometry(1, 10, 7);
-  const clouds: THREE.Group[] = [];
-  for (let i = 0; i < 16; i++) {
-    const cg = new THREE.Group();
+  // Big soft cumulus billboards high above the venue (unlit sprites: always bright white against the blue, with
+  // a shaded underside baked into the texture). The old 15 m sphere blobs at 80 m were invisible behind the city.
+  const cloudTexes = [makeCloudTexture(rand, 0), makeCloudTexture(rand, 1), makeCloudTexture(rand, 2)];
+  const clouds: { s: THREE.Sprite; v: number }[] = [];
+  for (let i = 0; i < 34; i++) {
+    const mat = new THREE.SpriteMaterial({ map: cloudTexes[i % 3], transparent: true, depthWrite: false, fog: true, opacity: 0.92 + rand() * 0.08 });
+    const sp = new THREE.Sprite(mat);
     const a = rand() * Math.PI * 2;
-    const r = 100 + rand() * 380;
-    cg.position.set(cx + Math.cos(a) * r, 80 + rand() * 50, cz + Math.sin(a) * r);
-    const puffs = 3 + Math.floor(rand() * 3);
-    for (let k = 0; k < puffs; k++) {
-      const pMesh = new THREE.Mesh(cloudGeo, cloudMat);
-      const sx = 8 + rand() * 9;
-      pMesh.scale.set(sx, 3.2 + rand() * 2.8, 5.5 + rand() * 5.5);
-      pMesh.position.set((k - puffs / 2) * 7.5 + rand() * 3, rand() * 2, rand() * 4);
-      cg.add(pMesh);
-    }
-    scene.add(cg);
-    clouds.push(cg);
+    const r = 220 + rand() * 900;
+    const far = r / 1120; // farther clouds: lower on the sky, bigger
+    const w = 150 + rand() * 170 + far * 120;
+    sp.position.set(cx + Math.cos(a) * r, 230 + rand() * 170 + far * 90, cz + Math.sin(a) * r);
+    sp.scale.set(w, w * 0.5, 1);
+    sp.renderOrder = -0.5;
+    scene.add(sp);
+    clouds.push({ s: sp, v: 1.2 + rand() * 1.4 });
   }
   animated.push((dt) => {
     for (const c of clouds) {
-      c.position.x += dt * 1.6;
-      if (c.position.x > cx + 520) c.position.x = cx - 520;
+      c.s.position.x += dt * c.v;
+      if (c.s.position.x > cx + 1150) c.s.position.x = cx - 1150;
     }
   });
 
+  if (!LB) {
   /* ---------- Layered mountain silhouettes (iRacing-style backdrop) ---------- */
   const ridgeCols = ['#5d7090', '#6d80a0', '#7e92b0', '#8fa3c2'];
   for (let i = 0; i < 10; i++) {
@@ -1981,11 +1968,14 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
       if (m.position.x > cx + 520) m.position.x = cx - 520;
     }
   });
+  } // end Ebisu backdrop (part 3)
 
   return {
     sun,
+    lighting: { sun, hemi, fill, sky, stylizedEnv, stylizedFog, sunOffset: SUN_OFFSET.clone(), center: new THREE.Vector3(cx, 0, cz) },
     update: (dt) => {
       for (const f of animated) f(dt);
     },
+    setCrowdFocus: (xz) => crowd.setFocus(xz),
   };
 }

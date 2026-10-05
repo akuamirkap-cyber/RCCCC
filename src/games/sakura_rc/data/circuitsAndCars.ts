@@ -1,5 +1,7 @@
+import { Track as EbisuTrack, TRACK_WIDTH as EBISU_TRACK_WIDTH, VENUE_POINTS, type Venue } from '../../ebisu/game/track';
 import {
   CircuitDef,
+  ClippingZoneDef,
   RCBodyId,
   SmokeConfig,
   SmokePresetId,
@@ -100,8 +102,8 @@ export const DEFAULT_SMOKE_CONFIG: SmokeConfig = {
   amount: 1.0,
   puffSize: 1.0,
   lifetime: 1.0,
-  opacity: 0.85,
-  rubberTint: 0.15,
+  opacity: 0.9,
+  rubberTint: 0.2,
   wheelSpinSwirl: true,
 };
 
@@ -130,8 +132,8 @@ export const SMOKE_PRESETS: Record<
       amount: 1.0,
       puffSize: 1.0,
       lifetime: 1.0,
-      opacity: 0.85,
-      rubberTint: 0.15,
+      opacity: 0.9,
+      rubberTint: 0.2,
       wheelSpinSwirl: true,
     },
   },
@@ -163,7 +165,72 @@ export const SMOKE_PRESETS: Record<
   },
 };
 
+/**
+ * EBISU DRIFT layout for Sakura RC — built from the exact same spline the Ebisu game drives on
+ * (same control points, same Catmull-Rom tension, same 14 m width), densely sampled so the arena's
+ * smoothing pass cannot alter the shape. Drift zones are the Ebisu zones mapped to clipping points.
+ */
+function buildEbisuCircuit(venue: Venue = 'ebisu'): CircuitDef {
+  const track = new EbisuTrack(VENUE_POINTS[venue]);
+  const LB = venue === 'longbeach';
+  const dense = track.curve.getSpacedPoints(160).slice(0, 160);
+  // clipping points = the 6 sharpest corners of the layout (local curvature peaks, well separated)
+  const s = track.samples;
+  const n = track.count;
+  const peaks: { i: number; c: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const c = Math.abs(s[i].curv);
+    if (c < 0.02) continue;
+    let isPeak = true;
+    for (let k = -20; k <= 20 && isPeak; k++) if (Math.abs(s[(i + k + n) % n].curv) > c) isPeak = false;
+    if (isPeak) peaks.push({ i, c });
+  }
+  peaks.sort((x, y) => y.c - x.c);
+  const chosen: { i: number; c: number }[] = [];
+  for (const pk of peaks) {
+    if (chosen.length >= 6) break;
+    if (chosen.every((o) => Math.min((pk.i - o.i + n) % n, (o.i - pk.i + n) % n) > 45)) chosen.push(pk);
+  }
+  chosen.sort((x, y) => x.i - y.i);
+  const types: ClippingZoneDef['type'][] = ['outer_zone', 'inner_clip', 'wall_kiss', 'inner_clip', 'outer_zone', 'wall_kiss'];
+  return {
+    id: LB ? 'longbeach_street_circuit' : 'ebisu_drift_circuit',
+    name: LB ? 'LONG BEACH // STREET CIRCUIT (FORMULA DRIFT STYLE)' : 'EBISU DRIFT // PRO CIRCUIT (100% LAYOUT)',
+    jpName: LB ? 'ロングビーチ ストリートサーキット (フォーミュラ・ドリフト)' : 'エビスサーキット ドリフトコース (ドリフトキング レイアウト)',
+    subtitle: LB
+      ? 'Shoreline straight -> long Turn 9 wall sweeper -> Turn 10 kink -> Turn 11 hairpin -> harbour run -> return sweeper — concrete walls, packed stands, downtown skyline'
+      : 'Start straight -> T1 sweeper -> tight hairpin -> esses -> back hairpin -> final banked sweeper — identical to Ebisu Drift',
+    surfaceName: LB ? 'Long Beach street asphalt, 14 m wide, concrete K-rail walls' : 'Ebisu uniform grey asphalt, 14 m wide',
+    hallTheme: 'epoxy_hall',
+    mapStyle: 'ebisu', // shared outdoor engine (asphalt, kerbs, barriers, grandstands, sky) instead of the aula
+    venue,
+    trackWidth: EBISU_TRACK_WIDTH,
+    floorColor: '#3B4048',
+    gridColor: '#4A5059',
+    accentColor: LB ? '#1E63D6' : '#FFB703',
+    controlPoints: dense.map((p) => [Number(p.x.toFixed(2)), Number(p.z.toFixed(2))] as [number, number]),
+    clippingZones: chosen.map((pk, i) => {
+      const left = s[pk.i].curv > 0; // left-hand corner → outer edge is the right side (+1)
+      const type = types[i % types.length];
+      const inner = type === 'inner_clip';
+      return {
+        id: `${LB ? 'lb' : 'eb'}${i + 1}`,
+        label: `${left ? 'LEFT' : 'RIGHT'} ${pk.c > 0.06 ? 'HAIRPIN' : 'SWEEPER'} #${i + 1}`,
+        type,
+        t: pk.i / n,
+        offset: (left ? 1 : -1) * (inner ? -0.6 : 0.7),
+        radius: 5.0,
+        minAngle: inner ? 24 : 30,
+        basePoints: inner ? 500 : pk.c > 0.06 ? 900 : 700,
+      };
+    }),
+    targetScoreQualifying: 11500,
+  };
+}
+
 export const RC_CIRCUITS: CircuitDef[] = [
+  buildEbisuCircuit('longbeach'),
+  buildEbisuCircuit('ebisu'),
   {
     id: 'shibuya_ptile',
     name: 'TOKYO GRAND AULA // D1GP TSUKUBA TECHNICAL PRO',

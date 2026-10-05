@@ -4,6 +4,7 @@ import {
   CarCustomization,
   CircuitDef,
   GameMode,
+  SoundMode,
   TuningSetup,
 } from '../types/rcDrift';
 import { PRO_SUSPENSION_KITS, SMOKE_PRESETS } from '../data/circuitsAndCars';
@@ -273,6 +274,19 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                     onChangeTuning({ ...tuning, speedLevel: v as 'normal' | 'sedang' | '2x' })
                   }
                 />
+                {(tuning.speedLevel ?? 'normal') !== 'normal' && (
+                  <Segment
+                    label="BELOK"
+                    options={[
+                      { v: 'normal', label: 'TETAP NORMAL' },
+                      { v: 'fast', label: 'IKUT MODE' },
+                    ]}
+                    value={(tuning.cornerSpeedLock ?? true) ? 'normal' : 'fast'}
+                    onChange={(v) =>
+                      onChangeTuning({ ...tuning, cornerSpeedLock: v === 'normal' })
+                    }
+                  />
+                )}
                 <Segment
                   label="AUTO-GAS"
                   options={[
@@ -298,6 +312,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   options={[
                     { v: 'rb26_soundbox', label: 'RB26' },
                     { v: 'pro_brushless', label: 'BRUSH' },
+                    { v: 'real_brushless_hd', label: 'REAL HD' },
                     { v: 'mute', label: 'MUTE' },
                   ]}
                   value={soundValue}
@@ -307,7 +322,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                     } else {
                       onChangeTuning({
                         ...tuning,
-                        soundMode: v as 'rb26_soundbox' | 'pro_brushless',
+                        soundMode: v as SoundMode,
                       });
                       if (isMuted) onToggleMute();
                     }

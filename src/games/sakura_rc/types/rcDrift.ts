@@ -2,16 +2,17 @@ export type GameMode = 'race' | 'tsuiso' | 'qualifying' | 'freedrift';
 
 export type SpeedLevel = 'normal' | 'sedang' | '2x';
 
-export type CameraMode = 'isometric_broadcast' | 'driver_stand' | 'chase_close';
+/** Ebisu Drift camera set (chase, chase far, art-of-rally, cockpit) + the two Sakura arena views. */
+export type CameraMode = 'chase_close' | 'chase_far' | 'rally' | 'cockpit' | 'isometric_broadcast' | 'driver_stand';
 
 /** Visual/road environment used by Sakura RC Pro. */
-export type MapStyle = 'aula' | 'haruna';
+export type MapStyle = 'aula' | 'haruna' | 'ebisu';
 
 export type BodyShellMode = 'painted' | 'translucent' | 'naked_chassis';
 
 export type TireCompound = 'hdpe_ptile' | 'poly_slick' | 'silver_dot';
 
-export type SoundMode = 'rb26_soundbox' | 'pro_brushless';
+export type SoundMode = 'rb26_soundbox' | 'pro_brushless' | 'real_brushless_hd';
 
 export type SmokeMode = 'new_pipeline' | 'legacy';
 
@@ -61,6 +62,8 @@ export interface TuningSetup {
   tireCompound: TireCompound;
   autoThrottle: boolean;    // Assist steering only; throttle still requires W / throttle button
   speedLevel?: SpeedLevel;  // Normal, sedang, atau 2x speed profile
+  /** true (default): di mode sedang/2x hanya lurusan yang lebih cepat — kecepatan belok tetap NORMAL */
+  cornerSpeedLock?: boolean;
   botPace?: BotPace;        // AI rival pace: 'pro' (24.8) vs 'chill' (19.5)
   soundMode?: SoundMode;    // RB26DETT Scale Sound Module vs Silky Sensored Brushless
   smokeConfig?: SmokeConfig;// 5-Stage Drift Smoke Pipeline configuration
@@ -82,7 +85,13 @@ export interface CarCustomization {
   chassisAnodizeColor: string;
   neonColor: string;
   wheelColor: string;
+  /** Underglow ala NFS Underground 2: off / steady / pulse (breathing) / strobe / rainbow (hue cycle) */
+  underglowMode?: UnderglowMode;
+  /** 0..1 kecerahan underglow (default 0.8) */
+  underglowIntensity?: number;
 }
+
+export type UnderglowMode = 'off' | 'steady' | 'pulse' | 'strobe' | 'rainbow';
 
 export interface ClippingZoneDef {
   id: string;
@@ -104,6 +113,8 @@ export interface CircuitDef {
   hallTheme: 'parquet_aula' | 'epoxy_hall' | 'carpet_convention';
   /** Haruna switches Sakura RC from the indoor arena to the outdoor touge scene. */
   mapStyle?: MapStyle;
+  /** For mapStyle 'ebisu' (shared outdoor engine): which venue/layout — 'ebisu' (default) or 'longbeach'. */
+  venue?: 'ebisu' | 'longbeach';
   trackWidth: number;
   floorColor: string;
   gridColor: string;
