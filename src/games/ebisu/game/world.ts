@@ -977,6 +977,46 @@ function applyEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRenderer): TH
 /*  World                                                              */
 /* ------------------------------------------------------------------ */
 
+/** Soft cumulus sprite: a cluster of radial puffs with a flatter, slightly grey base. */
+function makeCloudTexture(rand: () => number, variant: number): THREE.CanvasTexture {
+  const W = 512;
+  const H = 256;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const ctx = c.getContext('2d')!;
+  ctx.clearRect(0, 0, W, H);
+  const puffs = 26 + variant * 6;
+  const spread = 0.34 + variant * 0.05;
+  for (let i = 0; i < puffs; i++) {
+    const t = i / puffs;
+    const px = W * (0.5 + (rand() - 0.5) * 2 * spread * (0.6 + 0.4 * Math.sin(t * Math.PI)));
+    const base = H * 0.62;
+    const py = base - Math.abs(rand() - rand()) * H * 0.3 - (0.5 - Math.abs(px / W - 0.5)) * H * 0.25;
+    const rr = H * (0.1 + rand() * 0.16);
+    const shade = 1 - Math.max(0, (py - H * 0.4) / (H * 0.35)) * 0.22; // lower puffs a touch greyer
+    const g = ctx.createRadialGradient(px, py, 0, px, py, rr);
+    const v = Math.round(255 * shade);
+    g.addColorStop(0, `rgba(${v},${v},${Math.min(255, v + 4)},0.95)`);
+    g.addColorStop(0.55, `rgba(${v},${v},${Math.min(255, v + 4)},0.55)`);
+    g.addColorStop(1, `rgba(${v},${v},${Math.min(255, v + 4)},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(px - rr, py - rr, rr * 2, rr * 2);
+  }
+  // flat, soft underside
+  const under = ctx.createLinearGradient(0, H * 0.58, 0, H * 0.82);
+  under.addColorStop(0, 'rgba(0,0,0,0)');
+  under.addColorStop(1, 'rgba(0,0,0,1)');
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.fillStyle = under;
+  ctx.fillRect(0, H * 0.58, W, H * 0.42);
+  ctx.globalCompositeOperation = 'source-over';
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
 export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.WebGLRenderer, zones: DriftZone[], venue: Venue = 'ebisu'): WorldRefs {
   const LB = venue === 'longbeach';
   const rand = mulberry32(1337);
@@ -1792,29 +1832,27 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   } // end Ebisu scenery (part 2)
 
   /* ---------- Drifting clouds ---------- */
-  const cloudMat = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 1, emissive: '#ffe7cf', emissiveIntensity: 0.45, envMapIntensity: 0.4 });
-  const cloudGeo = new THREE.SphereGeometry(1, 10, 7);
-  const clouds: THREE.Group[] = [];
-  for (let i = 0; i < 16; i++) {
-    const cg = new THREE.Group();
+  // Big soft cumulus billboards high above the venue (unlit sprites: always bright white against the blue, with
+  // a shaded underside baked into the texture). The old 15 m sphere blobs at 80 m were invisible behind the city.
+  const cloudTexes = [makeCloudTexture(rand, 0), makeCloudTexture(rand, 1), makeCloudTexture(rand, 2)];
+  const clouds: { s: THREE.Sprite; v: number }[] = [];
+  for (let i = 0; i < 34; i++) {
+    const mat = new THREE.SpriteMaterial({ map: cloudTexes[i % 3], transparent: true, depthWrite: false, fog: true, opacity: 0.92 + rand() * 0.08 });
+    const sp = new THREE.Sprite(mat);
     const a = rand() * Math.PI * 2;
-    const r = 100 + rand() * 380;
-    cg.position.set(cx + Math.cos(a) * r, 80 + rand() * 50, cz + Math.sin(a) * r);
-    const puffs = 3 + Math.floor(rand() * 3);
-    for (let k = 0; k < puffs; k++) {
-      const pMesh = new THREE.Mesh(cloudGeo, cloudMat);
-      const sx = 8 + rand() * 9;
-      pMesh.scale.set(sx, 3.2 + rand() * 2.8, 5.5 + rand() * 5.5);
-      pMesh.position.set((k - puffs / 2) * 7.5 + rand() * 3, rand() * 2, rand() * 4);
-      cg.add(pMesh);
-    }
-    scene.add(cg);
-    clouds.push(cg);
+    const r = 220 + rand() * 900;
+    const far = r / 1120; // farther clouds: lower on the sky, bigger
+    const w = 150 + rand() * 170 + far * 120;
+    sp.position.set(cx + Math.cos(a) * r, 230 + rand() * 170 + far * 90, cz + Math.sin(a) * r);
+    sp.scale.set(w, w * 0.5, 1);
+    sp.renderOrder = -0.5;
+    scene.add(sp);
+    clouds.push({ s: sp, v: 1.2 + rand() * 1.4 });
   }
   animated.push((dt) => {
     for (const c of clouds) {
-      c.position.x += dt * 1.6;
-      if (c.position.x > cx + 520) c.position.x = cx - 520;
+      c.s.position.x += dt * c.v;
+      if (c.s.position.x > cx + 1150) c.s.position.x = cx - 1150;
     }
   });
 

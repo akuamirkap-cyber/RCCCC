@@ -56,6 +56,56 @@ const REAL = {
   elevationDeg: 50, // high sun = short neutral shadows, bright ground
 };
 
+/**
+ * HDRI sky dome with colour grading. Drawing the equirect straight as `scene.background` looked hazy/overcast once
+ * tone-mapped (the photo's sky sits at ~1-2 in linear HDR → ACES pushes it to a pale pastel). This dome applies a
+ * lower background exposure, a saturation boost and a cool lift so the sky reads as a deep midday blue while the
+ * clouds and the solar disc stay bright white (the disc keeps its HDR energy for the sun-shaft pass).
+ */
+const HDR_DOME = {
+  exposure: 0.62,
+  saturation: 1.45,
+  tint: new THREE.Color(0.94, 0.985, 1.07),
+};
+
+function makeHdrDomeMaterial(tex: THREE.Texture): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      tSky: { value: tex },
+      exposure: { value: HDR_DOME.exposure },
+      saturation: { value: HDR_DOME.saturation },
+      tint: { value: HDR_DOME.tint.clone() },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vDir = normalize(position);
+        vec4 p = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        gl_Position = p.xyww; // pin to the far plane
+      }`,
+    fragmentShader: /* glsl */ `
+      #include <common>
+      uniform sampler2D tSky; uniform float exposure; uniform float saturation; uniform vec3 tint;
+      varying vec3 vDir;
+      void main() {
+        vec3 d = normalize(vDir);
+        vec2 uv = equirectUv(d);
+        vec3 c = texture2D(tSky, uv).rgb * exposure;
+        float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+        // saturate the sky only — very bright texels (clouds, sun) keep their neutral white
+        float sat = mix(saturation, 1.0, smoothstep(1.2, 3.0, l));
+        c = mix(vec3(l), c, sat) * tint;
+        gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: true,
+    fog: false,
+  });
+}
+
 function flareTexture(kind: 'glow' | 'ring'): THREE.CanvasTexture {
   const S = kind === 'glow' ? 512 : 256;
   const c = document.createElement('canvas');
@@ -98,6 +148,7 @@ export class LightingController {
   private hdrSunDir?: THREE.Vector3;
   private hdrFog?: THREE.Color;
   private flare?: Lensflare;
+  private hdrDome?: THREE.Mesh;
   private hdrState: 'idle' | 'loading' | 'ready' | 'failed' = 'idle';
   private disposed = false;
 
@@ -116,6 +167,7 @@ export class LightingController {
     const { sun, hemi, fill, sky } = this.rig;
     sky.visible = true;
     if (this.physSky) this.physSky.visible = false;
+    if (this.hdrDome) this.hdrDome.visible = false;
     if (this.flare) this.flare.visible = false;
     this.scene.background = null;
     this.scene.environment = this.rig.stylizedEnv;
@@ -201,6 +253,7 @@ export class LightingController {
     const sunDir = this.sunDirFor(REAL.elevationDeg);
     this.ensurePhysSky(sunDir);
     this.physSky!.visible = true;
+    if (this.hdrDome) this.hdrDome.visible = false;
     this.scene.background = null;
     this.scene.environment = this.physEnv!;
     this.scene.environmentIntensity = REAL.envI * 0.9;
@@ -209,11 +262,18 @@ export class LightingController {
   }
 
   private useHdr() {
-    // The HDRI drives reflections / ambient light only. The visible sky is always the clear-blue midday
-    // atmosphere: the photographed sky read as hazy-overcast once tone-mapped, which is not the sunny
-    // Long Beach / Ebisu look this game wants.
+    // Real HDRI sky (clouds, haze, solar disc) through the graded dome; the HDRI also drives reflections.
     const dir = this.hdrSunDir ?? this.sunDirFor(REAL.elevationDeg);
-    this.ensurePhysSky(dir).visible = true;
+    if (this.physSky) this.physSky.visible = false;
+    if (!this.hdrDome) {
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(1400, 48, 24), makeHdrDomeMaterial(this.hdrTex!));
+      dome.position.copy(this.rig.center);
+      dome.frustumCulled = false;
+      dome.renderOrder = -1;
+      this.scene.add(dome);
+      this.hdrDome = dome;
+    }
+    this.hdrDome.visible = true;
     this.scene.background = null;
     this.scene.environment = this.hdrEnv!;
     this.scene.environmentIntensity = REAL.envI;
@@ -345,6 +405,11 @@ export class LightingController {
     if (this.physSky) {
       this.physSky.parent?.remove(this.physSky);
       this.physSky.geometry.dispose();
+    }
+    if (this.hdrDome) {
+      this.hdrDome.parent?.remove(this.hdrDome);
+      this.hdrDome.geometry.dispose();
+      (this.hdrDome.material as THREE.Material).dispose();
     }
   }
 }

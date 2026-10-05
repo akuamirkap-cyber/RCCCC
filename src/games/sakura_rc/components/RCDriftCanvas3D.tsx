@@ -29,6 +29,8 @@ import { Track as EbisuTrack, HALF_WIDTH as EBISU_HALF_WIDTH, CURB_WIDTH as EBIS
 import { buildWorld as buildEbisuWorld, SUN_OFFSET as EBISU_SUN_OFFSET } from '../../ebisu/game/world';
 import { computeDriftZones as computeEbisuZones } from '../../ebisu/game/zones';
 import { LightingController as EbisuLighting } from '../../ebisu/game/lighting';
+import { CinematicFx } from '../../ebisu/game/cinematic';
+import { loadPrefs as loadEbisuPrefs } from '../../ebisu/game/prefs';
 import { ENEMY_BOTS_DATA } from '../data/circuitsAndCars';
 import {
   JumpRamp,
@@ -519,6 +521,19 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       ebisuLighting = new EbisuLighting(scene, renderer, ebisuWorld.lighting);
       ebisuLighting.setMode('hdri');
     }
+    // Cinematic FX (sun shafts through stands/palms + gentle bloom) — same post chain as Ebisu Drift,
+    // follows the shared "FX" preference of the Visual panel.
+    let fx: CinematicFx | null = null;
+    if (ebisuLighting && loadEbisuPrefs().fx === 'cinematic') {
+      fx = new CinematicFx(renderer, scene, camera, Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
+    }
+    const sunOffset = () => (ebisuLighting ? ebisuLighting.sunOffset : EBISU_SUN_OFFSET);
+    const present = () => {
+      if (fx && ebisuLighting) {
+        fx.updateSun(ebisuLighting.sunOffset);
+        fx.render();
+      } else renderer.render(scene, camera);
+    };
 
     // --- KODE AULA LAMA DINONAKTIFKAN (diganti builder di atas) ---
     if (false) {
@@ -2708,14 +2723,14 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
         if (ebisuWorld) {
           ebisuWorld.update(dt); // crowd, flags, clouds, balloons keep moving behind the menu
-          const so = EBISU_SUN_OFFSET;
+          const so = sunOffset();
           ebisuWorld.sun.position.set(state.pos.x + so.x, so.y, state.pos.z + so.z);
           ebisuWorld.sun.target.position.set(state.pos.x, 0, state.pos.z);
           ebisuWorld.sun.target.updateMatrixWorld();
         }
         const cust = customRef.current;
         applyUnderglow(playerRig, cust.neonColor, cust.underglowMode ?? 'steady', cust.underglowIntensity ?? 0.8, now * 0.001, 0.3);
-        renderer.render(scene, camera);
+        present();
         return;
       }
 
@@ -4400,13 +4415,13 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       mainDirLight.target.updateMatrixWorld();
       if (ebisuWorld) {
         ebisuWorld.update(dt); // crowd, flags, clouds, balloons
-        const so = EBISU_SUN_OFFSET;
+        const so = sunOffset();
         ebisuWorld.sun.position.set(state.pos.x + so.x, so.y, state.pos.z + so.z);
         ebisuWorld.sun.target.position.set(state.pos.x, 0, state.pos.z);
         ebisuWorld.sun.target.updateMatrixWorld();
       }
 
-      renderer.render(scene, camera);
+      present();
 
       if (frameCounter % 3 === 0) {
         const activeCallout =
@@ -4482,6 +4497,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       camera.aspect = container.clientWidth / container.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(container.clientWidth, container.clientHeight);
+      fx?.setSize(Math.max(1, container.clientWidth), Math.max(1, container.clientHeight));
     };
     window.addEventListener('resize', handleResize);
 
@@ -4491,6 +4507,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', handleResize);
       hdriRenderTarget?.dispose();
+      fx?.dispose();
       ebisuLighting?.dispose();
       pmremGenerator.dispose();
       // keep the cached venue alive; free everything else (cars, particles, arena dressing …)
