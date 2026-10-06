@@ -27,10 +27,10 @@ import * as THREE from 'three';
 export const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
 export const wrapAngle = (a: number) => {
-  let x = a;
-  while (x > Math.PI) x -= Math.PI * 2;
-  while (x < -Math.PI) x += Math.PI * 2;
-  return x;
+  if (!Number.isFinite(a)) return 0;
+  const tau = Math.PI * 2;
+  const wrapped = (a + Math.PI) % tau;
+  return (wrapped < 0 ? wrapped + tau : wrapped) - Math.PI;
 };
 
 /** Smoothing eksponensial yang tidak tergantung besar-kecilnya dt. */
@@ -516,6 +516,8 @@ export const BOT_TUNING = {
   /** Batas fisik lunak: bot boleh menyentuh, tapi tidak menembus. */
   softWallInset: 0.85,
   maxSlipRad: 1.25,
+  /** Steering lock is a visual front-wheel angle, not the full body slip angle. */
+  maxFrontSteerRad: THREE.MathUtils.degToRad(34),
   cornerSpeedFloor: 10.5,
 };
 
@@ -852,7 +854,12 @@ export function stepBotAI(s: BotBrainState, p: BotPersonality, track: BotTrack, 
   const headingErr = wrapAngle(desiredHeading - s.heading);
   const headGain = p.counterSteerRate * 2.35;
   const headDamp = 2 * Math.sqrt(Math.max(1, headGain)) * 1.02;
-  s.angularVel = clamp(s.angularVel + (headingErr * headGain - s.angularVel * headDamp + s.kickSpin) * dt, -7.5, 7.5);
+  const maxBodyTurnRate = p.maxTurnRate * 1.35;
+  s.angularVel = clamp(
+    s.angularVel + (headingErr * headGain - s.angularVel * headDamp + s.kickSpin) * dt,
+    -maxBodyTurnRate,
+    maxBodyTurnRate,
+  );
   s.kickSpin = smoothTo(s.kickSpin, 0, 5.5, dt);
   s.heading = wrapAngle(s.heading + s.angularVel * dt);
 
@@ -924,8 +931,11 @@ export function stepBotAI(s: BotBrainState, p: BotPersonality, track: BotTrack, 
   const slip = wrapAngle(s.heading - s.velocityAngle);
   s.driftDegSigned = THREE.MathUtils.radToDeg(slip);
   s.driftDegAbs = Math.abs(s.driftDegSigned);
-  const counterTarget = clamp(-slip * 1.05, -THREE.MathUtils.degToRad(75), THREE.MathUtils.degToRad(75));
-  s.frontSteerAngle = smoothTo(s.frontSteerAngle, counterTarget, p.counterSteerRate, dt);
+  // Visual wheel lock follows counter-steer, but is kept inside a plausible steering range;
+  // the previous 75° lock made the front wheels snap almost sideways during ordinary drifts.
+  const counterTarget = clamp(-slip * 0.55, -BOT_TUNING.maxFrontSteerRad, BOT_TUNING.maxFrontSteerRad);
+  const currentFrontSteer = Number.isFinite(s.frontSteerAngle) ? s.frontSteerAngle : 0;
+  s.frontSteerAngle = smoothTo(currentFrontSteer, counterTarget, clamp(p.counterSteerRate * 0.65, 6, 12), dt);
 }
 
 // ---------------------------------------------------------------------------

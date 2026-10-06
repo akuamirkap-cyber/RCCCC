@@ -136,6 +136,238 @@ export function getBMWGeometryData(): Promise<BMWGeometryData> {
   return loadPromise;
 }
 
+interface BMWPaintAtlasAnalysis {
+  width: number;
+  height: number;
+  sourcePixels: Uint8ClampedArray;
+  /** 0 = keep original, 1 = blue paint, 2 = white paint, 3 = protected glass/lamp. */
+  classes: Uint8Array;
+  metalnessMap: THREE.Texture;
+}
+
+interface BMWSelectivePaintMaps {
+  colorMap: THREE.Texture;
+  metalnessMap: THREE.Texture;
+}
+
+const bmwPaintAtlasCache = new WeakMap<THREE.Texture, BMWPaintAtlasAnalysis>();
+
+// UV landmarks for the current 1024² BMW atlas. These keep the windshield, side glass,
+// and complete tail-lamp housing (including reflections/lens highlights) out of the paint mask.
+// Update these with bmw_texture.jpg if the source atlas is replaced.
+const BMW_PROTECTED_ATLAS_POLYGONS: readonly (readonly (readonly [number, number])[])[] = [
+  [
+    [213, 181], [222, 169], [245, 163], [273, 168], [296, 184], [309, 204],
+    [307, 226], [294, 245], [271, 257], [245, 256], [225, 244], [214, 223],
+  ],
+  [
+    [513, 181], [522, 168], [545, 161], [573, 165], [596, 181], [609, 201],
+    [608, 224], [596, 243], [574, 256], [549, 255], [528, 242], [516, 222],
+  ],
+  [
+    [226, 359], [242, 348], [273, 344], [458, 346], [486, 356], [498, 375],
+    [497, 409], [481, 427], [253, 431], [231, 418], [224, 397],
+  ],
+  // Rear lamp island: leave both its red lens and pale reverse-light section untouched.
+  [
+    [645, 382], [657, 374], [678, 379], [696, 394], [704, 417],
+    [699, 441], [684, 458], [662, 453], [648, 435], [641, 411],
+  ],
+];
+
+// The atlas repeats wheel/rim islands. Leave their factory silver/black details intact.
+const BMW_RIM_ATLAS_ELLIPSES: readonly (readonly [number, number, number, number])[] = [
+  [60, 170, 44, 44], [165, 170, 44, 44], [322, 147, 44, 44],
+  [661, 151, 44, 44], [868, 151, 44, 44], [865, 459, 44, 44],
+  [865, 638, 44, 44], [866, 959, 44, 44],
+];
+
+function pointInPolygon(x: number, y: number, polygon: readonly (readonly [number, number])[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [xi, yi] = polygon[i];
+    const [xj, yj] = polygon[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+function markAtlasPolygon(mask: Uint8Array, width: number, height: number, polygon: readonly (readonly [number, number])[]) {
+  const sx = width / 1024;
+  const sy = height / 1024;
+  const scaled = polygon.map(([x, y]) => [x * sx, y * sy] as const);
+  const minX = Math.max(0, Math.floor(Math.min(...scaled.map(([x]) => x))));
+  const maxX = Math.min(width - 1, Math.ceil(Math.max(...scaled.map(([x]) => x))));
+  const minY = Math.max(0, Math.floor(Math.min(...scaled.map(([, y]) => y))));
+  const maxY = Math.min(height - 1, Math.ceil(Math.max(...scaled.map(([, y]) => y))));
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
+      if (pointInPolygon(x + 0.5, y + 0.5, scaled)) mask[y * width + x] = 1;
+    }
+  }
+}
+
+function makeBMWCanvasTexture(source: THREE.Texture, canvas: HTMLCanvasElement, colorSpace: string): THREE.Texture {
+  // Texture.clone() shares its Source with the original GLB map, so use a fresh CanvasTexture
+  // and copy sampling/UV settings to avoid replacing the native atlas for the player car.
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.name = source.name;
+  texture.mapping = source.mapping;
+  texture.channel = source.channel;
+  texture.wrapS = source.wrapS;
+  texture.wrapT = source.wrapT;
+  texture.magFilter = source.magFilter;
+  texture.minFilter = source.minFilter;
+  texture.anisotropy = source.anisotropy;
+  texture.format = source.format;
+  texture.internalFormat = source.internalFormat;
+  texture.type = source.type;
+  texture.normalized = source.normalized;
+  texture.offset.copy(source.offset);
+  texture.repeat.copy(source.repeat);
+  texture.center.copy(source.center);
+  texture.rotation = source.rotation;
+  texture.matrixAutoUpdate = source.matrixAutoUpdate;
+  texture.matrix.copy(source.matrix);
+  texture.generateMipmaps = source.generateMipmaps;
+  texture.premultiplyAlpha = source.premultiplyAlpha;
+  texture.flipY = source.flipY;
+  texture.unpackAlignment = source.unpackAlignment;
+  texture.colorSpace = colorSpace;
+  texture.userData = { ...source.userData };
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function makeBMWPaintAtlasAnalysis(source: THREE.Texture): BMWPaintAtlasAnalysis | null {
+  const cached = bmwPaintAtlasCache.get(source);
+  if (cached) return cached;
+  if (typeof document === 'undefined') return null;
+
+  const image = source.image as CanvasImageSource & {
+    width?: number;
+    height?: number;
+    naturalWidth?: number;
+    naturalHeight?: number;
+  };
+  const width = Math.floor(image?.naturalWidth ?? image?.width ?? 0);
+  const height = Math.floor(image?.naturalHeight ?? image?.height ?? 0);
+  if (!width || !height) return null;
+
+  try {
+    const sourceCanvas = document.createElement('canvas');
+    sourceCanvas.width = width;
+    sourceCanvas.height = height;
+    const sourceContext = sourceCanvas.getContext('2d', { willReadFrequently: true });
+    if (!sourceContext) return null;
+    sourceContext.drawImage(image, 0, 0, width, height);
+    const sourceImage = sourceContext.getImageData(0, 0, width, height);
+    const classes = new Uint8Array(width * height);
+    const protectedFeatureMask = new Uint8Array(width * height);
+    const rimMask = new Uint8Array(width * height);
+
+    for (const polygon of BMW_PROTECTED_ATLAS_POLYGONS) markAtlasPolygon(protectedFeatureMask, width, height, polygon);
+    const sx = width / 1024;
+    const sy = height / 1024;
+    for (const [cx0, cy0, rx0, ry0] of BMW_RIM_ATLAS_ELLIPSES) {
+      const cx = cx0 * sx;
+      const cy = cy0 * sy;
+      const rx = rx0 * sx;
+      const ry = ry0 * sy;
+      for (let y = Math.max(0, Math.floor(cy - ry)); y <= Math.min(height - 1, Math.ceil(cy + ry)); y++) {
+        for (let x = Math.max(0, Math.floor(cx - rx)); x <= Math.min(width - 1, Math.ceil(cx + rx)); x++) {
+          if (((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1) rimMask[y * width + x] = 1;
+        }
+      }
+    }
+
+    const pixels = sourceImage.data;
+    for (let i = 0, pixel = 0; i < width * height; i++, pixel += 4) {
+      if (protectedFeatureMask[i]) {
+        classes[i] = 3;
+        continue;
+      }
+      if (rimMask[i] || pixels[pixel + 3] < 16) continue;
+      const r = pixels[pixel];
+      const g = pixels[pixel + 1];
+      const b = pixels[pixel + 2];
+      const max = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const saturation = max > 0 ? (max - min) / max : 0;
+      const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const redLampOrAccent = saturation > 0.27 && r > g * 1.22 && r > b * 1.24 && r > 44;
+      if (redLampOrAccent) continue;
+
+      const bluePaint = saturation > 0.18 && b > r * 1.25 && b > g * 1.05 && b > 36 && luminance > 22;
+      const whitePaint = saturation < 0.2 && min > 125 && luminance > 175;
+      if (bluePaint) classes[i] = 1;
+      else if (whitePaint) classes[i] = 2;
+    }
+
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = width;
+    maskCanvas.height = height;
+    const maskContext = maskCanvas.getContext('2d');
+    if (!maskContext) return null;
+    const maskImage = maskContext.createImageData(width, height);
+    for (let i = 0, pixel = 0; i < classes.length; i++, pixel += 4) {
+      const metalness = classes[i] === 1 || classes[i] === 2 ? 255 : classes[i] === 3 ? 0 : 64;
+      maskImage.data[pixel] = metalness;
+      maskImage.data[pixel + 1] = metalness;
+      maskImage.data[pixel + 2] = metalness;
+      maskImage.data[pixel + 3] = 255;
+    }
+    maskContext.putImageData(maskImage, 0, 0);
+
+    const metalnessMap = makeBMWCanvasTexture(source, maskCanvas, THREE.NoColorSpace);
+    metalnessMap.name = 'BMW selective chrome paint metalness mask';
+
+    const analysis = { width, height, sourcePixels: pixels, classes, metalnessMap };
+    bmwPaintAtlasCache.set(source, analysis);
+    return analysis;
+  } catch (error) {
+    console.warn('Could not read the BMW texture atlas for selective paint; keeping its original colors.', error);
+    return null;
+  }
+}
+
+function createBMWSelectivePaintMaps(source: THREE.Texture, color: string | number): BMWSelectivePaintMaps | null {
+  const analysis = makeBMWPaintAtlasAnalysis(source);
+  if (!analysis || typeof document === 'undefined') return null;
+  const { width, height, sourcePixels, classes, metalnessMap } = analysis;
+  const colorHex = new THREE.Color(color).getHex();
+  const tint = [(colorHex >> 16) & 255, (colorHex >> 8) & 255, colorHex & 255];
+  const pixels = new Uint8ClampedArray(sourcePixels);
+
+  for (let i = 0, pixel = 0; i < classes.length; i++, pixel += 4) {
+    const paintClass = classes[i];
+    if (paintClass !== 1 && paintClass !== 2) continue;
+    const sourceLuminance = (0.2126 * pixels[pixel] + 0.7152 * pixels[pixel + 1] + 0.0722 * pixels[pixel + 2]) / 255;
+    // Normalize the original blue and white livery separately, keeping its highlights and panel shading.
+    const shade = paintClass === 1
+      ? THREE.MathUtils.clamp(0.68 + (sourceLuminance / 0.3) * 0.3, 0.58, 1.03)
+      : THREE.MathUtils.clamp(0.84 + sourceLuminance * 0.16, 0.86, 1.0);
+    pixels[pixel] = tint[0] * shade;
+    pixels[pixel + 1] = tint[1] * shade;
+    pixels[pixel + 2] = tint[2] * shade;
+  }
+
+  const colorCanvas = document.createElement('canvas');
+  colorCanvas.width = width;
+  colorCanvas.height = height;
+  const colorContext = colorCanvas.getContext('2d');
+  if (!colorContext) return null;
+  const colorImage = colorContext.createImageData(width, height);
+  colorImage.data.set(pixels);
+  colorContext.putImageData(colorImage, 0, 0);
+
+  const colorMap = makeBMWCanvasTexture(source, colorCanvas, source.colorSpace);
+  colorMap.name = `BMW selective metallic paint #${colorHex.toString(16).padStart(6, '0')}`;
+  // disposeSubtree releases this shared mask at scene teardown; a following race can upload it again.
+  metalnessMap.needsUpdate = true;
+  return { colorMap, metalnessMap };
+}
+
 export interface BMWAdjustment {
   width: number;
   length: number;
@@ -255,6 +487,9 @@ export interface CreateBMWOptions {
   transparent?: boolean;
   roughness?: number;
   metalness?: number;
+  envMapIntensity?: number;
+  /** Recolor only the BMW atlas's blue/white body panels; preserve glass and lamp pixels. */
+  selectivePaint?: boolean;
   mode?: BMWModeKey;
 }
 
@@ -287,6 +522,8 @@ export function createBMWCarMesh(options: CreateBMWOptions): BMWCarMeshResult {
     transparent = false,
     roughness = 0.25,
     metalness = 0.2,
+    envMapIntensity = 1.0,
+    selectivePaint = false,
   } = options;
 
   const group = new THREE.Group();
@@ -301,14 +538,16 @@ export function createBMWCarMesh(options: CreateBMWOptions): BMWCarMeshResult {
   const mat = new THREE.MeshStandardMaterial({
     roughness,
     metalness,
+    envMapIntensity,
     side: THREE.DoubleSide,
     transparent: transparent || opacity < 1.0,
     opacity,
   });
 
-  if (color !== undefined) {
-    mat.color = new THREE.Color(color);
-  }
+  let currentPaintColor: string | number = color ?? 0xffffff;
+  let activePaintMap: THREE.Texture | null = null;
+  if (selectivePaint) mat.color.set(0xffffff);
+  else if (color !== undefined) mat.color.set(color);
 
   // Temporary placeholder geometry
   const initialGeo = cachedData?.geometry ?? new THREE.BoxGeometry(BMW_NATIVE_WIDTH, BMW_NATIVE_HEIGHT, BMW_NATIVE_LENGTH);
@@ -323,9 +562,31 @@ export function createBMWCarMesh(options: CreateBMWOptions): BMWCarMeshResult {
 
   group.add(mesh);
 
+  const setSelectivePaint = (sourceTexture: THREE.Texture, paintColor: string | number): boolean => {
+    const maps = createBMWSelectivePaintMaps(sourceTexture, paintColor);
+    if (!maps) return false;
+    if (activePaintMap && activePaintMap !== maps.colorMap) activePaintMap.dispose();
+    activePaintMap = maps.colorMap;
+    mat.map = maps.colorMap;
+    mat.metalnessMap = maps.metalnessMap;
+    mat.color.set(0xffffff);
+    mat.needsUpdate = true;
+    return true;
+  };
+
   const applyCached = (data: BMWGeometryData) => {
     mesh.geometry = data.geometry;
-    if (data.texture && !mat.map) {
+    if (!data.texture) return;
+    if (selectivePaint) {
+      if (!setSelectivePaint(data.texture, currentPaintColor)) {
+        if (activePaintMap) activePaintMap.dispose();
+        activePaintMap = null;
+        mat.map = data.texture;
+        mat.metalnessMap = null;
+        mat.color.set(0xffffff); // safer native-color fallback; never tint the glass or tail lamps
+        mat.needsUpdate = true;
+      }
+    } else if (!mat.map) {
       mat.map = data.texture;
       mat.needsUpdate = true;
     }
@@ -344,7 +605,12 @@ export function createBMWCarMesh(options: CreateBMWOptions): BMWCarMeshResult {
   }
 
   const updateColor = (c: string | number) => {
-    mat.color.set(c);
+    if (!selectivePaint) {
+      mat.color.set(c);
+      return;
+    }
+    currentPaintColor = c;
+    if (cachedData?.texture) setSelectivePaint(cachedData.texture, currentPaintColor);
   };
 
   const updateDimensions = (adj: BMWAdjustment) => {

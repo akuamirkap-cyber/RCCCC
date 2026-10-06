@@ -52,7 +52,7 @@ export type BotPace = 'pro' | 'chill';
 
 export interface TuningSetup {
   gyroGain: number;         // 40 to 100 (%) - Counter-steer stability assist
-  maxSteerAngle: number;    // 55 to 82 (deg) - High-angle Ackermann lock
+  maxSteerAngle: number;    // 55 to 82 (deg) - physics slip limit; visual front-wheel lock is capped separately
   escTurboBoost: number;    // 15 to 100 (%) - High-RPM brushless turbo timing boost
   /** Sakura RC Pro Haruna/Akina driving feel controls. */
   accelerationPower?: number; // 65 to 140 (%) - Motor acceleration strength
@@ -143,13 +143,14 @@ export interface BotRacerTelemetry {
 }
 
 export interface LiveTelemetry {
-  speedKmh: number;          // Actual RC speed (e.g., 18 - 38 km/h)
-  scaleSpeedKmh: number;     // 1:10 Scale speed (e.g., 180 - 380 km/h)
+  speedKmh: number;          // Actual simulation speed converted from m/s (1 m/s = 3.6 km/h)
+  scaleSpeedKmh: number;     // 1:10 equivalent speed (actual km/h × 10)
+  speedLimitKmh: number;    // Current physics speed cap, converted from m/s
   rpm: number;               // Brushless motor RPM (e.g., 4,000 - 58,000 RPM)
   turboActive: boolean;      // True when ESC Turbo Boost timing engages
   driftAngleDeg: number;     // Slip angle in degrees (0 - 85)
   signedDriftAngle: number;  // Signed slip angle (-85 to +85)
-  frontSteerDeg: number;     // Actual front wheel Ackermann angle (-80 to +80)
+  frontSteerDeg: number;     // Visual center-steer angle; per-wheel Ackermann lock is applied separately
   gyroActivePct: number;     // How much the RC Gyro is actively counter-steering (0 - 100%)
   sessionScore: number;      // Total banked score
   currentComboPoints: number;// Unbanked active drift combo points

@@ -1,11 +1,13 @@
 import * as THREE from 'three';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { HDRI_URL } from '../../ebisu/game/lighting';
 
 /* ============================================================
    MENU DIORAMA — Poster rally 3D: mobil di jalan, sakura pink,
    langit sunset. Dirender di Canvas yang SAMA dengan arena tapi
    di koordinat sangat jauh (x=800, z=200) — kamera cukup
    diarahkan ke sana saat phase menu. Mount hanya saat menu.
-   - Semua tekstur = canvas 2D prosedural (tanpa file gambar)
+   - Hiasan tetap prosedural; langit memakai HDRI outdoor dengan fallback canvas sunset
    - Objek banyak = InstancedMesh; material pohon di-share
    - Semua keacakan = seeded RNG (LCG 16807), identik tiap load
    ============================================================ */
@@ -21,6 +23,36 @@ export function rng(seed: number) {
     s = (s * 16807) % 2147483647;
     return (s - 1) / 2147483646;
   };
+}
+
+// The menu can be rebuilt when the player changes cars/circuits, so share the HDR download across rebuilds.
+let menuHdriPromise: Promise<THREE.DataTexture> | null = null;
+function loadMenuHdri(): Promise<THREE.DataTexture> {
+  if (!menuHdriPromise) {
+    const request = new Promise<THREE.DataTexture>((resolve, reject) => {
+      const loader = new RGBELoader();
+      loader.setDataType(THREE.FloatType);
+      const timeout = window.setTimeout(() => reject(new Error('Menu HDRI load timed out')), 20000);
+      loader.load(
+        HDRI_URL,
+        (texture) => {
+          window.clearTimeout(timeout);
+          texture.mapping = THREE.EquirectangularReflectionMapping;
+          resolve(texture);
+        },
+        undefined,
+        (error) => {
+          window.clearTimeout(timeout);
+          reject(error);
+        },
+      );
+    });
+    menuHdriPromise = request;
+    void request.catch(() => {
+      if (menuHdriPromise === request) menuHdriPromise = null;
+    });
+  }
+  return menuHdriPromise;
 }
 
 function makeSkyTexture(): THREE.CanvasTexture {
@@ -159,19 +191,18 @@ export function buildMenuDiorama(scene: THREE.Scene): DioramaBuilt {
   group.position.set(DIORAMA.x, 0, DIORAMA.z);
   scene.add(group);
 
-  // --- Langit: sphere BackSide + sunset canvas (toneMapped & fog MATI) ---
-  const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(290, 32, 24),
-    new THREE.MeshBasicMaterial({
-      map: makeSkyTexture(),
-      side: THREE.BackSide,
-      toneMapped: false,
-      fog: false,
-    })
-  );
+  // --- Langit: HDRI equirectangular untuk background + refleksi; gradient sunset jadi fallback saat HDRI dimuat ---
+  const fallbackSkyTexture = makeSkyTexture();
+  const skyMaterial = new THREE.MeshBasicMaterial({
+    map: fallbackSkyTexture,
+    side: THREE.BackSide,
+    toneMapped: false,
+    fog: false,
+  });
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(290, 32, 24), skyMaterial);
   group.add(sky);
 
-  // --- Matahari: 1 sprite radial ---
+  // --- Matahari: 1 sprite radial (dipakai hanya jika HDRI gagal dimuat) ---
   const sun = new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: makeSunTexture(),
@@ -184,6 +215,25 @@ export function buildMenuDiorama(scene: THREE.Scene): DioramaBuilt {
   sun.scale.set(130, 130, 1);
   sun.position.set(-110, 26, -180);
   group.add(sun);
+
+  // HDRI outdoor mengganti langit gradient dan sun poster, sekaligus memberi refleksi yang konsisten pada mobil.
+  // Jika jaringan tidak tersedia, dome sunset dan sprite matahari tetap menjadi fallback.
+  void loadMenuHdri()
+    .then((texture) => {
+      if (group.parent !== scene) return; // menu sudah ditutup; tekstur bersama disimpan untuk pemakaian berikutnya
+      scene.background = texture;
+      scene.environment = texture;
+      scene.environmentIntensity = 0.8;
+      scene.backgroundIntensity = 0.85;
+      sky.visible = false;
+      sun.visible = false;
+      skyMaterial.map = null;
+      skyMaterial.needsUpdate = true;
+      fallbackSkyTexture.dispose();
+    })
+    .catch(() => {
+      // Pertahankan fallback sunset bila HDRI tidak dapat diunduh.
+    });
 
   // --- Tanah + 7 bukit ---
   const grassGreen = new THREE.MeshStandardMaterial({
@@ -219,7 +269,12 @@ export function buildMenuDiorama(scene: THREE.Scene): DioramaBuilt {
   // --- Jalan aspal 7.4 x 190 memanjang sumbu Z ---
   const road = new THREE.Mesh(
     new THREE.PlaneGeometry(7.4, 190),
-    new THREE.MeshStandardMaterial({ color: '#3d4046', roughness: 0.9, envMapIntensity: 0.2 })
+    new THREE.MeshStandardMaterial({
+      // Darken the existing asphalt reflectance by 20% without changing its neutral grey hue.
+      color: new THREE.Color('#3d4046').multiplyScalar(0.8),
+      roughness: 0.9,
+      envMapIntensity: 0.2,
+    })
   );
   road.rotation.x = -Math.PI / 2;
   road.position.y = 0.02;

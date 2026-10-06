@@ -79,6 +79,7 @@ export function SakuraDriftApp({
   const [telemetry, setTelemetry] = useState<LiveTelemetry>({
     speedKmh: 0,
     scaleSpeedKmh: 0,
+    speedLimitKmh: 0,
     rpm: 6500,
     turboActive: false,
     driftAngleDeg: 0,

@@ -313,7 +313,10 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
 
   const drift = telemetry.driftAngleDeg;
   const isDrifting = drift >= 10;
-  const speedPct = Math.min(100, Math.round((telemetry.scaleSpeedKmh / 380) * 100));
+  const speedPct = Math.min(
+    100,
+    Math.max(0, Math.round((telemetry.speedKmh / Math.max(1, telemetry.speedLimitKmh)) * 100))
+  );
   const clipsTotal = circuit.clippingZones.length;
   const clipsHit = circuit.clippingZones.filter((cz) => telemetry.clippedZoneIds.includes(cz.id)).length;
   const position = telemetry.racePosition || 1;
@@ -474,7 +477,7 @@ export const TelemetryHUD: React.FC<TelemetryHUDProps> = ({
       <div className={cn('eb-corner-bl absolute', compact && touchPadVisible ? 'bottom-3 left-[13rem]' : 'bottom-4 left-3 sm:bottom-6 sm:left-5')}>
         <Score score={telemetry.sessionScore} />
         <div className="mt-1 flex items-end gap-2">
-          <span className={cn('eb-num eb-outline text-6xl sm:text-7xl', telemetry.turboActive && 'eb-grad-accent')}>{telemetry.scaleSpeedKmh}</span>
+          <span className={cn('eb-num eb-outline text-6xl sm:text-7xl', telemetry.turboActive && 'eb-grad-accent')}>{telemetry.speedKmh}</span>
           <div className="mb-1.5 flex flex-col leading-none">
             <span className="eb-label eb-shadow">km/h</span>
             {isDrifting && <span className="eb-shadow mt-1 text-xs font-extrabold tabular-nums text-[#9eefff]">{drift}° SLIP</span>}

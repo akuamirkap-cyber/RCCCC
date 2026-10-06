@@ -11,6 +11,7 @@ import {
   UnderglowMode,
 } from '../types/rcDrift';
 import { rcSound } from '../utils/soundEngine';
+import { speedMpsToKmh, speedMpsToScaleKmh } from '../utils/speedUnits';
 import {
   buildAulaHall,
   buildHangingStartBanners,
@@ -84,6 +85,33 @@ function disposeSubtree(obj: THREE.Object3D) {
       m.dispose();
     }
   });
+}
+
+const RC_FRONT_WHEELBASE = 2.2;
+const RC_FRONT_TRACK = 1.68;
+const RC_TYRE_RADIUS = 0.35;
+const RC_MAX_VISUAL_STEER = THREE.MathUtils.degToRad(34);
+const RC_MAX_INNER_WHEEL_STEER = THREE.MathUtils.degToRad(42);
+
+/** Center-steer angle → physically plausible Ackermann angles for the model's +X-left side. */
+function ackermannSteering(centerAngle: number) {
+  const center = Number.isFinite(centerAngle)
+    ? THREE.MathUtils.clamp(centerAngle, -RC_MAX_VISUAL_STEER, RC_MAX_VISUAL_STEER)
+    : 0;
+  const absCenter = Math.abs(center);
+  if (absCenter < 1e-4) return { center, left: center, right: center };
+
+  const sign = Math.sign(center);
+  const turnRadius = RC_FRONT_WHEELBASE / Math.tan(absCenter);
+  const inner = Math.min(
+    RC_MAX_INNER_WHEEL_STEER,
+    Math.atan2(RC_FRONT_WHEELBASE, Math.max(0.25, turnRadius - RC_FRONT_TRACK / 2)),
+  );
+  const outer = Math.atan2(RC_FRONT_WHEELBASE, turnRadius + RC_FRONT_TRACK / 2);
+  // Positive yaw steers toward +X, where this model's left front wheel sits.
+  return sign > 0
+    ? { center, left: inner, right: outer }
+    : { center, left: -outer, right: -inner };
 }
 
 interface RCDriftCanvas3DProps {
@@ -353,9 +381,15 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         powerPreference: 'high-performance',
       }));
     renderer.setSize(container.clientWidth, container.clientHeight);
-    // 1.5× is visually indistinguishable from 2× on laptops but ~45 % fewer pixels to shade
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+    const maxRenderPixelRatio = Math.min(window.devicePixelRatio || 1, coarsePointer ? 1.0 : 1.25);
+    const minRenderPixelRatio = Math.min(maxRenderPixelRatio, coarsePointer ? 0.55 : 0.65);
+    let renderPixelRatio = maxRenderPixelRatio;
+    // Adaptive pixel budget: preserve detail at the default scale, lower resolution only if frame time slips.
+    renderer.setPixelRatio(renderPixelRatio);
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.autoUpdate = true;
+    renderer.shadowMap.needsUpdate = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = useHarunaWorld ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = useHarunaWorld ? 0.95 : useEbisuWorld ? 1.22 : 1.0;
@@ -490,7 +524,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       scene.add(harunaSky.dome, harunaSky.clouds);
     }
 
-    // Ebisu Drift venue: identical builder, track and zones as the Ebisu game (asphalt, kerbs, LED gantry,
+    // Ebisu Drift venue: identical builder, track and zones as the Ebisu game (asphalt, kerbs, start arch/gantry,
     // sponsor hoardings, grandstands with seated crowd, cones, hills, lake, sky, HDRI lighting).
     let ebisuWorld: ReturnType<typeof buildEbisuWorld> | null = null;
     let ebisuLighting: EbisuLighting | null = null;
@@ -529,8 +563,65 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
     }
     const sunOffset = () => (ebisuLighting ? ebisuLighting.sunOffset : EBISU_SUN_OFFSET);
     const crowdFocus: number[] = [];
+    let resolutionSampleTime = 0;
+    let resolutionSampleFrames = 0;
+    let adaptiveQualityTier = 0;
+    let slowFpsTime = 0;
+    let recoveryFpsTime = 0;
+    let shadowRefreshTime = 0;
+    const setAdaptiveQualityTier = (tier: number) => {
+      if (adaptiveQualityTier === tier) return;
+      adaptiveQualityTier = tier;
+      shadowRefreshTime = 0;
+      renderer.shadowMap.enabled = tier < 2;
+      renderer.shadowMap.autoUpdate = tier === 0;
+      renderer.shadowMap.needsUpdate = true;
+    };
+    const updateAdaptiveResolution = (frameDt: number) => {
+      if (!Number.isFinite(frameDt) || frameDt <= 0) return;
+      if (adaptiveQualityTier === 1) {
+        shadowRefreshTime += frameDt;
+        if (shadowRefreshTime >= 1 / 30) {
+          renderer.shadowMap.needsUpdate = true;
+          shadowRefreshTime %= 1 / 30;
+        }
+      }
+      resolutionSampleTime += Math.min(frameDt, 0.1);
+      resolutionSampleFrames++;
+      if (resolutionSampleTime < 1) return;
+      const sampleTime = resolutionSampleTime;
+      const fps = resolutionSampleFrames / sampleTime;
+      resolutionSampleTime = 0;
+      resolutionSampleFrames = 0;
+      let next = renderPixelRatio;
+      if (fps < 45) next = Math.max(minRenderPixelRatio, next * 0.72);
+      else if (fps < 55) next = Math.max(minRenderPixelRatio, next * 0.82);
+      else if (fps < 58) next = Math.max(minRenderPixelRatio, next * 0.92);
+      else if (fps > 59.5) next = Math.min(maxRenderPixelRatio, next + 0.025);
+      if (Math.abs(next - renderPixelRatio) >= 0.01) {
+        renderPixelRatio = next;
+        renderer.setPixelRatio(next);
+        fx?.setPixelRatio(next);
+      }
+      if (fps < 53) {
+        slowFpsTime += sampleTime;
+        recoveryFpsTime = 0;
+        if (slowFpsTime >= 3.5) setAdaptiveQualityTier(2);
+        else if (slowFpsTime >= 1.25) setAdaptiveQualityTier(Math.max(1, adaptiveQualityTier));
+      } else if (fps > 59.3) {
+        slowFpsTime = 0;
+        recoveryFpsTime += sampleTime;
+        if (recoveryFpsTime >= 6) {
+          setAdaptiveQualityTier(Math.max(0, adaptiveQualityTier - 1));
+          recoveryFpsTime = 0;
+        }
+      } else {
+        recoveryFpsTime = 0;
+        slowFpsTime = Math.max(0, slowFpsTime - sampleTime * 0.5);
+      }
+    };
     const present = () => {
-      if (fx && ebisuLighting) {
+      if (fx && ebisuLighting && adaptiveQualityTier < 2) {
         fx.updateSun(ebisuLighting.sunOffset);
         fx.render();
       } else renderer.render(scene, camera);
@@ -1793,7 +1884,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       anodizeHex: string,
       neonHex: string,
       shellMode: CarCustomization['bodyShellMode'],
-      nativePaint = false // player car: keep the BMW GLB's own livery (no tint); bots stay tinted so they are telling apart
+      nativePaint = false // bots get selective metallic body paint; the player keeps the BMW GLB's original livery
     ): RCCarRig => {
       const root = new THREE.Group();
       const chassisGroup = new THREE.Group();
@@ -2056,8 +2147,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         ...(nativePaint ? {} : { color: paintHex }),
         opacity: shellMode === 'translucent' ? 0.45 : 1.0,
         transparent: shellMode === 'translucent',
-        roughness: shellMode === 'translucent' ? 0.12 : 0.25,
-        metalness: 0.25,
+        roughness: shellMode === 'translucent' ? 0.12 : nativePaint ? 0.25 : 0.17,
+        metalness: nativePaint ? 0.35 : 0.88,
+        envMapIntensity: nativePaint ? 0.85 : 1.25,
+        selectivePaint: !nativePaint,
         mode: 'sakura_rc',
       });
       bodyShellGroup.add(bmwRig.group);
@@ -2189,8 +2282,9 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       posterRig.root.position.set(DIORAMA_CAR.x, 0, DIORAMA_CAR.z);
       // Pose ala poster: menghadap kamera + roda depan dibelokkan + body roll tipis
       posterRig.root.rotation.y = 0.5;
-      posterRig.flKnuckle.rotation.y = 0.38;
-      posterRig.frKnuckle.rotation.y = 0.38;
+      const posterSteering = ackermannSteering(0.38);
+      posterRig.flKnuckle.rotation.y = posterSteering.left;
+      posterRig.frKnuckle.rotation.y = posterSteering.right;
       posterRig.bodyShellGroup.rotation.z = 0.02;
       scene.add(posterRig.root);
       dioramaCarRigRef.current = posterRig;
@@ -2701,6 +2795,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       frameCounter++;
 
       if (suspendedRef.current) return; // Ebisu Drift mode is drawing on top — sleep without losing state
+      updateAdaptiveResolution(dt);
 
       // --- DRIFT KING SHOWROOM: static pose, same framing constants as Ebisu Drift's garage/scenic menu ---
       if (SHOWROOM_HOST && isMenuRef.current) {
@@ -2724,7 +2819,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
         if (ebisuWorld) {
           ebisuWorld.setCrowdFocus([state.pos.x, state.pos.z]); // showroom: all eyes on the hero car
-          ebisuWorld.update(dt); // crowd, flags, clouds, balloons keep moving behind the menu
+          ebisuWorld.update(dt, camera, adaptiveQualityTier); // crowd LOD follows camera and measured frame load
           const so = sunOffset();
           ebisuWorld.sun.position.set(state.pos.x + so.x, so.y, state.pos.z + so.z);
           ebisuWorld.sun.target.position.set(state.pos.x, 0, state.pos.z);
@@ -3371,9 +3466,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         playerRig.camberHubs[3].rotation.z = -(rCamberRad + rrGain);
       }
 
-      playerRig.flKnuckle.rotation.y = state.frontSteerAngle;
-      playerRig.frKnuckle.rotation.y = state.frontSteerAngle;
-      playerRig.servoHorn.rotation.y = state.frontSteerAngle * 0.8;
+      const playerSteering = ackermannSteering(state.frontSteerAngle);
+      playerRig.flKnuckle.rotation.y = playerSteering.left;
+      playerRig.frKnuckle.rotation.y = playerSteering.right;
+      playerRig.servoHorn.rotation.y = playerSteering.center * 0.8;
       playerRig.coolingFan.rotation.y += dt * 35;
 
       // Underglow NFS-U2: pemain mengikuti mode & intensitas custom, bot steady dengan fase berbeda
@@ -3417,13 +3513,16 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
       // 100% Wobble-Free Wheel Rotation around True Local Axle (`spinAxles`)
       // Rear wheels spin faster during high-RPM drift wheelspin!
-      const frontSpinRate = currentSpeed * 2.4;
-      const rearSpinRate =
-        currentSpeed * 2.4 + (driftDegAbs > 14 ? (state.rpm / 60000) * 24 : 0);
+      const frontSpinRate = currentSpeed / RC_TYRE_RADIUS;
+      const burnoutBlend = THREE.MathUtils.clamp((driftDegAbs - 12) / 36, 0, 1);
+      const rearWheelSpin = throttleActive && !state.airborne
+        ? THREE.MathUtils.clamp(state.rpm / 60000, 0, 1) * 18 * burnoutBlend
+        : 0;
+      const rearSpinRate = currentSpeed / RC_TYRE_RADIUS + rearWheelSpin;
 
       playerRig.spinAxles.forEach((axle, idx) => {
         const rate = idx < 2 ? frontSpinRate : rearSpinRate;
-        axle.rotation.x += rate * dt;
+        axle.rotation.x = wrapAngle(axle.rotation.x + rate * dt);
       });
 
       playerRig.turboSparkMesh.visible =
@@ -3432,7 +3531,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       rcSound.updateTelemetrySound(
         state.rpm,
         driftDegAbs,
-        currentSpeed * 1.6,
+        speedMpsToKmh(currentSpeed),
         isTurboEngaged,
         throttleActive ? 1 : 0,
         !!brakePressed
@@ -3865,9 +3964,10 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           }
           bState.rig.root.position.copy(bState.pos);
           orientCarRoot(bState.rig.root, bState.heading, bT, botPitchSlope);
-          bState.rig.flKnuckle.rotation.y = bState.frontSteerAngle;
-          bState.rig.frKnuckle.rotation.y = bState.frontSteerAngle;
-          bState.rig.servoHorn.rotation.y = bState.frontSteerAngle * 0.8;
+          const botSteering = ackermannSteering(bState.frontSteerAngle);
+          bState.rig.flKnuckle.rotation.y = botSteering.left;
+          bState.rig.frKnuckle.rotation.y = botSteering.right;
+          bState.rig.servoHorn.rotation.y = botSteering.center * 0.8;
           bState.rig.coolingFan.rotation.y += dt * 35;
 
           // Body roll mengikuti sudut drift & gaya gedor pembalap
@@ -3883,10 +3983,15 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           // Turbo exhaust flames on hard drift
           bState.rig.turboSparkMesh.visible = bState.driftDegAbs > 26 && (frameCounter + bIdx) % 4 === 0;
 
-          // Wobble-free wheel spinning
+          // Wheel rpm follows signed ground speed; only driven rear wheels get extra spin under drift load.
+          // This prevents the old constant +14 rad/s from spinning rear tyres while stopped or reversing.
+          const botSpeed = Number.isFinite(bState.speed) ? bState.speed : 0;
+          const baseWheelSpin = botSpeed / RC_TYRE_RADIUS; // forward and reverse rotations stay consistent
+          const rearDriftBlend = THREE.MathUtils.clamp((bState.driftDegAbs - 12) / 36, 0, 1);
+          const rearWheelSpin = botSpeed > 0 ? Math.min(16, botSpeed * 0.45) * rearDriftBlend : 0;
           bState.rig.spinAxles.forEach((axle, idx) => {
-            const rate = idx < 2 ? bState.speed * 2.3 : bState.speed * 2.8 + 14;
-            axle.rotation.x += rate * dt;
+            const rate = idx < 2 ? baseWheelSpin : baseWheelSpin + rearWheelSpin;
+            axle.rotation.x = wrapAngle(axle.rotation.x + rate * dt);
           });
 
           // H. Asap ban & jejak rem bot
@@ -4420,7 +4525,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         crowdFocus.push(state.pos.x, state.pos.z);
         for (const b of botStates) crowdFocus.push(b.pos.x, b.pos.z);
         ebisuWorld.setCrowdFocus(crowdFocus); // fans turn their heads toward the nearest car
-        ebisuWorld.update(dt); // crowd, flags, clouds, balloons
+        ebisuWorld.update(dt, camera, adaptiveQualityTier); // crowd LOD follows camera and measured frame load
         const so = sunOffset();
         ebisuWorld.sun.position.set(state.pos.x + so.x, so.y, state.pos.z + so.z);
         ebisuWorld.sun.target.position.set(state.pos.x, 0, state.pos.z);
@@ -4434,20 +4539,23 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           state.callout && now - state.callout.timestamp < 1900
             ? state.callout
             : null;
+        const telemetrySteering = ackermannSteering(state.frontSteerAngle);
+        // Read the post-collision velocity vector, then convert the simulation's m/s to km/h.
+        const measuredSpeedMps = state.vel.length();
+        const speedKmh = Math.round(speedMpsToKmh(measuredSpeedMps));
 
         telemetryCbRef.current({
-          speedKmh: Math.round(currentSpeed * 1.65),
-          scaleSpeedKmh: Math.round(currentSpeed * 16.5),
+          speedKmh,
+          scaleSpeedKmh: Math.round(speedMpsToScaleKmh(measuredSpeedMps)),
+          speedLimitKmh: Math.round(speedMpsToKmh(maxSpeed)),
           rpm: Math.round(state.rpm),
           turboActive: state.turboActive,
           driftAngleDeg: Math.round(driftDegAbs),
           signedDriftAngle: Math.round(driftDegSigned),
-          frontSteerDeg: Math.round(
-            THREE.MathUtils.radToDeg(state.frontSteerAngle)
-          ),
+          frontSteerDeg: Math.round(THREE.MathUtils.radToDeg(telemetrySteering.center)),
           gyroActivePct: Math.min(
             100,
-            Math.round((Math.abs(state.frontSteerAngle) / maxSteerRad) * 100)
+            Math.round((Math.abs(telemetrySteering.center) / RC_MAX_VISUAL_STEER) * 100)
           ),
           sessionScore: Math.round(state.sessionScore),
           currentComboPoints: Math.round(state.comboPoints),
@@ -4473,7 +4581,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
             x: b.pos.x,
             z: b.pos.z,
             headingRad: b.heading,
-            speedKmh: Math.round(b.speed * 1.6),
+            speedKmh: Math.round(speedMpsToKmh(b.speed)),
             driftAngleDeg: Math.round(b.driftDegAbs),
             styleLabel: b.def.styleLabel,
             tacticalState: b.tacticalState,
