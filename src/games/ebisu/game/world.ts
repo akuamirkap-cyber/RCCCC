@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { buildProCircuit } from './proCircuit';
 import type { LightingRig } from './lighting';
 import { buildLongBeachVenue } from './longBeach';
-import { buildProStand, buildStartGantry, buildProForest, makeRoadText } from './proVenue';
+import { buildProStand, buildStartGantry, buildFirestoneArch, buildProForest, makeRoadText } from './proVenue';
 import { buildGuardrails, buildCornerBlocks, makeTrafficCone, buildSponsorBoards, makeSponsorStrip } from './proBarriers';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { Track, HALF_WIDTH, CURB_WIDTH, WALL_DIST, TRACK_WIDTH, type Venue } from './track';
@@ -12,7 +12,7 @@ export interface WorldRefs {
   sun: THREE.DirectionalLight;
   lighting: LightingRig;
   /** Ambient animation: crowd, clouds, balloons, windmill. */
-  update: (dt: number) => void;
+  update: (dt: number, camera?: THREE.Camera, qualityTier?: number) => void;
   /** Cars the fans follow with their heads (each fan watches the nearest one). Flat [x0, z0, x1, z1, …]. */
   setCrowdFocus: (xz: ArrayLike<number>) => void;
 }
@@ -539,6 +539,11 @@ interface CrowdSpot {
   flag: boolean;
 }
 
+interface CrowdBatch {
+  update: (dt: number, active: boolean) => void;
+  setLowDetail: (low: boolean) => void;
+}
+
 export class Crowd {
   readonly spots: CrowdSpot[] = [];
   /** Cars the fans look at, flat [x, z, x, z, …]; empty = nobody in particular. */
@@ -566,14 +571,120 @@ export class Crowd {
   }
 
   /**
-   * Stumble Guys-style fans: big rounded-cube head (bigger than the body), two tiny vertical
-   * dot eyes, no mouth, stubby torso, short legs with shoes, stubby arms with round hands,
-   * plus random outfits: green cap, bucket hat + sunglasses on top, pompadour + sunglasses.
+   * Build the Stumble-Guys-style crowd in spatial batches. Three.js can cull off-camera sections;
+   * nearby fans keep full costumes/animation while distant visible groups use a lightweight LOD.
    */
-  build(scene: THREE.Scene, facing: (x: number, z: number) => number): (dt: number) => void {
-    const spots = this.spots;
+  build(scene: THREE.Scene, facing: (x: number, z: number) => number): (dt: number, camera?: THREE.Camera, qualityTier?: number) => void {
+    const chunks = this.partitionSpots();
+    if (!chunks.length) return () => {};
+
+    const point = new THREE.Vector3();
+    const viewProjection = new THREE.Matrix4();
+    const frustum = new THREE.Frustum();
+    const cameraPosition = new THREE.Vector3();
+    let cullTime = 0;
+    let hasView = false;
+    const castCrowdShadows = this.spots.length <= 1200;
+    const batches = chunks.map((spots, index) => {
+      const group = new THREE.Group();
+      group.name = `Crowd LOD chunk ${index + 1}`;
+      const boundsBox = new THREE.Box3();
+      for (const s of spots) {
+        boundsBox.expandByPoint(point.set(s.x, s.y, s.z));
+        boundsBox.expandByPoint(point.set(s.x, s.y + 2.6, s.z));
+      }
+      const bounds = new THREE.Sphere();
+      boundsBox.getBoundingSphere(bounds);
+      bounds.radius += 1.5; // include waving arms and jumping fans
+      scene.add(group);
+
+      const batchCrowd = new Crowd(this.rand);
+      batchCrowd.spots.push(...spots);
+      batchCrowd.focus = this.focus; // share the live player/bot focus array
+      return {
+        group,
+        bounds,
+        batch: batchCrowd.buildBatch(group, spots, facing, castCrowdShadows),
+        lowDetail: false,
+      };
+    });
+
+    return (dt, camera, qualityTier = 0) => {
+      if (!camera) {
+        for (const chunk of batches) {
+          chunk.group.visible = true;
+          const lowDetail = qualityTier >= 1;
+          if (chunk.lowDetail !== lowDetail) chunk.batch.setLowDetail(lowDetail);
+          chunk.lowDetail = lowDetail;
+          chunk.batch.update(dt, !lowDetail);
+        }
+        return;
+      }
+
+      cullTime += dt;
+      if (!hasView || cullTime >= 0.1) {
+        cullTime %= 0.1;
+        camera.updateMatrixWorld(true);
+        viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        frustum.setFromProjectionMatrix(viewProjection);
+        camera.getWorldPosition(cameraPosition);
+        for (const chunk of batches) {
+          const inView = frustum.intersectsSphere(chunk.bounds);
+          const distance = chunk.bounds.distanceToPoint(cameraPosition);
+          // Keep only nearby offscreen chunks for useful shadows; deep performance mode trims distant stands too.
+          chunk.group.visible = (inView && (qualityTier < 2 || distance < 220)) || distance < 28;
+          const distanceLod = distance > (chunk.lowDetail ? 92 : 112);
+          const lowDetail = qualityTier >= 1 || distanceLod;
+          if (lowDetail !== chunk.lowDetail) chunk.batch.setLowDetail(lowDetail);
+          chunk.lowDetail = lowDetail;
+        }
+        hasView = true;
+      }
+      for (const chunk of batches) chunk.batch.update(dt, chunk.group.visible && !chunk.lowDetail);
+    };
+  }
+
+  private partitionSpots(maxPerChunk = 750): CrowdSpot[][] {
+    if (this.spots.length <= maxPerChunk) return this.spots.length ? [this.spots] : [];
+    const cellSize = 220;
+    const cells = new Map<string, CrowdSpot[]>();
+    for (const spot of this.spots) {
+      const key = `${Math.floor(spot.x / cellSize)},${Math.floor(spot.z / cellSize)}`;
+      let cell = cells.get(key);
+      if (!cell) cells.set(key, (cell = []));
+      cell.push(spot);
+    }
+
+    const chunks: CrowdSpot[][] = [];
+    for (const cell of cells.values()) {
+      if (cell.length <= maxPerChunk) {
+        chunks.push(cell);
+        continue;
+      }
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      for (const spot of cell) {
+        minX = Math.min(minX, spot.x);
+        maxX = Math.max(maxX, spot.x);
+        minZ = Math.min(minZ, spot.z);
+        maxZ = Math.max(maxZ, spot.z);
+      }
+      cell.sort((a, b) => (maxX - minX >= maxZ - minZ ? a.x - b.x : a.z - b.z));
+      for (let i = 0; i < cell.length; i += maxPerChunk) chunks.push(cell.slice(i, i + maxPerChunk));
+    }
+    return chunks;
+  }
+
+  private buildBatch(
+    scene: THREE.Object3D,
+    spots: CrowdSpot[],
+    facing: (x: number, z: number) => number,
+    allowShadows: boolean,
+  ): CrowdBatch {
     const N = spots.length;
-    if (!N) return () => {};
+    if (!N) return { update: () => {}, setLowDetail: () => {} };
     const r = this.rand;
     const shirts = ['#ff7a1f', '#ffd166', '#06d6a0', '#118ab2', '#ef476f', '#ffffff', '#b455f5', '#2f80ff', '#f4a261', '#ff8fab', '#59c3f0', '#9ef01a', '#ff3d7f', '#1fc8ff'].map(
       (c) => new THREE.Color(c),
@@ -610,11 +721,14 @@ export class Crowd {
     const bucketTopGeo = new THREE.CylinderGeometry(0.26, 0.31, 0.2, 8);
     const bucketBrimGeo = new THREE.CylinderGeometry(0.38, 0.4, 0.035, 10);
     const glassesGeo = new THREE.BoxGeometry(0.44, 0.1, 0.05);
-    const pompGeo = new RoundedBoxGeometry(0.5, 0.2, 0.46, 1, 0.07);
+    // Low-poly hair caps sit just into the scalp so they stay attached while heads turn.
+    const pompGeo = new THREE.SphereGeometry(0.29, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2);
+    pompGeo.scale(1, 0.68, 0.96);
     const shirtGeo = new THREE.BoxGeometry(0.2, 0.26, 0.03);
     const tieGeo = new THREE.BoxGeometry(0.07, 0.24, 0.02);
     const bowTieGeo = new THREE.BoxGeometry(0.15, 0.07, 0.03);
-    const slickHairGeo = new THREE.BoxGeometry(0.5, 0.07, 0.48);
+    const slickHairGeo = new THREE.SphereGeometry(0.285, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2);
+    slickHairGeo.scale(1, 0.34, 0.96);
     const fedoraTopGeo = new THREE.CylinderGeometry(0.25, 0.3, 0.22, 10);
     const fedoraBrimGeo = new THREE.CylinderGeometry(0.44, 0.45, 0.03, 12);
 
@@ -822,7 +936,7 @@ export class Crowd {
         bucketK++;
       } else if (outfit[i] === 3) {
         pomps.setColorAt(pompK, hairCols[Math.floor(r() * hairCols.length)]);
-        place(pomps, pompK, i, 0.04, 0, 1.3);
+        place(pomps, pompK, i, 0.03, 0, 1.205);
         pompK++;
       } else if (outfit[i] === 4) {
         // businessman: white shirt front + tie on the suit (torso parts), slicked dark hair (head part)
@@ -833,7 +947,7 @@ export class Crowd {
         place(ties, suitK, i, 0.205, 0, 0.56);
         ties.setColorAt(suitK, tieCols[Math.floor(r() * tieCols.length)]);
         headMode = true;
-        place(slickHairs, suitK, i, -0.01, 0, 1.255);
+        place(slickHairs, suitK, i, -0.01, 0, 1.205);
         slickHairs.setColorAt(suitK, hairCols[Math.floor(r() * 2)]);
         suitK++;
       } else if (outfit[i] === 5) {
@@ -868,9 +982,12 @@ export class Crowd {
       flags.setColorAt(f, flagColors[Math.floor(r() * flagColors.length)]);
     });
     // crowd shadows only pay off for small (close) groups; a 3000-fan grandstand would double the shadow pass
-    heads.castShadow = torsos.castShadow = N <= 1200;
+    heads.castShadow = torsos.castShadow = allowShadows && N <= 1200;
     const all = [heads, torsos, eyes, armsL, armsR, handsL, handsR, legs, shoes, capDomes, capVisors, bucketTops, bucketBrims, pomps, faceShades, shirts4, ties, slickHairs, bowTies, fedoraTops, fedoraBrims, flags];
-    for (const im of all) im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    for (const im of all) {
+      im.frustumCulled = true;
+      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    }
     scene.add(...all);
 
     const fArr = flags.instanceMatrix.array as Float32Array;
@@ -879,7 +996,8 @@ export class Crowd {
     let armTick = 0;
     // Head tracking: every frame a quarter of the fans re-aim their heads at the focus car (≈15 Hz per fan),
     // with a neck limit and per-fan lag so the whole stand turns like a real crowd, not like turrets.
-    const HEAD_SLICES = 4;
+    // The background crowd animates at 30 Hz; two slices keep each fan's gaze updating at ~15 Hz.
+    const HEAD_SLICES = 2;
     const NECK = 1.15;
     const HEAD_RANGE = 110;
     let slice = 0;
@@ -922,42 +1040,56 @@ export class Crowd {
       }
     };
     recordBobs = false;
-    return (dt: number) => {
-      t += dt;
-      armTick += dt;
-      const doArms = armTick > 0.05; // arms update at 20 Hz — plenty for a wave
-      if (doArms) armTick = 0;
-      aimHeads();
-      for (let i = 0; i < N; i++) {
-        const s = spots[i];
-        let off = 0;
-        let waveLift = 0;
-        if (s.wave === s.wave) {
-          const w = Math.sin(t * 1.7 - s.wave * 0.16);
-          if (w > 0) {
-            off = w * w * w * 0.5;
-            waveLift = w;
+    let crowdFrameAcc = 0;
+    let lowDetailActive = false;
+    const lowDetailMeshes = all.filter((im) => im !== heads && im !== torsos);
+    return {
+      setLowDetail: (low: boolean) => {
+        if (lowDetailActive === low) return;
+        lowDetailActive = low;
+        for (const mesh of lowDetailMeshes) mesh.visible = !low;
+      },
+      update: (dt: number, active: boolean) => {
+        t += dt;
+        armTick += dt;
+        crowdFrameAcc += dt;
+        if (crowdFrameAcc < 1 / 30) return; // keep the rendered game at 60 Hz without animating thousands of fans every frame
+        crowdFrameAcc %= 1 / 30;
+        if (!active) return; // off-camera or distant crowd chunks keep their pose and resume when needed
+        const doArms = armTick > 0.05; // background cheering does not need a full-rate transform update
+        if (doArms) armTick = 0;
+        aimHeads();
+        for (let i = 0; i < N; i++) {
+          const s = spots[i];
+          let off = 0;
+          let waveLift = 0;
+          if (s.wave === s.wave) {
+            const w = Math.sin(t * 1.7 - s.wave * 0.16);
+            if (w > 0) {
+              off = w * w * w * 0.5;
+              waveLift = w;
+            }
+          }
+          if (s.amp > 0) off += s.amp * Math.abs(Math.sin(t * 3.6 + s.phase));
+          offs[i] = off;
+          if (doArms) {
+            const y = baseY[i] + off;
+            const swing = 0.5 + 0.5 * Math.sin(t * 5 + s.phase);
+            const liftL = Math.max(waveLift, raise[i] ? 0.85 + 0.15 * swing : armSide[i] < 0 && s.amp > 0 ? swing : 0.05);
+            const liftR = Math.max(waveLift, raise[i] ? 0.85 + 0.15 * (1 - swing) : armSide[i] > 0 && s.amp > 0 ? swing : 0.05);
+            setArm(armsL, handsL, i, s, -1, liftL, y);
+            setArm(armsR, handsR, i, s, 1, liftR, y);
           }
         }
-        if (s.amp > 0) off += s.amp * Math.abs(Math.sin(t * 3.6 + s.phase));
-        offs[i] = off;
-        if (doArms) {
-          const y = baseY[i] + off;
-          const swing = 0.5 + 0.5 * Math.sin(t * 5 + s.phase);
-          const liftL = Math.max(waveLift, raise[i] ? 0.85 + 0.15 * swing : armSide[i] < 0 && s.amp > 0 ? swing : 0.05);
-          const liftR = Math.max(waveLift, raise[i] ? 0.85 + 0.15 * (1 - swing) : armSide[i] > 0 && s.amp > 0 ? swing : 0.05);
-          setArm(armsL, handsL, i, s, -1, liftL, y);
-          setArm(armsR, handsR, i, s, 1, liftR, y);
+        for (const b of bobs) {
+          (b.mesh.instanceMatrix.array as Float32Array)[b.k * 16 + 13] = b.y + offs[b.i];
         }
-      }
-      for (const b of bobs) {
-        (b.mesh.instanceMatrix.array as Float32Array)[b.k * 16 + 13] = b.y + offs[b.i];
-      }
-      for (let f = 0; f < flagIdx.length; f++) fArr[f * 16 + 13] = baseFlag[f] + offs[flagIdx[f]] * 1.3;
-      for (const im of all) {
-        if ((im === armsL || im === armsR || im === handsL || im === handsR) && !doArms) continue;
-        if (im.count > 0) im.instanceMatrix.needsUpdate = true;
-      }
+        for (let f = 0; f < flagIdx.length; f++) fArr[f * 16 + 13] = baseFlag[f] + offs[flagIdx[f]] * 1.3;
+        for (const im of all) {
+          if ((im === armsL || im === armsR || im === handsL || im === handsR) && !doArms) continue;
+          if (im.count > 0) im.instanceMatrix.needsUpdate = true;
+        }
+      },
     };
   }
 }
@@ -1100,7 +1232,7 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   const cx = track.center.x;
   const cz = track.center.z;
   const zoneOf = zoneLookup(track, zones);
-  const animated: ((dt: number) => void)[] = [];
+  const animated: ((dt: number, camera?: THREE.Camera, qualityTier?: number) => void)[] = [];
   const crowd = new Crowd(rand);
   const m4 = new THREE.Matrix4();
   const quat = new THREE.Quaternion();
@@ -1263,15 +1395,15 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   line.receiveShadow = true;
   startGroup.add(line);
   const poleX = HALF_WIDTH + CURB_WIDTH + 1.6;
-  startGroup.add(buildStartGantry(poleX, aniso));
-  // painted START text on the grid, just behind the line
+  startGroup.add(LB ? buildFirestoneArch(poleX, aniso) : buildStartGantry(poleX, aniso));
+  // Mark the two approaches separately on Long Beach's shared start/finish line.
   const startText = makeRoadText('START');
   startText.position.set(0, 0.024, -4.2);
   startGroup.add(startText);
-  const startText2 = makeRoadText('START');
-  startText2.position.set(0, 0.024, 4.2);
-  startText2.rotation.z = Math.PI;
-  startGroup.add(startText2);
+  const finishText = makeRoadText(LB ? 'FINISH' : 'START');
+  finishText.position.set(0, 0.024, 4.2);
+  finishText.rotation.z = Math.PI;
+  startGroup.add(finishText);
 
   if (LB) {
     buildLongBeachVenue(scene, track, zones, {
@@ -1973,8 +2105,8 @@ export function buildWorld(scene: THREE.Scene, track: Track, renderer: THREE.Web
   return {
     sun,
     lighting: { sun, hemi, fill, sky, stylizedEnv, stylizedFog, sunOffset: SUN_OFFSET.clone(), center: new THREE.Vector3(cx, 0, cz) },
-    update: (dt) => {
-      for (const f of animated) f(dt);
+    update: (dt, camera, qualityTier) => {
+      for (const f of animated) f(dt, camera, qualityTier);
     },
     setCrowdFocus: (xz) => crowd.setFocus(xz),
   };

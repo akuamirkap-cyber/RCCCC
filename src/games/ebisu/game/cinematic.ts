@@ -206,6 +206,11 @@ export class CinematicFx {
     this.shafts.setSize(Math.floor(width * pr), Math.floor(height * pr));
   }
 
+  /** Keep post-processing render targets aligned with the renderer's adaptive resolution scale. */
+  setPixelRatio(pixelRatio: number) {
+    this.composer.setPixelRatio(pixelRatio);
+  }
+
   /** Project the sun and fade the shafts in/out as it enters / leaves the frame. */
   updateSun(sunWorldOffset: THREE.Vector3) {
     this.sunDir.copy(sunWorldOffset).normalize();

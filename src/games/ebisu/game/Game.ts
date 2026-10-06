@@ -241,6 +241,15 @@ export class Game {
   readonly audio = new GameAudio();
 
   private renderer: THREE.WebGLRenderer;
+  private renderPixelRatio = 1;
+  private maxRenderPixelRatio = 1.25;
+  private minRenderPixelRatio = 0.85;
+  private resolutionSampleTime = 0;
+  private resolutionSampleFrames = 0;
+  private adaptiveQualityTier = 0;
+  private slowFpsTime = 0;
+  private recoveryFpsTime = 0;
+  private shadowRefreshTime = 0;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private sun: THREE.DirectionalLight;
@@ -306,7 +315,11 @@ export class Game {
 
     const isMobile = window.matchMedia('(pointer: coarse)').matches;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    // Start crisp, but leave a little headroom for 60 Hz; the adaptive scaler can raise/lower this per device.
+    this.maxRenderPixelRatio = Math.min(window.devicePixelRatio || 1, isMobile ? 1.0 : 1.25);
+    this.minRenderPixelRatio = Math.min(this.maxRenderPixelRatio, isMobile ? 0.55 : 0.65);
+    this.renderPixelRatio = this.maxRenderPixelRatio;
+    this.renderer.setPixelRatio(this.renderPixelRatio);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -833,11 +846,72 @@ export class Game {
     if (!v) this.clock.getDelta(); // drop the idle time so the first live frame is not a huge step
   }
 
+  private updateAdaptiveResolution(frameDt: number) {
+    if (!Number.isFinite(frameDt) || frameDt <= 0) return;
+
+    // Under load, refresh the shadow map at 30 Hz rather than paying for it on every rendered frame.
+    if (this.adaptiveQualityTier === 1) {
+      this.shadowRefreshTime += frameDt;
+      if (this.shadowRefreshTime >= 1 / 30) {
+        this.renderer.shadowMap.needsUpdate = true;
+        this.shadowRefreshTime %= 1 / 30;
+      }
+    }
+
+    this.resolutionSampleTime += Math.min(frameDt, 0.1);
+    this.resolutionSampleFrames++;
+    if (this.resolutionSampleTime < 1) return;
+
+    const sampleTime = this.resolutionSampleTime;
+    const fps = this.resolutionSampleFrames / sampleTime;
+    this.resolutionSampleTime = 0;
+    this.resolutionSampleFrames = 0;
+
+    let next = this.renderPixelRatio;
+    if (fps < 45) next = Math.max(this.minRenderPixelRatio, next * 0.72);
+    else if (fps < 55) next = Math.max(this.minRenderPixelRatio, next * 0.82);
+    else if (fps < 58) next = Math.max(this.minRenderPixelRatio, next * 0.92);
+    else if (fps > 59.5) next = Math.min(this.maxRenderPixelRatio, next + 0.025);
+    if (Math.abs(next - this.renderPixelRatio) >= 0.01) {
+      this.renderPixelRatio = next;
+      this.renderer.setPixelRatio(next);
+      this.fx?.setPixelRatio(next);
+    }
+
+    if (fps < 53) {
+      this.slowFpsTime += sampleTime;
+      this.recoveryFpsTime = 0;
+      if (this.slowFpsTime >= 3.5) this.setAdaptiveQualityTier(2);
+      else if (this.slowFpsTime >= 1.25) this.setAdaptiveQualityTier(Math.max(1, this.adaptiveQualityTier));
+    } else if (fps > 59.3) {
+      this.slowFpsTime = 0;
+      this.recoveryFpsTime += sampleTime;
+      if (this.recoveryFpsTime >= 6) {
+        this.setAdaptiveQualityTier(Math.max(0, this.adaptiveQualityTier - 1));
+        this.recoveryFpsTime = 0;
+      }
+    } else {
+      this.recoveryFpsTime = 0;
+      this.slowFpsTime = Math.max(0, this.slowFpsTime - sampleTime * 0.5);
+    }
+  }
+
+  private setAdaptiveQualityTier(tier: number) {
+    if (this.adaptiveQualityTier === tier) return;
+    this.adaptiveQualityTier = tier;
+    this.shadowRefreshTime = 0;
+    this.renderer.shadowMap.enabled = tier < 2;
+    this.renderer.shadowMap.autoUpdate = tier === 0;
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+
   private tick = () => {
     if (this.disposed) return;
     this.raf = requestAnimationFrame(this.tick);
     if (this.suspended) return;
-    const dt = Math.min(0.033, this.clock.getDelta());
+    const frameDt = this.clock.getDelta();
+    this.updateAdaptiveResolution(frameDt);
+    const dt = Math.min(0.033, frameDt);
     if (!this.paused) {
       this.time += dt;
       this.update(dt);
@@ -846,7 +920,7 @@ export class Game {
     this.crowdFocus.push(this.player.x, this.player.z);
     for (const ai of this.ais) this.crowdFocus.push(ai.x, ai.z);
     this.world.setCrowdFocus(this.crowdFocus);
-    this.world.update(dt); // ambient scenery keeps moving even while paused
+    this.world.update(dt, this.camera, this.adaptiveQualityTier); // camera-aware crowd chunks use lower LOD under load
     this.petals.update(dt, this.player.x, this.player.z, GROUND_Y);
     if (this.phase === 'menu' && this.garage.active) {
       // static showroom behind the start menu — the car never moves or rotates
@@ -854,7 +928,7 @@ export class Game {
       this.garage.render(this.renderer, this.scene.environment);
       return;
     }
-    if (this.fx && this.prefs.fx === 'cinematic') {
+    if (this.fx && this.prefs.fx === 'cinematic' && this.adaptiveQualityTier < 2) {
       this.fx.updateSun(this.lighting.sunOffset);
       this.fx.render();
     } else {

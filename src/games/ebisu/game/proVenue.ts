@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 /* ============================================================
    PRO VENUE — grandstands, start/finish gantry, forest
@@ -81,6 +82,188 @@ function sponsorStrip(names: string[], colors: string[]): THREE.CanvasTexture {
   t.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = THREE.RepeatWrapping;
   return t;
+}
+
+/** Wide, italic wordmark on a clean fabric-white field, sized for the arch's curved top fascia. */
+function firestoneBannerTexture(): THREE.CanvasTexture {
+  const w = 2048;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#fffdf7';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#c8102e';
+  ctx.fillRect(0, 0, w, 13);
+  ctx.fillRect(0, h - 13, w, 13);
+  ctx.fillStyle = '#8f1023';
+  ctx.fillRect(0, 13, w, 3);
+  ctx.fillRect(0, h - 16, w, 3);
+
+  const word = 'Firestone';
+  ctx.font = `italic 900 190px ${FONT}`;
+  const measured = ctx.measureText(word).width || 1;
+  const scaleX = Math.min(1.45, (w * 0.7) / measured);
+  ctx.save();
+  ctx.translate(w / 2, h / 2 + 2);
+  ctx.scale(scaleX, 1);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 5;
+  ctx.strokeStyle = '#8f1023';
+  ctx.shadowColor = 'rgba(70, 8, 18, 0.16)';
+  ctx.shadowBlur = 5;
+  ctx.shadowOffsetY = 3;
+  ctx.strokeText(word, 0, 0);
+  ctx.fillStyle = '#c8102e';
+  ctx.fillText(word, 0, 0);
+  ctx.restore();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function startFinishBannerTexture(): THREE.CanvasTexture {
+  const w = 1600;
+  const h = 160;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#171a20';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#c8102e';
+  ctx.fillRect(0, 0, w, 9);
+  ctx.fillRect(0, h - 9, w, 9);
+  const label = 'START  /  FINISH';
+  ctx.font = `800 92px ${FONT}`;
+  const measured = ctx.measureText(label).width || 1;
+  const scaleX = Math.min(2.0, (w * 0.78) / measured);
+  ctx.save();
+  ctx.translate(w / 2, h / 2 + 2);
+  ctx.scale(scaleX, 1);
+  ctx.font = `800 92px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#f8f8f5';
+  ctx.fillText(label, 0, 0);
+  ctx.restore();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+/** Rounded rectangular beam swept along the arch path; flat front faces carry the printed sponsor panels. */
+function archBeamGeometry(
+  curve: THREE.Curve<THREE.Vector3>,
+  start: number,
+  end: number,
+  segments: number,
+  halfHeight: number,
+  halfDepth: number,
+  cornerRadius: number,
+): THREE.BufferGeometry {
+  const radius = Math.min(cornerRadius, halfHeight * 0.8, halfDepth * 0.8);
+  const profile: THREE.Vector2[] = [];
+  const cornerSteps = 6;
+  const corners = [
+    { x: halfHeight - radius, z: halfDepth - radius, a: 0 },
+    { x: -halfHeight + radius, z: halfDepth - radius, a: Math.PI / 2 },
+    { x: -halfHeight + radius, z: -halfDepth + radius, a: Math.PI },
+    { x: halfHeight - radius, z: -halfDepth + radius, a: Math.PI * 1.5 },
+  ];
+  for (const corner of corners) {
+    for (let i = 0; i <= cornerSteps; i++) {
+      const a = corner.a + (i / cornerSteps) * (Math.PI / 2);
+      profile.push(new THREE.Vector2(corner.x + Math.cos(a) * radius, corner.z + Math.sin(a) * radius));
+    }
+  }
+  profile.pop(); // last point duplicates the first one at 2π; close the rounded section only once
+
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const point = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const profileCount = profile.length;
+  for (let i = 0; i <= segments; i++) {
+    const u = i / segments;
+    const t = start + (end - start) * u;
+    curve.getPointAt(t, point);
+    curve.getTangentAt(t, tangent).normalize();
+    normal.set(-tangent.y, tangent.x, 0).normalize();
+    for (let j = 0; j < profileCount; j++) {
+      const v = profile[j];
+      positions.push(point.x + normal.x * v.x, point.y + normal.y * v.x, v.y);
+      uvs.push(u, j / profileCount);
+    }
+  }
+  for (let i = 0; i < segments; i++) {
+    for (let j = 0; j < profileCount; j++) {
+      const a = i * profileCount + j;
+      const b = i * profileCount + ((j + 1) % profileCount);
+      const c = (i + 1) * profileCount + j;
+      const d = (i + 1) * profileCount + ((j + 1) % profileCount);
+      indices.push(a, b, c, b, d, c);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
+/** Textured flat ribbon fitted to one face of the curved arch beam. */
+function archFaceGeometry(
+  curve: THREE.Curve<THREE.Vector3>,
+  start: number,
+  end: number,
+  segments: number,
+  height: number,
+  face: -1 | 1,
+  faceDepth: number,
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  const point = new THREE.Vector3();
+  const tangent = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  for (let i = 0; i <= segments; i++) {
+    const u = i / segments;
+    curve.getPointAt(start + (end - start) * u, point);
+    curve.getTangentAt(start + (end - start) * u, tangent).normalize();
+    normal.set(-tangent.y, tangent.x, 0).normalize();
+    const half = height / 2;
+    const bottomU = face === -1 ? 1 - u : u;
+    const topU = bottomU;
+    positions.push(point.x - normal.x * half, point.y - normal.y * half, face * faceDepth);
+    positions.push(point.x + normal.x * half, point.y + normal.y * half, face * faceDepth);
+    uvs.push(bottomU, 0, topU, 1);
+  }
+  for (let i = 0; i < segments; i++) {
+    const a = i * 2;
+    const b = a + 1;
+    const c = a + 2;
+    const d = a + 3;
+    if (face < 0) indices.push(a, b, c, b, d, c);
+    else indices.push(a, c, b, b, c, d);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
 }
 
 /* ------------------------------------------------------------------ */
@@ -473,6 +656,145 @@ export function buildStartGantry(halfSpan: number, aniso: number): THREE.Group {
   const screen = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.9, 0.14), [steelMat, steelMat, steelMat, steelMat, new THREE.MeshStandardMaterial({ map: screenTex, emissive: '#ffffff', emissiveMap: screenTex, emissiveIntensity: 2.0, roughness: 0.5 }), steelMat]);
   screen.position.set(-(halfSpan - 3.4), H - 3.2, 0.5);
   g.add(screen);
+  return g;
+}
+
+/**
+ * Firestone-style inflatable start/finish arch for the Long Beach street circuit.
+ * Local frame: track runs along +z through the origin, x is lateral.
+ */
+export function buildFirestoneArch(halfSpan: number, aniso: number): THREE.Group {
+  const g = new THREE.Group();
+  const topY = 9.55;
+  const halfBeamHeight = 1.18;
+  const halfBeamDepth = 0.74;
+  const beamCorner = 0.28;
+  const points = [
+    new THREE.Vector3(-halfSpan, -0.65, 0),
+    new THREE.Vector3(-halfSpan, 5.15, 0),
+    new THREE.Vector3(-halfSpan * 0.92, 7.5, 0),
+    new THREE.Vector3(-halfSpan * 0.62, 8.92, 0),
+    new THREE.Vector3(-halfSpan * 0.32, topY - 0.12, 0),
+    new THREE.Vector3(0, topY, 0),
+    new THREE.Vector3(halfSpan * 0.32, topY - 0.12, 0),
+    new THREE.Vector3(halfSpan * 0.62, 8.92, 0),
+    new THREE.Vector3(halfSpan * 0.92, 7.5, 0),
+    new THREE.Vector3(halfSpan, 5.15, 0),
+    new THREE.Vector3(halfSpan, -0.65, 0),
+  ];
+  const archCurve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+  const fabricMat = new THREE.MeshStandardMaterial({ color: '#f6f3eb', roughness: 0.82 });
+  const arch = new THREE.Mesh(
+    archBeamGeometry(archCurve, 0, 1, 144, halfBeamHeight, halfBeamDepth, beamCorner),
+    fabricMat,
+  );
+  arch.castShadow = true;
+  arch.receiveShadow = true;
+  g.add(arch);
+
+  const firestoneTex = firestoneBannerTexture();
+  firestoneTex.anisotropy = aniso;
+  const brandMat = new THREE.MeshStandardMaterial({ map: firestoneTex, roughness: 0.86, side: THREE.DoubleSide });
+  // Printed fabric follows the arch's curved top fascia instead of floating as a rectangular billboard.
+  for (const face of [-1, 1] as const) {
+    const fascia = new THREE.Mesh(
+      archFaceGeometry(archCurve, 0.3, 0.7, 72, 1.62, face, halfBeamDepth + 0.018),
+      brandMat,
+    );
+    fascia.castShadow = false;
+    fascia.receiveShadow = true;
+    g.add(fascia);
+  }
+
+  const redMat = new THREE.MeshStandardMaterial({ color: '#c8102e', roughness: 0.72 });
+  const bandRanges: [number, number][] = [
+    [0.055, 0.07], [0.105, 0.12], [0.155, 0.17],
+    [0.83, 0.845], [0.88, 0.895], [0.93, 0.945],
+  ];
+  const bandGeometries = bandRanges.map(([start, end]) =>
+    archBeamGeometry(archCurve, start, end, 2, halfBeamHeight + 0.025, halfBeamDepth + 0.025, beamCorner + 0.012),
+  );
+  const mergedBands = mergeGeometries(bandGeometries, false);
+  if (mergedBands) {
+    const bands = new THREE.Mesh(mergedBands, redMat);
+    bands.castShadow = false;
+    g.add(bands);
+  }
+
+  const footMat = new THREE.MeshStandardMaterial({ color: '#252a31', roughness: 0.88 });
+  const steelMat = new THREE.MeshStandardMaterial({ color: '#aeb6bf', roughness: 0.42, metalness: 0.65 });
+  for (const sx of [-1, 1]) {
+    const foot = new THREE.Mesh(new RoundedBoxGeometry(2.45, 0.5, 2.25, 4, 0.18), footMat);
+    foot.position.set(sx * halfSpan, 0.25, 0);
+    foot.castShadow = true;
+    foot.receiveShadow = true;
+    g.add(foot);
+
+    const cap = new THREE.Mesh(new RoundedBoxGeometry(2.15, 0.14, 1.95, 3, 0.06), redMat);
+    cap.position.set(sx * halfSpan, 0.56, 0);
+    cap.castShadow = true;
+    g.add(cap);
+
+    // Visible steel anchor plates make the soft arch feel properly tensioned to the track surface.
+    const boltGeo = new THREE.CylinderGeometry(0.075, 0.075, 0.055, 10);
+    for (const ox of [-0.72, 0.72]) {
+      for (const oz of [-0.62, 0.62]) {
+        const bolt = new THREE.Mesh(boltGeo, steelMat);
+        bolt.position.set(sx * halfSpan + ox, 0.66, oz);
+        bolt.castShadow = true;
+        g.add(bolt);
+      }
+    }
+  }
+
+  // Compact, rounded start/finish board on two slim hangers; the Firestone fascia remains the hero.
+  const plaqueY = 7.34;
+  const plaqueFrameMat = new THREE.MeshStandardMaterial({ color: '#c8102e', roughness: 0.55, metalness: 0.12 });
+  const plaqueCoreMat = new THREE.MeshStandardMaterial({ color: '#171a20', roughness: 0.42, metalness: 0.2 });
+  const plaqueFrame = new THREE.Mesh(new RoundedBoxGeometry(6.2, 0.74, 0.5, 4, 0.15), plaqueFrameMat);
+  plaqueFrame.position.set(0, plaqueY, 0);
+  plaqueFrame.castShadow = true;
+  g.add(plaqueFrame);
+  const plaqueCore = new THREE.Mesh(new RoundedBoxGeometry(5.96, 0.59, 0.505, 3, 0.1), plaqueCoreMat);
+  plaqueCore.position.set(0, plaqueY, 0);
+  g.add(plaqueCore);
+  const startFinishTex = startFinishBannerTexture();
+  startFinishTex.anisotropy = aniso;
+  const plaqueFaceMat = new THREE.MeshBasicMaterial({ map: startFinishTex, side: THREE.DoubleSide });
+  for (const face of [-1, 1] as const) {
+    const facePanel = new THREE.Mesh(new THREE.PlaneGeometry(5.72, 0.54), plaqueFaceMat);
+    facePanel.position.set(0, plaqueY, face * 0.258);
+    if (face < 0) facePanel.rotation.y = Math.PI;
+    g.add(facePanel);
+  }
+  const hangerMat = new THREE.MeshStandardMaterial({ color: '#aeb6bf', metalness: 0.65, roughness: 0.4 });
+  for (const x of [-1.9, 1.9]) {
+    const hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.78, 8), hangerMat);
+    hanger.position.set(x, 7.95, 0);
+    hanger.castShadow = true;
+    g.add(hanger);
+  }
+
+  // Recessed five-lamp start signal, tucked well below the sponsor fascia.
+  const housingMat = new THREE.MeshStandardMaterial({ color: '#11151b', roughness: 0.36, metalness: 0.34 });
+  const housing = new THREE.Mesh(new RoundedBoxGeometry(4.7, 0.86, 0.62, 4, 0.18), housingMat);
+  housing.position.set(0, 5.7, 0);
+  housing.castShadow = true;
+  g.add(housing);
+  const socketGeo = new THREE.SphereGeometry(0.19, 12, 10);
+  const lampGeo = new THREE.SphereGeometry(0.135, 14, 10);
+  const socketMat = new THREE.MeshStandardMaterial({ color: '#050608', roughness: 0.28, metalness: 0.25 });
+  const lampMat = new THREE.MeshStandardMaterial({ color: '#ff342e', emissive: '#ff1f1f', emissiveIntensity: 3.0, roughness: 0.22 });
+  for (let i = -2; i <= 2; i++) {
+    for (const face of [-1, 1] as const) {
+      const socket = new THREE.Mesh(socketGeo, socketMat);
+      socket.position.set(i * 0.82, 5.7, face * 0.32);
+      g.add(socket);
+      const lamp = new THREE.Mesh(lampGeo, lampMat);
+      lamp.position.set(i * 0.82, 5.7, face * 0.46);
+      g.add(lamp);
+    }
+  }
   return g;
 }
 

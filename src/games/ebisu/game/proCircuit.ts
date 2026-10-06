@@ -78,13 +78,14 @@ function generateProAsphalt(): AsphaltTextures {
 
   // --- binder base: cool dark grey, ±3 % slow variation, per-texel sand speckle ---
   const BASE = [0.235, 0.245, 0.265]; // sRGB-ish 60/62/68 → blue-grey bitumen
+  const ASPHALT_BRIGHTNESS = 0.8; // 20% darker in the actual drivable track texture
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       const i = y * S + x;
       const n = (noise(x, y) - 0.5) * 0.06 + (rnd() - 0.5) * 0.05;
-      col[i * 3] = BASE[0] + n;
-      col[i * 3 + 1] = BASE[1] + n;
-      col[i * 3 + 2] = BASE[2] + n;
+      col[i * 3] = (BASE[0] + n) * ASPHALT_BRIGHTNESS;
+      col[i * 3 + 1] = (BASE[1] + n) * ASPHALT_BRIGHTNESS;
+      col[i * 3 + 2] = (BASE[2] + n) * ASPHALT_BRIGHTNESS;
       h[i] = rnd() * 0.12;
     }
   }
@@ -317,7 +318,7 @@ export function buildProCircuit(scene: THREE.Scene, track: Track, zones: DriftZo
     roughnessMap: tex.roughnessMap,
     roughness: 1.0,
     metalness: 0.0,
-    color: '#e6e6e6', // 10 % darker than the texture's cool-neutral colour (user request)
+    color: '#e6e6e6', // preserve the cool-grey hue; the source asphalt map is 20% darker
     envMapIntensity: 0.4, // a touch of blue sky in the stone crowns — the real reason asphalt reads grey-blue outdoors
     side: THREE.DoubleSide,
   });
